@@ -78,6 +78,8 @@ func schemaCheck(ctx context.Context, pool *pgxpool.Pool) error {
 		"users", "sessions", "recipes", "recipe_revisions", "batches",
 		"readings", "batch_events", "tasting_notes", "reminders",
 		"notifications", "devices", "batch_devices",
+		// River background-job runtime — verifies migration ran end-to-end.
+		"river_job", "river_migration",
 	}
 	for _, table := range expected {
 		var exists bool

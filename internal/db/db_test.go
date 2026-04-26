@@ -14,17 +14,21 @@ func TestSchemaTablesPresent(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.Pool(t, ctx)
 
+	// Tripwire scoped to *our* schema. River manages its own version table
+	// (`river_migration`) and adds/removes its tables across upgrades, so
+	// counting them here would be flaky. Same for goose's bookkeeping.
 	var n int
 	err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM information_schema.tables
 		 WHERE table_schema='public' AND table_type='BASE TABLE'
-		   AND table_name <> 'goose_db_version'`).Scan(&n)
+		   AND table_name <> 'goose_db_version'
+		   AND table_name NOT LIKE 'river\_%' ESCAPE '\'`).Scan(&n)
 	if err != nil {
 		t.Fatal(err)
 	}
 	const want = 27 // bumped in 0002_auth.sql (added sessions)
 	if n != want {
-		t.Fatalf("expected %d tables, got %d", want, n)
+		t.Fatalf("expected %d app tables, got %d", want, n)
 	}
 }
 

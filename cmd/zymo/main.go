@@ -7,9 +7,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"zymobrew/internal/config"
 	"zymobrew/internal/db"
+	"zymobrew/internal/jobs"
 	"zymobrew/internal/migrate"
 	"zymobrew/internal/selftest"
 	"zymobrew/internal/server"
@@ -73,6 +75,21 @@ func serve(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("db pool: %w", err)
 	}
 	defer pool.Close()
+
+	jobsClient, err := jobs.New(pool)
+	if err != nil {
+		return fmt.Errorf("jobs init: %w", err)
+	}
+	if err := jobsClient.Start(ctx); err != nil {
+		return fmt.Errorf("jobs start: %w", err)
+	}
+	defer func() {
+		// Stop with a fresh ctx — the parent is already cancelled by the time
+		// the deferred Stop runs, and River needs time to drain.
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = jobsClient.Stop(stopCtx)
+	}()
 
 	srv := server.New(pool, cfg)
 	log.Printf("zymo listening on %s (mode=%s)", cfg.ListenAddr, cfg.InstanceMode)

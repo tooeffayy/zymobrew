@@ -46,7 +46,8 @@ cmd/zymo/             entry point (serve | migrate | selftest | version)
 internal/auth         argon2id password hashing + session token primitives
 internal/config       env-based config loader
 internal/db           pgx pool + database/sql open helpers
-internal/migrate      goose runner (uses embedded migrations)
+internal/jobs         River client + workers (background jobs, periodic schedules)
+internal/migrate      goose runner + River migrator (uses embedded migrations)
 internal/queries      sqlc query files + generated type-safe code
 internal/server       chi HTTP router (/healthz, /readyz, /api/auth/*, /api/batches/*)
 internal/selftest     runtime smoke tests for `zymo selftest`
@@ -208,10 +209,31 @@ Authenticated CRUD over the brewer's own batches and the readings timeline that 
 ### Known auth gaps (deferred)
 
 - **Single-user TOCTOU** — bootstrap uses `CountUsers` then `INSERT` in two queries; two simultaneous registrations could both succeed. Realistic only under deliberate racing of a one-time event. Fix when motivated: SERIALIZABLE tx around the check+insert.
-- **No login rate limiting.** Argon2's cost slows brute force, but dedicated rate limiting (per-IP, per-user) belongs after River lands so we have shared-state primitives.
-- **No expired-session GC.** The `DeleteExpiredSessions` query exists but nothing calls it. Wire to River once we have the job scheduler.
+- **No login rate limiting.** Argon2's cost slows brute force, but dedicated rate limiting (per-IP, per-user) is on the to-do list now that River is wired up — store attempts in Postgres, evict via a periodic job.
 - **No `last_seen_at` touch on activity.** `TouchSession` exists but the auth middleware doesn't call it; pick a strategy (every request vs rate-limited update) when the activity feed needs it.
 - **No client IP captured on sessions.** `sessions.ip` is `INET NULL` — we'll want to populate it once we agree on `X-Forwarded-For` trust policy.
+
+## Background Jobs
+
+[River](https://riverqueue.com) runs in-process inside the zymo binary — no Redis, no separate worker process. Queue state lives in `river_*` tables alongside the app schema. River applies its own migrations; `migrate.Up` calls goose first, then River's migrator, so a single `zymo migrate` (or auto-migrate at boot) brings the whole DB to a ready state.
+
+**Lifecycle.** `cmd/zymo serve` constructs a `jobs.Client`, starts it after the pgx pool is up, and stops it via deferred call with a fresh 10s context (the parent ctx is already cancelled by then; River needs an unblocked ctx to drain).
+
+**Workers + periodic jobs.** Registered centrally in [`internal/jobs/jobs.go`](internal/jobs/jobs.go); each worker lives in its own file alongside its `Args` struct.
+
+| Job | Schedule | Purpose |
+|---|---|---|
+| `expired_sessions_gc` | every hour, `RunOnStart: true` | `DELETE FROM sessions WHERE expires_at < now()`. Idempotent. |
+
+**Testing pattern.** Drive workers directly without the River runtime — construct a synthetic `*river.Job[Args]`, call `Work(ctx, job)`, assert the side effect. See [`expired_sessions_test.go`](internal/jobs/expired_sessions_test.go).
+
+**Adding a job.**
+1. New file `internal/jobs/<name>.go` with `<Name>Args` (with `Kind() string`) and `<name>Worker` (embedding `river.WorkerDefaults[<Name>Args]`, holding any state it needs).
+2. Register the worker with `river.AddWorker(workers, ...)` inside `New()`.
+3. If periodic, add a `river.NewPeriodicJob(...)` entry to `Config.PeriodicJobs`.
+4. Test the worker function directly against `testutil.Pool`.
+
+**Schema-count tripwire.** [`internal/db/db_test.go`](internal/db/db_test.go) excludes `river_%` tables from its count so River version bumps don't false-positive the test. Selftest, by contrast, *does* assert `river_job` and `river_migration` exist — that's how we verify the River migrator ran end-to-end after deploy.
 
 ## Core Concepts
 
