@@ -27,7 +27,7 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (username, email, display_name)
 VALUES ($1, $2, $3)
-RETURNING id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at
+RETURNING id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash
 `
 
 type CreateUserParams struct {
@@ -51,12 +51,51 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.DeletionChoices,
 		&i.DeletionReason,
 		&i.CreatedAt,
+		&i.PasswordHash,
+	)
+	return i, err
+}
+
+const createUserWithPassword = `-- name: CreateUserWithPassword :one
+INSERT INTO users (username, email, display_name, password_hash)
+VALUES ($1, $2, $3, $4)
+RETURNING id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash
+`
+
+type CreateUserWithPasswordParams struct {
+	Username     string      `json:"username"`
+	Email        string      `json:"email"`
+	DisplayName  pgtype.Text `json:"display_name"`
+	PasswordHash pgtype.Text `json:"password_hash"`
+}
+
+func (q *Queries) CreateUserWithPassword(ctx context.Context, arg CreateUserWithPasswordParams) (User, error) {
+	row := q.db.QueryRow(ctx, createUserWithPassword,
+		arg.Username,
+		arg.Email,
+		arg.DisplayName,
+		arg.PasswordHash,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.DisplayName,
+		&i.Bio,
+		&i.AvatarUrl,
+		&i.DeletedAt,
+		&i.DeletionScheduledFor,
+		&i.DeletionChoices,
+		&i.DeletionReason,
+		&i.CreatedAt,
+		&i.PasswordHash,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at FROM users
+SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash FROM users
 WHERE email = $1 AND deleted_at IS NULL
 `
 
@@ -75,12 +114,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.DeletionChoices,
 		&i.DeletionReason,
 		&i.CreatedAt,
+		&i.PasswordHash,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at FROM users
+SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash FROM users
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -99,12 +139,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.DeletionChoices,
 		&i.DeletionReason,
 		&i.CreatedAt,
+		&i.PasswordHash,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at FROM users
+SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash FROM users
 WHERE username = $1 AND deleted_at IS NULL
 `
 
@@ -123,12 +164,61 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.DeletionChoices,
 		&i.DeletionReason,
 		&i.CreatedAt,
+		&i.PasswordHash,
+	)
+	return i, err
+}
+
+const getUserCredentialByEmail = `-- name: GetUserCredentialByEmail :one
+SELECT id, username, email, password_hash FROM users
+WHERE email = $1 AND deleted_at IS NULL
+`
+
+type GetUserCredentialByEmailRow struct {
+	ID           uuid.UUID   `json:"id"`
+	Username     string      `json:"username"`
+	Email        string      `json:"email"`
+	PasswordHash pgtype.Text `json:"password_hash"`
+}
+
+func (q *Queries) GetUserCredentialByEmail(ctx context.Context, email string) (GetUserCredentialByEmailRow, error) {
+	row := q.db.QueryRow(ctx, getUserCredentialByEmail, email)
+	var i GetUserCredentialByEmailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+	)
+	return i, err
+}
+
+const getUserCredentialByUsername = `-- name: GetUserCredentialByUsername :one
+SELECT id, username, email, password_hash FROM users
+WHERE username = $1 AND deleted_at IS NULL
+`
+
+type GetUserCredentialByUsernameRow struct {
+	ID           uuid.UUID   `json:"id"`
+	Username     string      `json:"username"`
+	Email        string      `json:"email"`
+	PasswordHash pgtype.Text `json:"password_hash"`
+}
+
+func (q *Queries) GetUserCredentialByUsername(ctx context.Context, username string) (GetUserCredentialByUsernameRow, error) {
+	row := q.db.QueryRow(ctx, getUserCredentialByUsername, username)
+	var i GetUserCredentialByUsernameRow
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
 	)
 	return i, err
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at FROM users
+SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash FROM users
 WHERE deleted_at IS NULL
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
@@ -160,6 +250,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.DeletionChoices,
 			&i.DeletionReason,
 			&i.CreatedAt,
+			&i.PasswordHash,
 		); err != nil {
 			return nil, err
 		}

@@ -19,6 +19,7 @@ type Config struct {
 	ListenAddr   string
 	InstanceMode InstanceMode
 	AutoMigrate  bool
+	CookieSecure bool
 }
 
 func Load() (Config, error) {
@@ -27,6 +28,7 @@ func Load() (Config, error) {
 		ListenAddr:   getenv("LISTEN_ADDR", ":8080"),
 		InstanceMode: InstanceMode(getenv("INSTANCE_MODE", string(ModeSingleUser))),
 		AutoMigrate:  getenvBool("AUTO_MIGRATE", true),
+		CookieSecure: getenvBool("COOKIE_SECURE", false),
 	}
 	if cfg.DatabaseURL == "" {
 		return cfg, fmt.Errorf("DATABASE_URL is required")

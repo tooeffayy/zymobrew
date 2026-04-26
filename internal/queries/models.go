@@ -7,6 +7,7 @@ package queries
 import (
 	"database/sql/driver"
 	"fmt"
+	"net/netip"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -626,6 +627,17 @@ type Reminder struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 }
 
+type Session struct {
+	ID         uuid.UUID          `json:"id"`
+	UserID     uuid.UUID          `json:"user_id"`
+	TokenHash  string             `json:"token_hash"`
+	UserAgent  pgtype.Text        `json:"user_agent"`
+	Ip         *netip.Addr        `json:"ip"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	LastSeenAt pgtype.Timestamptz `json:"last_seen_at"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+}
+
 type TastingNote struct {
 	ID        uuid.UUID          `json:"id"`
 	BatchID   uuid.UUID          `json:"batch_id"`
@@ -651,6 +663,7 @@ type User struct {
 	DeletionChoices      []byte             `json:"deletion_choices"`
 	DeletionReason       pgtype.Text        `json:"deletion_reason"`
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	PasswordHash         pgtype.Text        `json:"password_hash"`
 }
 
 type UserExport struct {

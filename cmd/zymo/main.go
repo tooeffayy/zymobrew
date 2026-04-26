@@ -74,7 +74,7 @@ func serve(ctx context.Context, cfg config.Config) error {
 	}
 	defer pool.Close()
 
-	srv := server.New(pool)
+	srv := server.New(pool, cfg)
 	log.Printf("zymo listening on %s (mode=%s)", cfg.ListenAddr, cfg.InstanceMode)
 	return srv.Run(ctx, cfg.ListenAddr)
 }

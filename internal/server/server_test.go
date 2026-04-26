@@ -7,12 +7,18 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"zymobrew/internal/config"
 	"zymobrew/internal/server"
 	"zymobrew/internal/testutil"
 )
 
+func newServerNoDB(t *testing.T) *server.Server {
+	t.Helper()
+	return server.New(nil, config.Config{InstanceMode: config.ModeOpen})
+}
+
 func TestHealthz(t *testing.T) {
-	srv := server.New(nil)
+	srv := newServerNoDB(t)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -30,7 +36,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestReadyzWithoutDB(t *testing.T) {
-	srv := server.New(nil)
+	srv := newServerNoDB(t)
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -44,7 +50,7 @@ func TestReadyzWithDB(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.Pool(t, ctx)
 
-	srv := server.New(pool)
+	srv := server.New(pool, config.Config{InstanceMode: config.ModeOpen})
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)

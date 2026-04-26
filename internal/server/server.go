@@ -10,15 +10,24 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"zymobrew/internal/config"
+	"zymobrew/internal/queries"
 )
 
 type Server struct {
 	pool    *pgxpool.Pool
+	cfg     config.Config
+	queries *queries.Queries
 	handler http.Handler
 }
 
-func New(pool *pgxpool.Pool) *Server {
-	s := &Server{pool: pool}
+func New(pool *pgxpool.Pool, cfg config.Config) *Server {
+	s := &Server{
+		pool:    pool,
+		cfg:     cfg,
+		queries: queries.New(pool),
+	}
 	s.handler = s.routes()
 	return s
 }
@@ -29,10 +38,30 @@ func (s *Server) routes() http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(s.authMiddleware)
 
 	r.Get("/healthz", s.healthz)
 	r.Get("/readyz", s.readyz)
+
+	r.Route("/api", func(r chi.Router) {
+		r.Use(maxBodyBytes(1 << 20)) // 1 MiB ceiling on JSON bodies
+		r.Route("/auth", func(r chi.Router) {
+			r.Post("/register", s.handleRegister)
+			r.Post("/login", s.handleLogin)
+			r.Post("/logout", s.handleLogout)
+			r.With(s.requireAuth).Get("/me", s.handleMe)
+		})
+	})
 	return r
+}
+
+func maxBodyBytes(n int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, n)
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

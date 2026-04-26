@@ -75,7 +75,7 @@ func Run(ctx context.Context, cfg config.Config, out io.Writer) error {
 
 func schemaCheck(ctx context.Context, pool *pgxpool.Pool) error {
 	expected := []string{
-		"users", "recipes", "recipe_revisions", "batches",
+		"users", "sessions", "recipes", "recipe_revisions", "batches",
 		"readings", "batch_events", "tasting_notes", "reminders",
 		"notifications", "devices", "batch_devices",
 	}
@@ -105,7 +105,10 @@ func crudRoundtrip(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	defer tx.Rollback(ctx)
 
-	suffix := randomSuffix()
+	suffix, err := randomSuffix()
+	if err != nil {
+		return fmt.Errorf("rand: %w", err)
+	}
 	var userID, recipeID, revID, batchID string
 
 	if err := tx.QueryRow(ctx,
@@ -162,8 +165,10 @@ func report(out io.Writer, checks []check) {
 	}
 }
 
-func randomSuffix() string {
+func randomSuffix() (string, error) {
 	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }

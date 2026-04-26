@@ -22,7 +22,7 @@ func TestSchemaTablesPresent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = 26
+	const want = 27 // bumped in 0002_auth.sql (added sessions)
 	if n != want {
 		t.Fatalf("expected %d tables, got %d", want, n)
 	}

@@ -43,11 +43,12 @@ A self-hostable app for tracking fermentation projects, with optional per-instan
 
 ```
 cmd/zymo/             entry point (serve | migrate | selftest | version)
+internal/auth         argon2id password hashing + session token primitives
 internal/config       env-based config loader
 internal/db           pgx pool + database/sql open helpers
 internal/migrate      goose runner (uses embedded migrations)
 internal/queries      sqlc query files + generated type-safe code
-internal/server       chi HTTP router (/healthz, /readyz)
+internal/server       chi HTTP router (/healthz, /readyz, /api/auth/*)
 internal/selftest     runtime smoke tests for `zymo selftest`
 internal/testutil     shared DB test setup
 migrations/           embedded SQL migrations + embed.go
@@ -92,6 +93,7 @@ are committed so the project builds without sqlc installed.
 | `LISTEN_ADDR`   | `:8080`       | HTTP listen address |
 | `INSTANCE_MODE` | `single_user` | `single_user` \| `closed` \| `open` |
 | `AUTO_MIGRATE`  | `true`        | Apply pending migrations on `serve` startup |
+| `COOKIE_SECURE` | `false`       | Set true in production behind TLS so the session cookie won't be sent over plaintext |
 
 ## Tests + Smoke Checks
 
@@ -151,9 +153,31 @@ failures.
 
 Set via env flag at deploy time:
 
-- **Single-user** — registration disabled, auto-login as configured admin, community UI hidden. For solo brewers.
-- **Closed** — registration off, admin invites users. For family/friends.
+- **Single-user** — registration is closed once a user exists; the *first* registration bootstraps the admin. For solo brewers.
+- **Closed** — registration off via the API entirely; users are created out-of-band (CLI bootstrap to come). For family/friends.
 - **Open** — anyone can register. For larger public-facing instances.
+
+## Auth
+
+Local accounts only at this stage; OIDC/OAuth will plug in next to the password path.
+
+- **Password storage** — argon2id (m=64MB, t=1, p=4) in PHC string format on `users.password_hash`. Nullable so OIDC users coexist later.
+- **Sessions** — opaque random token (32 bytes, URL-safe base64). The SHA-256 of the raw token is what's stored in `sessions.token_hash`; a DB leak does not yield usable tokens. Default lifetime 30 days.
+- **Transport** — `Cookie: zymo_session=<token>` for browsers (HttpOnly, SameSite=Lax) **or** `Authorization: Bearer <token>` for native/API clients. Both hit the same `sessions` row, so revocation is one DELETE.
+- **Endpoints** — `POST /api/auth/{register,login,logout}`, `GET /api/auth/me`. Register/login return `{token, user}` and Set-Cookie; logout deletes the session row and clears the cookie.
+- **Middleware** — `authMiddleware` always runs and stashes the user onto request context if a valid session is present; anonymous requests pass through. `requireAuth` is the route-level gate (returns 401).
+
+**Cookie security** — set `COOKIE_SECURE=true` in production so browsers won't transmit the session cookie over plaintext. Defaults to false for localhost dev. CSRF protection at the moment is SameSite=Lax; CSRF tokens for state-changing requests can come later if/when we host cross-origin frontends.
+
+**Login timing** — the login handler always runs an argon2 verify (against a sentinel hash if the user doesn't exist) so a network observer can't enumerate valid usernames by timing. See `auth.DummyHash` in `internal/auth/password.go`.
+
+### Known auth gaps (deferred)
+
+- **Single-user TOCTOU** — bootstrap uses `CountUsers` then `INSERT` in two queries; two simultaneous registrations could both succeed. Realistic only under deliberate racing of a one-time event. Fix when motivated: SERIALIZABLE tx around the check+insert.
+- **No login rate limiting.** Argon2's cost slows brute force, but dedicated rate limiting (per-IP, per-user) belongs after River lands so we have shared-state primitives.
+- **No expired-session GC.** The `DeleteExpiredSessions` query exists but nothing calls it. Wire to River once we have the job scheduler.
+- **No `last_seen_at` touch on activity.** `TouchSession` exists but the auth middleware doesn't call it; pick a strategy (every request vs rate-limited update) when the activity feed needs it.
+- **No client IP captured on sessions.** `sessions.ip` is `INET NULL` — we'll want to populate it once we agree on `X-Forwarded-For` trust policy.
 
 ## Core Concepts
 
