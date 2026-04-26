@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: zymo
+      POSTGRES_PASSWORD: zymo
+      POSTGRES_DB: zymo
+    ports:
+      - "5433:5432"
+    volumes:
+      - zymo-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zymo -d zymo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://zymo:zymo@postgres:5432/zymo?sslmode=disable
+      LISTEN_ADDR: ":8080"
+      INSTANCE_MODE: single_user
+    ports:
+      - "8080:8080"
+
+volumes:
+  zymo-pg-data:

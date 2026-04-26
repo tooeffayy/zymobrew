@@ -1,0 +1,7 @@
+/zymo
+/dist/
+/bin/
+*.test
+*.out
+.env
+.env.local
