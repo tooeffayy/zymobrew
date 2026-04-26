@@ -1,0 +1,540 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"zymobrew/internal/queries"
+)
+
+const (
+	mvpBrewType   = "mead"
+	listLimit     = 100
+	maxBatchName  = 200
+	maxNotesBytes = 10 * 1024
+)
+
+// --- DTOs ------------------------------------------------------------------
+
+type batchView struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	BrewType   string     `json:"brew_type"`
+	Stage      string     `json:"stage"`
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	BottledAt  *time.Time `json:"bottled_at,omitempty"`
+	Visibility string     `json:"visibility"`
+	Notes      string     `json:"notes,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+func toBatchView(b queries.Batch) batchView {
+	return batchView{
+		ID:         b.ID.String(),
+		Name:       b.Name,
+		BrewType:   string(b.BrewType),
+		Stage:      string(b.Stage),
+		StartedAt:  tsPtr(b.StartedAt),
+		BottledAt:  tsPtr(b.BottledAt),
+		Visibility: string(b.Visibility),
+		Notes:      textOrEmpty(b.Notes),
+		CreatedAt:  b.CreatedAt.Time,
+		UpdatedAt:  b.UpdatedAt.Time,
+	}
+}
+
+type readingView struct {
+	ID           string    `json:"id"`
+	BatchID      string    `json:"batch_id"`
+	TakenAt      time.Time `json:"taken_at"`
+	Gravity      *float64  `json:"gravity,omitempty"`
+	TemperatureC *float64  `json:"temperature_c,omitempty"`
+	PH           *float64  `json:"ph,omitempty"`
+	Notes        string    `json:"notes,omitempty"`
+	Source       string    `json:"source"`
+}
+
+func toReadingView(r queries.Reading) readingView {
+	return readingView{
+		ID:           r.ID.String(),
+		BatchID:      r.BatchID.String(),
+		TakenAt:      r.TakenAt.Time,
+		Gravity:      numericPtr(r.Gravity),
+		TemperatureC: numericPtr(r.TemperatureC),
+		PH:           numericPtr(r.Ph),
+		Notes:        textOrEmpty(r.Notes),
+		Source:       r.Source,
+	}
+}
+
+// --- conversion helpers ----------------------------------------------------
+
+func tsPtr(t pgtype.Timestamptz) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	v := t.Time
+	return &v
+}
+
+func textOrEmpty(t pgtype.Text) string {
+	if !t.Valid {
+		return ""
+	}
+	return t.String
+}
+
+// numericPtr converts a nullable pgtype.Numeric to *float64. Brewing
+// precision (gravity 1.xxx, temp °C, pH) is well within float64.
+func numericPtr(n pgtype.Numeric) *float64 {
+	if !n.Valid {
+		return nil
+	}
+	f, err := n.Float64Value()
+	if err != nil || !f.Valid {
+		return nil
+	}
+	v := f.Float64
+	return &v
+}
+
+// floatToNumeric converts a *float64 to pgtype.Numeric for inserts.
+func floatToNumeric(p *float64) pgtype.Numeric {
+	if p == nil {
+		return pgtype.Numeric{}
+	}
+	var n pgtype.Numeric
+	if err := n.Scan(strconv.FormatFloat(*p, 'f', -1, 64)); err != nil {
+		return pgtype.Numeric{}
+	}
+	return n
+}
+
+func parseUUIDParam(r *http.Request, name string) (uuid.UUID, error) {
+	return uuid.Parse(chi.URLParam(r, name))
+}
+
+func optText(s string) pgtype.Text {
+	if s == "" {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: s, Valid: true}
+}
+
+func optTime(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *t, Valid: true}
+}
+
+// --- batch handlers --------------------------------------------------------
+
+type createBatchRequest struct {
+	Name       string     `json:"name"`
+	BrewType   string     `json:"brew_type"`
+	Stage      string     `json:"stage"`
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	Notes      string     `json:"notes,omitempty"`
+	Visibility string     `json:"visibility"`
+}
+
+func (s *Server) handleCreateBatch(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+
+	var req createBatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if req.Name == "" || len(req.Name) > maxBatchName {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name required (max 200 chars)"})
+		return
+	}
+	if len(req.Notes) > maxNotesBytes {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "notes too long"})
+		return
+	}
+	// MVP scope: mead only at the API surface. Schema supports more — we'll
+	// open it up when other brew flows ship.
+	if req.BrewType == "" {
+		req.BrewType = mvpBrewType
+	}
+	if req.BrewType != mvpBrewType {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "only mead is supported in this build"})
+		return
+	}
+	if req.Stage == "" {
+		req.Stage = "planning"
+	}
+	if req.Visibility == "" {
+		req.Visibility = "public"
+	}
+
+	batch, err := s.queries.CreateBatch(r.Context(), queries.CreateBatchParams{
+		BrewerID:   user.ID,
+		Name:       req.Name,
+		BrewType:   queries.BrewType(req.BrewType),
+		Stage:      queries.BatchStage(req.Stage),
+		StartedAt:  optTime(req.StartedAt),
+		Notes:      optText(req.Notes),
+		Visibility: queries.Visibility(req.Visibility),
+	})
+	if err != nil {
+		if isInvalidTextRepresentation(err) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid stage or visibility value"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create failed"})
+		return
+	}
+	writeJSON(w, http.StatusCreated, toBatchView(batch))
+}
+
+func (s *Server) handleListBatches(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	const maxOffset = 1_000_000
+	if offset < 0 || offset > maxOffset {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "offset out of range"})
+		return
+	}
+
+	rows, err := s.queries.ListBatchesForUser(r.Context(), queries.ListBatchesForUserParams{
+		BrewerID: user.ID,
+		Limit:    listLimit,
+		Offset:   int32(offset),
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
+		return
+	}
+	views := make([]batchView, 0, len(rows))
+	for _, b := range rows {
+		views = append(views, toBatchView(b))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"batches": views})
+}
+
+func (s *Server) handleGetBatch(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return
+	}
+	batch, err := s.queries.GetBatchForUser(r.Context(), queries.GetBatchForUserParams{
+		ID: id, BrewerID: user.ID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "fetch failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, toBatchView(batch))
+}
+
+type updateBatchRequest struct {
+	Name       *string    `json:"name,omitempty"`
+	Stage      *string    `json:"stage,omitempty"`
+	Notes      *string    `json:"notes,omitempty"`
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	BottledAt  *time.Time `json:"bottled_at,omitempty"`
+	Visibility *string    `json:"visibility,omitempty"`
+}
+
+func (s *Server) handleUpdateBatch(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return
+	}
+	var req updateBatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if req.Name != nil && (*req.Name == "" || len(*req.Name) > maxBatchName) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid name"})
+		return
+	}
+	if req.Notes != nil && len(*req.Notes) > maxNotesBytes {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "notes too long"})
+		return
+	}
+
+	params := queries.UpdateBatchParams{ID: id, BrewerID: user.ID}
+	if req.Name != nil {
+		params.Name = pgtype.Text{String: *req.Name, Valid: true}
+	}
+	if req.Stage != nil {
+		params.Stage = queries.NullBatchStage{BatchStage: queries.BatchStage(*req.Stage), Valid: true}
+	}
+	if req.Notes != nil {
+		params.Notes = pgtype.Text{String: *req.Notes, Valid: true}
+	}
+	if req.StartedAt != nil {
+		params.StartedAt = pgtype.Timestamptz{Time: *req.StartedAt, Valid: true}
+	}
+	if req.BottledAt != nil {
+		params.BottledAt = pgtype.Timestamptz{Time: *req.BottledAt, Valid: true}
+	}
+	if req.Visibility != nil {
+		params.Visibility = queries.NullVisibility{Visibility: queries.Visibility(*req.Visibility), Valid: true}
+	}
+
+	batch, err := s.queries.UpdateBatch(r.Context(), params)
+	if err != nil {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		case isInvalidTextRepresentation(err):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid stage or visibility value"})
+		default:
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "update failed"})
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, toBatchView(batch))
+}
+
+func (s *Server) handleDeleteBatch(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return
+	}
+	rows, err := s.queries.DeleteBatch(r.Context(), queries.DeleteBatchParams{
+		ID: id, BrewerID: user.ID,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
+		return
+	}
+	if rows == 0 {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- reading handlers ------------------------------------------------------
+
+type createReadingRequest struct {
+	TakenAt      *time.Time `json:"taken_at,omitempty"`
+	Gravity      *float64   `json:"gravity,omitempty"`
+	TemperatureC *float64   `json:"temperature_c,omitempty"`
+	PH           *float64   `json:"ph,omitempty"`
+	Notes        string     `json:"notes,omitempty"`
+	Source       string     `json:"source,omitempty"`
+}
+
+func (s *Server) handleCreateReading(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	batchID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch id"})
+		return
+	}
+	if !s.userOwnsBatch(r.Context(), user.ID, batchID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+
+	var req createReadingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if req.Gravity == nil && req.TemperatureC == nil && req.PH == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "at least one of gravity, temperature_c, ph required"})
+		return
+	}
+	taken := time.Now()
+	if req.TakenAt != nil {
+		taken = *req.TakenAt
+	}
+	source := req.Source
+	if source == "" {
+		source = "manual"
+	}
+
+	reading, err := s.queries.CreateReading(r.Context(), queries.CreateReadingParams{
+		BatchID:      batchID,
+		TakenAt:      pgtype.Timestamptz{Time: taken, Valid: true},
+		Gravity:      floatToNumeric(req.Gravity),
+		TemperatureC: floatToNumeric(req.TemperatureC),
+		Ph:           floatToNumeric(req.PH),
+		Notes:        optText(req.Notes),
+		Source:       source,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create failed"})
+		return
+	}
+	writeJSON(w, http.StatusCreated, toReadingView(reading))
+}
+
+func (s *Server) handleListReadings(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	batchID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch id"})
+		return
+	}
+	if !s.userOwnsBatch(r.Context(), user.ID, batchID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	rows, err := s.queries.ListReadingsForBatch(r.Context(), batchID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
+		return
+	}
+	views := make([]readingView, 0, len(rows))
+	for _, rd := range rows {
+		views = append(views, toReadingView(rd))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"readings": views})
+}
+
+// userOwnsBatch returns true iff the batch exists and is owned by the user.
+// One small extra query, but it keeps reading/event handlers from leaking
+// existence of other users' batches via timing or 403 vs 404.
+func (s *Server) userOwnsBatch(ctx context.Context, userID, batchID uuid.UUID) bool {
+	_, err := s.queries.GetBatchForUser(ctx, queries.GetBatchForUserParams{
+		ID: batchID, BrewerID: userID,
+	})
+	return err == nil
+}
+
+// --- event handlers -------------------------------------------------------
+
+type createEventRequest struct {
+	OccurredAt  *time.Time      `json:"occurred_at,omitempty"`
+	Kind        string          `json:"kind"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Details     json.RawMessage `json:"details,omitempty"`
+}
+
+type eventView struct {
+	ID          string          `json:"id"`
+	BatchID     string          `json:"batch_id"`
+	OccurredAt  time.Time       `json:"occurred_at"`
+	Kind        string          `json:"kind"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Details     json.RawMessage `json:"details"`
+}
+
+func toEventView(e queries.BatchEvent) eventView {
+	details := json.RawMessage(e.Details)
+	if len(details) == 0 {
+		details = json.RawMessage("{}")
+	}
+	return eventView{
+		ID:          e.ID.String(),
+		BatchID:     e.BatchID.String(),
+		OccurredAt:  e.OccurredAt.Time,
+		Kind:        string(e.Kind),
+		Title:       textOrEmpty(e.Title),
+		Description: textOrEmpty(e.Description),
+		Details:     details,
+	}
+}
+
+func (s *Server) handleCreateBatchEvent(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	batchID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch id"})
+		return
+	}
+	if !s.userOwnsBatch(r.Context(), user.ID, batchID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+
+	var req createEventRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if req.Kind == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "kind required"})
+		return
+	}
+
+	occurred := time.Now()
+	if req.OccurredAt != nil {
+		occurred = *req.OccurredAt
+	}
+	details := []byte("{}")
+	if len(req.Details) > 0 {
+		// Reject anything that isn't a JSON object — the column has DEFAULT '{}'
+		// and downstream code assumes object shape.
+		if !json.Valid(req.Details) || req.Details[0] != '{' {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "details must be a JSON object"})
+			return
+		}
+		details = req.Details
+	}
+
+	event, err := s.queries.CreateBatchEvent(r.Context(), queries.CreateBatchEventParams{
+		BatchID:     batchID,
+		OccurredAt:  pgtype.Timestamptz{Time: occurred, Valid: true},
+		Kind:        queries.EventKind(req.Kind),
+		Title:       optText(req.Title),
+		Description: optText(req.Description),
+		Details:     details,
+	})
+	if err != nil {
+		if isInvalidTextRepresentation(err) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid kind value"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create failed"})
+		return
+	}
+	writeJSON(w, http.StatusCreated, toEventView(event))
+}
+
+func (s *Server) handleListBatchEvents(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	batchID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch id"})
+		return
+	}
+	if !s.userOwnsBatch(r.Context(), user.ID, batchID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	rows, err := s.queries.ListBatchEventsForBatch(r.Context(), batchID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
+		return
+	}
+	views := make([]eventView, 0, len(rows))
+	for _, e := range rows {
+		views = append(views, toEventView(e))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": views})
+}

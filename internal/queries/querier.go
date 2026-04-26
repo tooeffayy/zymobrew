@@ -12,20 +12,29 @@ import (
 
 type Querier interface {
 	CountUsers(ctx context.Context) (int64, error)
+	CreateBatch(ctx context.Context, arg CreateBatchParams) (Batch, error)
+	CreateBatchEvent(ctx context.Context, arg CreateBatchEventParams) (BatchEvent, error)
+	CreateReading(ctx context.Context, arg CreateReadingParams) (Reading, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateUserWithPassword(ctx context.Context, arg CreateUserWithPasswordParams) (User, error)
+	DeleteBatch(ctx context.Context, arg DeleteBatchParams) (int64, error)
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
 	DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error
+	GetBatchForUser(ctx context.Context, arg GetBatchForUserParams) (Batch, error)
 	GetSessionWithUser(ctx context.Context, tokenHash string) (GetSessionWithUserRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserCredentialByEmail(ctx context.Context, email string) (GetUserCredentialByEmailRow, error)
 	GetUserCredentialByUsername(ctx context.Context, username string) (GetUserCredentialByUsernameRow, error)
+	ListBatchEventsForBatch(ctx context.Context, batchID uuid.UUID) ([]BatchEvent, error)
+	ListBatchesForUser(ctx context.Context, arg ListBatchesForUserParams) ([]Batch, error)
+	ListReadingsForBatch(ctx context.Context, batchID uuid.UUID) ([]Reading, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	TouchSession(ctx context.Context, id uuid.UUID) error
+	UpdateBatch(ctx context.Context, arg UpdateBatchParams) (Batch, error)
 }
 
 var _ Querier = (*Queries)(nil)

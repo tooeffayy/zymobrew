@@ -51,6 +51,20 @@ func (s *Server) routes() http.Handler {
 			r.Post("/logout", s.handleLogout)
 			r.With(s.requireAuth).Get("/me", s.handleMe)
 		})
+		r.Route("/batches", func(r chi.Router) {
+			r.Use(s.requireAuth)
+			r.Post("/", s.handleCreateBatch)
+			r.Get("/", s.handleListBatches)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Get("/", s.handleGetBatch)
+				r.Patch("/", s.handleUpdateBatch)
+				r.Delete("/", s.handleDeleteBatch)
+				r.Post("/readings", s.handleCreateReading)
+				r.Get("/readings", s.handleListReadings)
+				r.Post("/events", s.handleCreateBatchEvent)
+				r.Get("/events", s.handleListBatchEvents)
+			})
+		})
 	})
 	return r
 }

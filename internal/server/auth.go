@@ -18,14 +18,22 @@ import (
 	"zymobrew/internal/queries"
 )
 
-// pgUniqueViolation is the SQLSTATE code Postgres returns for a violated
-// UNIQUE constraint. Used to distinguish "username/email taken" from real
-// database errors so the latter surface as 500s.
-const pgUniqueViolation = "23505"
+// SQLSTATE codes we route on. Lets us distinguish user-input issues (4xx)
+// from infrastructure problems (5xx), without letting raw Postgres error
+// strings leak to clients.
+const (
+	pgUniqueViolation         = "23505"
+	pgInvalidTextRepresentation = "22P02" // includes invalid enum values
+)
 
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation
+}
+
+func isInvalidTextRepresentation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgInvalidTextRepresentation
 }
 
 const (

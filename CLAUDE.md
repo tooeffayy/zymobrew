@@ -48,7 +48,7 @@ internal/config       env-based config loader
 internal/db           pgx pool + database/sql open helpers
 internal/migrate      goose runner (uses embedded migrations)
 internal/queries      sqlc query files + generated type-safe code
-internal/server       chi HTTP router (/healthz, /readyz, /api/auth/*)
+internal/server       chi HTTP router (/healthz, /readyz, /api/auth/*, /api/batches/*)
 internal/selftest     runtime smoke tests for `zymo selftest`
 internal/testutil     shared DB test setup
 migrations/           embedded SQL migrations + embed.go
@@ -168,6 +168,36 @@ Local accounts only at this stage; OIDC/OAuth will plug in next to the password 
 - **Middleware** — `authMiddleware` always runs and stashes the user onto request context if a valid session is present; anonymous requests pass through. `requireAuth` is the route-level gate (returns 401).
 
 **Cookie security** — set `COOKIE_SECURE=true` in production so browsers won't transmit the session cookie over plaintext. Defaults to false for localhost dev. CSRF protection at the moment is SameSite=Lax; CSRF tokens for state-changing requests can come later if/when we host cross-origin frontends.
+
+## Batches API
+
+Authenticated CRUD over the brewer's own batches and the readings timeline that powers the chart. All `/api/batches/*` routes require auth and reject access to other users' rows with 404 (not 403) so existence isn't leaked.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST`   | `/api/batches`                      | Create. Defaults: `brew_type=mead`, `stage=planning`, `visibility=public`. |
+| `GET`    | `/api/batches`                      | List the caller's batches (paged via `?offset=N`, 100/page). |
+| `GET`    | `/api/batches/{id}`                 | Fetch one. 404 if not owner. |
+| `PATCH`  | `/api/batches/{id}`                 | Partial update — name / stage / notes / started_at / bottled_at / visibility. |
+| `DELETE` | `/api/batches/{id}`                 | Hard delete. CASCADE clears readings/events/tasting notes. |
+| `POST`   | `/api/batches/{id}/readings`        | Add a reading. Requires at least one of gravity / temperature_c / ph. |
+| `GET`    | `/api/batches/{id}/readings`        | All readings for a batch, ASC by `taken_at` (chart-friendly). |
+| `POST`   | `/api/batches/{id}/events`          | Add a journal event. `kind` required (event_kind enum); `details` optional JSONB object. |
+| `GET`    | `/api/batches/{id}/events`          | All events for a batch, ASC by `occurred_at`. |
+
+**MVP guard** — the create handler rejects anything other than `brew_type=mead`. The schema/enum support all five brew types; we'll lift the gate as those flows ship.
+
+**PATCH semantics** — uses sqlc's `COALESCE(narg, col)` pattern. Omitted fields stay; sent fields overwrite. **Cannot** clear a column to NULL via PATCH yet. Acceptable for phase 1; revisit if anyone needs it.
+
+**NUMERIC handling** — gravity/temp/pH/ABV are `NUMERIC` in the schema and `pgtype.Numeric` in generated code. Handlers convert via `numericPtr`/`floatToNumeric` helpers (`internal/server/batches.go`). We tried a sqlc override to make NUMERIC → `*float64`, but sqlc doesn't accept Go pointer types in nullable overrides. Float precision is fine for brewing values (3 decimal places).
+
+### Known batch API gaps (deferred)
+
+- **Unbounded list responses** — `GET /api/batches/{id}/{readings,events}` return *all* rows. Manual entry is fine; once Tilt/RAPT adapters land (every-5-minute readings → ~9k rows for a 1-month brew), add LIMIT + cursor pagination.
+- **`source` is free text** — schema says `'manual','tilt','rapt'`, etc., but the API accepts whatever string the client sends. Constrain to a known set when device adapters ship.
+- **Race window: ownership check + insert** — `userOwnsBatch` then `CreateReading`/`CreateBatchEvent` are two queries. FK CASCADE keeps the data consistent (insert fails or row gets cascaded), but the response can be misleading. Fold into a single `INSERT ... WHERE EXISTS` when motivated.
+- **PATCH cannot clear columns to NULL** — covered above. Add per-field "clear" handling when a real workflow needs it.
+- **No optimistic concurrency on PATCH** — concurrent edits last-write-wins. Add If-Match / version column when the multi-device story matters.
 
 **Login timing** — the login handler always runs an argon2 verify (against a sentinel hash if the user doesn't exist) so a network observer can't enumerate valid usernames by timing. See `auth.DummyHash` in `internal/auth/password.go`.
 

@@ -202,14 +202,31 @@ func TestAuth_Login_BadCredentials(t *testing.T) {
 
 func TestAuth_BodySizeLimit(t *testing.T) {
 	srv, _ := setupAuth(t, config.ModeOpen)
-	// 2 MiB blob — well over the 1 MiB cap.
-	junk := bytes.Repeat([]byte("a"), 2<<20)
-	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(junk))
+	// Sanity check: a normal-sized valid login body returns 401 (no such user).
+	// The oversized variant below uses the same shape so the only thing
+	// changing between cases is the byte count — that's what isolates the
+	// MaxBytesReader behaviour.
+	smallBody := []byte(`{"identifier":"alice","password":"smallpass"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(smallBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
-	if rec.Code == http.StatusOK || rec.Code == http.StatusUnauthorized {
-		t.Fatalf("oversized body should be rejected, got %d", rec.Code)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("baseline small body should reach the handler (got %d)", rec.Code)
+	}
+
+	// Now blow past the 1 MiB cap with a *valid* JSON object containing a
+	// huge password field. Without MaxBytesReader, decode would succeed and
+	// the handler would reach the credential lookup (401). With it, the body
+	// read is truncated and the JSON decoder errors, returning 400.
+	bigPassword := bytes.Repeat([]byte("p"), 2<<20)
+	bigBody := append(append([]byte(`{"identifier":"alice","password":"`), bigPassword...), []byte(`"}`)...)
+	req = httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(bigBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("oversized body should yield 400 from MaxBytesReader-truncated decode, got %d", rec.Code)
 	}
 }
 
