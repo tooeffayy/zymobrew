@@ -46,10 +46,12 @@ cmd/zymo/             entry point (serve | migrate | selftest | version)
 internal/config       env-based config loader
 internal/db           pgx pool + database/sql open helpers
 internal/migrate      goose runner (uses embedded migrations)
+internal/queries      sqlc query files + generated type-safe code
 internal/server       chi HTTP router (/healthz, /readyz)
 internal/selftest     runtime smoke tests for `zymo selftest`
 internal/testutil     shared DB test setup
 migrations/           embedded SQL migrations + embed.go
+sqlc.yaml             sqlc generator config
 docker-compose.yml    postgres on host port 5433; app service for full-stack run
 Dockerfile            multistage distroless build
 ```
@@ -73,6 +75,14 @@ go run ./cmd/zymo serve
 | `zymo migrate`  | Apply pending migrations and exit. |
 | `zymo selftest` | Smoke-check a deployed instance (connect → ping → migration version → schema → CRUD round-trip). Exits non-zero on failure. |
 | `zymo version`  | Print build version. |
+
+**Regenerating queries**
+
+`internal/queries/*.sql` files are the source of truth; the matching `*.sql.go`
+plus `models.go` / `db.go` / `querier.go` are generated. After editing a `.sql`
+file run `sqlc generate` (binary lives in `$(go env GOPATH)/bin/sqlc`; install
+with `go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest`). Generated files
+are committed so the project builds without sqlc installed.
 
 **Environment variables**
 
