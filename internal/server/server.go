@@ -63,6 +63,8 @@ func (s *Server) routes() http.Handler {
 				r.Get("/readings", s.handleListReadings)
 				r.Post("/events", s.handleCreateBatchEvent)
 				r.Get("/events", s.handleListBatchEvents)
+				r.Post("/tasting-notes", s.handleCreateTastingNote)
+				r.Get("/tasting-notes", s.handleListTastingNotes)
 			})
 		})
 	})

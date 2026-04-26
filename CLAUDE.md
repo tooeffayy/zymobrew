@@ -184,6 +184,10 @@ Authenticated CRUD over the brewer's own batches and the readings timeline that 
 | `GET`    | `/api/batches/{id}/readings`        | All readings for a batch, ASC by `taken_at` (chart-friendly). |
 | `POST`   | `/api/batches/{id}/events`          | Add a journal event. `kind` required (event_kind enum); `details` optional JSONB object. |
 | `GET`    | `/api/batches/{id}/events`          | All events for a batch, ASC by `occurred_at`. |
+| `POST`   | `/api/batches/{id}/tasting-notes`   | Add a tasting note. Requires at least one of rating / aroma / flavor / mouthfeel / finish / notes. |
+| `GET`    | `/api/batches/{id}/tasting-notes`   | All tasting notes for a batch, DESC by `tasted_at` (newest first). |
+
+**Tasting-note authorship** — `tasting_notes.author_id` is intentionally separate from `batches.brewer_id` so non-owners can leave notes on public batches in phase 2 (community). Phase 1 restricts authoring to the batch owner; the API hard-codes `author_id = current user` after passing the ownership check.
 
 **MVP guard** — the create handler rejects anything other than `brew_type=mead`. The schema/enum support all five brew types; we'll lift the gate as those flows ship.
 

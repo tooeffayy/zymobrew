@@ -16,6 +16,7 @@ type Querier interface {
 	CreateBatchEvent(ctx context.Context, arg CreateBatchEventParams) (BatchEvent, error)
 	CreateReading(ctx context.Context, arg CreateReadingParams) (Reading, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
+	CreateTastingNote(ctx context.Context, arg CreateTastingNoteParams) (TastingNote, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateUserWithPassword(ctx context.Context, arg CreateUserWithPasswordParams) (User, error)
 	DeleteBatch(ctx context.Context, arg DeleteBatchParams) (int64, error)
@@ -32,6 +33,7 @@ type Querier interface {
 	ListBatchEventsForBatch(ctx context.Context, batchID uuid.UUID) ([]BatchEvent, error)
 	ListBatchesForUser(ctx context.Context, arg ListBatchesForUserParams) ([]Batch, error)
 	ListReadingsForBatch(ctx context.Context, batchID uuid.UUID) ([]Reading, error)
+	ListTastingNotesForBatch(ctx context.Context, batchID uuid.UUID) ([]TastingNote, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	TouchSession(ctx context.Context, id uuid.UUID) error
 	UpdateBatch(ctx context.Context, arg UpdateBatchParams) (Batch, error)

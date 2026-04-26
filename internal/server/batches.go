@@ -538,3 +538,131 @@ func (s *Server) handleListBatchEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"events": views})
 }
+
+// --- tasting note handlers ------------------------------------------------
+
+type createTastingNoteRequest struct {
+	TastedAt  *time.Time `json:"tasted_at,omitempty"`
+	Rating    *int       `json:"rating,omitempty"`
+	Aroma     string     `json:"aroma,omitempty"`
+	Flavor    string     `json:"flavor,omitempty"`
+	Mouthfeel string     `json:"mouthfeel,omitempty"`
+	Finish    string     `json:"finish,omitempty"`
+	Notes     string     `json:"notes,omitempty"`
+}
+
+type tastingNoteView struct {
+	ID        string    `json:"id"`
+	BatchID   string    `json:"batch_id"`
+	AuthorID  string    `json:"author_id"`
+	TastedAt  time.Time `json:"tasted_at"`
+	Rating    *int      `json:"rating,omitempty"`
+	Aroma     string    `json:"aroma,omitempty"`
+	Flavor    string    `json:"flavor,omitempty"`
+	Mouthfeel string    `json:"mouthfeel,omitempty"`
+	Finish    string    `json:"finish,omitempty"`
+	Notes     string    `json:"notes,omitempty"`
+}
+
+func toTastingNoteView(n queries.TastingNote) tastingNoteView {
+	return tastingNoteView{
+		ID:        n.ID.String(),
+		BatchID:   n.BatchID.String(),
+		AuthorID:  n.AuthorID.String(),
+		TastedAt:  n.TastedAt.Time,
+		Rating:    int2Ptr(n.Rating),
+		Aroma:     textOrEmpty(n.Aroma),
+		Flavor:    textOrEmpty(n.Flavor),
+		Mouthfeel: textOrEmpty(n.Mouthfeel),
+		Finish:    textOrEmpty(n.Finish),
+		Notes:     textOrEmpty(n.Notes),
+	}
+}
+
+func int2Ptr(n pgtype.Int2) *int {
+	if !n.Valid {
+		return nil
+	}
+	v := int(n.Int16)
+	return &v
+}
+
+func (s *Server) handleCreateTastingNote(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	batchID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch id"})
+		return
+	}
+	// Phase 1: only the batch owner can add tasting notes. Schema separates
+	// author_id from brewer_id so non-owners can leave notes on public
+	// batches in phase 2; for now, author_id always equals brewer_id.
+	if !s.userOwnsBatch(r.Context(), user.ID, batchID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+
+	var req createTastingNoteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if req.Rating != nil && (*req.Rating < 1 || *req.Rating > 5) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "rating must be 1-5"})
+		return
+	}
+	if req.Rating == nil && req.Aroma == "" && req.Flavor == "" &&
+		req.Mouthfeel == "" && req.Finish == "" && req.Notes == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tasting note must have at least one field set"})
+		return
+	}
+
+	tasted := time.Now()
+	if req.TastedAt != nil {
+		tasted = *req.TastedAt
+	}
+	rating := pgtype.Int2{}
+	if req.Rating != nil {
+		rating = pgtype.Int2{Int16: int16(*req.Rating), Valid: true}
+	}
+
+	note, err := s.queries.CreateTastingNote(r.Context(), queries.CreateTastingNoteParams{
+		BatchID:   batchID,
+		AuthorID:  user.ID,
+		TastedAt:  pgtype.Timestamptz{Time: tasted, Valid: true},
+		Rating:    rating,
+		Aroma:     optText(req.Aroma),
+		Flavor:    optText(req.Flavor),
+		Mouthfeel: optText(req.Mouthfeel),
+		Finish:    optText(req.Finish),
+		Notes:     optText(req.Notes),
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create failed"})
+		return
+	}
+	writeJSON(w, http.StatusCreated, toTastingNoteView(note))
+}
+
+func (s *Server) handleListTastingNotes(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	batchID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch id"})
+		return
+	}
+	if !s.userOwnsBatch(r.Context(), user.ID, batchID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	rows, err := s.queries.ListTastingNotesForBatch(r.Context(), batchID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
+		return
+	}
+	views := make([]tastingNoteView, 0, len(rows))
+	for _, n := range rows {
+		views = append(views, toTastingNoteView(n))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasting_notes": views})
+}
