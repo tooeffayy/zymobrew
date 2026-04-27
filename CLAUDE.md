@@ -35,9 +35,10 @@ internal/config       env-based config loader
 internal/db           pgx pool + database/sql open helpers
 internal/jobs         River client + workers (background jobs, periodic schedules)
 internal/migrate      goose runner + River migrator (uses embedded migrations)
-internal/queries      sqlc query files + generated type-safe code
+internal/queries      sqlc generated type-safe code (Go only)
+internal/queries/sql  sqlc query source files (*.sql)
 internal/ratelimit    in-memory token-bucket limiter (per-IP, per-identifier)
-internal/server       chi HTTP router — /healthz, /readyz, /api/auth/*, /api/users/*, /api/batches/*
+internal/server       chi HTTP router — /healthz, /readyz, /api/auth/*, /api/users/*, /api/recipes/*, /api/batches/*
 internal/selftest     runtime smoke tests for `zymo selftest`
 internal/testutil     shared DB test setup
 migrations/           embedded SQL migrations + embed.go
@@ -60,7 +61,7 @@ go run ./cmd/zymo serve
 | `zymo selftest` | Smoke-check a live instance (connect → ping → schema → CRUD round-trip). |
 | `zymo version`  | Print build version. |
 
-**Regenerating queries**: edit `internal/queries/*.sql`, then run `$(go env GOPATH)/bin/sqlc generate`. Generated files are committed.
+**Regenerating queries**: edit `internal/queries/sql/*.sql`, then run `$(go env GOPATH)/bin/sqlc generate`. Generated files are committed.
 
 **Environment variables**
 
@@ -89,7 +90,7 @@ go test ./...
 ## Phased Roadmap
 
 1. ~~Auth (local), profile, mead batch CRUD with readings + chart~~ ✓
-2. **Recipes, forking, instance feed, comments** ← next
+2. **Recipes, forking, instance feed, comments** ← in progress (Recipe CRUD + revisions + forking done; comments, likes/feed remaining)
 3. Calculators + reminders / web-push notifications
 4. Backup + export (first-class)
 5. Cider + wine (reuse ~90% of mead flow)
@@ -135,6 +136,33 @@ Either trip returns 429 with `Retry-After: 60`. Eviction is lazy — no backgrou
 - `GET /api/users/{username}` — public profile (id, username, display_name, bio, avatar_url, created_at). No email.
 - `PATCH /api/users/me` — update display_name / bio / avatar_url. Caps: display_name 64 chars, bio 2 KiB, avatar_url 512 bytes. COALESCE pattern — omitted fields unchanged.
 - `POST /api/users/me/password` — change password. Verifies current, rejects same-as-current, rotates all sessions.
+
+## Recipes API
+
+`GET /api/recipes` — public feed, `visibility = 'public'`, newest first. Query params: `limit` (default 20, max 100), `offset`.
+`POST /api/recipes` — requires auth. MVP guard: rejects `brew_type != mead`. Returns full recipe view with revision 1.
+`GET /api/recipes/mine` — requires auth. Returns all recipes for the authenticated user (all visibilities), newest first.
+`GET /api/recipes/{id}` — returns recipe with live ingredients. Visibility rules: `public` or `unlisted` = anyone; `private` = owner only (404 for others — existence not leaked).
+`PATCH /api/recipes/{id}` — requires auth, owner only. COALESCE pattern for meta fields. **Always creates a new revision.** Replaces ingredients wholesale (DELETE + re-INSERT). Returns updated recipe view.
+`DELETE /api/recipes/{id}` — requires auth, owner only.
+`POST /api/recipes/{id}/fork` — requires auth. Creates a private copy of the recipe pinned to the source's current revision. Optional body: `name` (override), `message` (revision 1 message). Private recipes return 404 to non-owners (existence not leaked). Self-fork and fork-of-fork both allowed. Increments `fork_count` on source atomically in the same transaction.
+`GET /api/recipes/{id}/revisions` — summary list (no ingredients). Publicly gated same as GET.
+`GET /api/recipes/{id}/revisions/{rev}` — full revision detail; `ingredients` is the JSONB snapshot from that point in time.
+
+**Validation caps**: name 200 chars, style 100 chars, description 10 KiB, max 50 ingredients per recipe.
+
+**Revision semantics**: every PATCH creates an immutable revision row. `revision_count` auto-increments in SQL via `SetRecipeRevision`. Revision numbers are per-recipe integers starting at 1. `current_revision_id` on the recipe row is the O(1) HEAD pointer.
+
+**Visibility model**: `public` (in feed + direct), `unlisted` (direct only, not in feed), `private` (owner only). All unauthorized access returns 404, not 403.
+
+**Transaction pattern**: create/update use `s.pool.Begin` + `s.queries.WithTx(tx)` — first use of explicit transactions in this codebase. Pattern: `defer tx.Rollback(ctx)` as safety net, explicit `tx.Commit(ctx)` at end.
+
+### Known recipe API gaps (deferred)
+
+- ~~**No forking**~~ — `POST /api/recipes/{id}/fork` implemented. Forks default to `private`; owner can PATCH visibility.
+- **No pagination cursor** — uses limit/offset; add cursor when feed grows large.
+- **PATCH can't clear to NULL** — same as batches.
+- **No optimistic concurrency** — last-write-wins on PATCH.
 
 ## Batches API
 

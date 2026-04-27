@@ -14,29 +14,50 @@ type Querier interface {
 	CountUsers(ctx context.Context) (int64, error)
 	CreateBatch(ctx context.Context, arg CreateBatchParams) (Batch, error)
 	CreateBatchEvent(ctx context.Context, arg CreateBatchEventParams) (BatchEvent, error)
+	CreateForkedRecipe(ctx context.Context, arg CreateForkedRecipeParams) (Recipe, error)
 	CreateReading(ctx context.Context, arg CreateReadingParams) (Reading, error)
+	CreateRecipeComment(ctx context.Context, arg CreateRecipeCommentParams) (RecipeComment, error)
+	CreateRecipeDraft(ctx context.Context, arg CreateRecipeDraftParams) (Recipe, error)
+	CreateRecipeIngredient(ctx context.Context, arg CreateRecipeIngredientParams) (RecipeIngredient, error)
+	CreateRecipeRevision(ctx context.Context, arg CreateRecipeRevisionParams) (RecipeRevision, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateTastingNote(ctx context.Context, arg CreateTastingNoteParams) (TastingNote, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateUserWithPassword(ctx context.Context, arg CreateUserWithPasswordParams) (User, error)
 	DeleteBatch(ctx context.Context, arg DeleteBatchParams) (int64, error)
 	DeleteExpiredSessions(ctx context.Context) error
+	DeleteRecipe(ctx context.Context, arg DeleteRecipeParams) (int64, error)
+	DeleteRecipeComment(ctx context.Context, arg DeleteRecipeCommentParams) (int64, error)
+	DeleteRecipeIngredients(ctx context.Context, recipeID uuid.UUID) error
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
 	DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error
 	GetBatchForUser(ctx context.Context, arg GetBatchForUserParams) (Batch, error)
+	GetRecipeByID(ctx context.Context, id uuid.UUID) (Recipe, error)
+	GetRecipeRevisionByNumber(ctx context.Context, arg GetRecipeRevisionByNumberParams) (RecipeRevision, error)
+	GetRevisionByID(ctx context.Context, id uuid.UUID) (RecipeRevision, error)
 	GetSessionWithUser(ctx context.Context, tokenHash string) (GetSessionWithUserRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserCredentialByEmail(ctx context.Context, email string) (GetUserCredentialByEmailRow, error)
 	GetUserCredentialByUsername(ctx context.Context, username string) (GetUserCredentialByUsernameRow, error)
+	IncrementForkCount(ctx context.Context, id uuid.UUID) error
+	LikeRecipe(ctx context.Context, arg LikeRecipeParams) error
 	ListBatchEventsForBatch(ctx context.Context, batchID uuid.UUID) ([]BatchEvent, error)
 	ListBatchesForUser(ctx context.Context, arg ListBatchesForUserParams) ([]Batch, error)
+	ListPublicRecipes(ctx context.Context, arg ListPublicRecipesParams) ([]Recipe, error)
 	ListReadingsForBatch(ctx context.Context, batchID uuid.UUID) ([]Reading, error)
+	ListRecipeComments(ctx context.Context, arg ListRecipeCommentsParams) ([]ListRecipeCommentsRow, error)
+	ListRecipeIngredients(ctx context.Context, recipeID uuid.UUID) ([]RecipeIngredient, error)
+	ListRecipeRevisions(ctx context.Context, recipeID uuid.UUID) ([]RecipeRevision, error)
+	ListRecipesForAuthor(ctx context.Context, arg ListRecipesForAuthorParams) ([]Recipe, error)
 	ListTastingNotesForBatch(ctx context.Context, batchID uuid.UUID) ([]TastingNote, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
+	SetRecipeRevision(ctx context.Context, arg SetRecipeRevisionParams) (Recipe, error)
 	TouchSession(ctx context.Context, id uuid.UUID) error
+	UnlikeRecipe(ctx context.Context, arg UnlikeRecipeParams) error
 	UpdateBatch(ctx context.Context, arg UpdateBatchParams) (Batch, error)
+	UpdateRecipeMeta(ctx context.Context, arg UpdateRecipeMetaParams) (Recipe, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 }
