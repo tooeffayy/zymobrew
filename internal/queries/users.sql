@@ -37,3 +37,15 @@ LIMIT $1 OFFSET $2;
 -- name: CountUsers :one
 SELECT count(*) FROM users
 WHERE deleted_at IS NULL;
+
+-- name: UpdateUserPassword :exec
+UPDATE users SET password_hash = $1
+WHERE id = $2 AND deleted_at IS NULL;
+
+-- name: UpdateUser :one
+UPDATE users SET
+  display_name = COALESCE(sqlc.narg('display_name'), display_name),
+  bio          = COALESCE(sqlc.narg('bio'),          bio),
+  avatar_url   = COALESCE(sqlc.narg('avatar_url'),   avatar_url)
+WHERE id = sqlc.arg('id') AND deleted_at IS NULL
+RETURNING *;

@@ -261,3 +261,59 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 	}
 	return items, nil
 }
+
+const updateUser = `-- name: UpdateUser :one
+UPDATE users SET
+  display_name = COALESCE($1, display_name),
+  bio          = COALESCE($2,          bio),
+  avatar_url   = COALESCE($3,   avatar_url)
+WHERE id = $4 AND deleted_at IS NULL
+RETURNING id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash
+`
+
+type UpdateUserParams struct {
+	DisplayName pgtype.Text `json:"display_name"`
+	Bio         pgtype.Text `json:"bio"`
+	AvatarUrl   pgtype.Text `json:"avatar_url"`
+	ID          uuid.UUID   `json:"id"`
+}
+
+func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUser,
+		arg.DisplayName,
+		arg.Bio,
+		arg.AvatarUrl,
+		arg.ID,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.DisplayName,
+		&i.Bio,
+		&i.AvatarUrl,
+		&i.DeletedAt,
+		&i.DeletionScheduledFor,
+		&i.DeletionChoices,
+		&i.DeletionReason,
+		&i.CreatedAt,
+		&i.PasswordHash,
+	)
+	return i, err
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :exec
+UPDATE users SET password_hash = $1
+WHERE id = $2 AND deleted_at IS NULL
+`
+
+type UpdateUserPasswordParams struct {
+	PasswordHash pgtype.Text `json:"password_hash"`
+	ID           uuid.UUID   `json:"id"`
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.db.Exec(ctx, updateUserPassword, arg.PasswordHash, arg.ID)
+	return err
+}

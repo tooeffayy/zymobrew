@@ -65,6 +65,11 @@ func (s *Server) routes() http.Handler {
 			r.Post("/logout", s.handleLogout)
 			r.With(s.requireAuth).Get("/me", s.handleMe)
 		})
+		r.Route("/users", func(r chi.Router) {
+			r.With(s.requireAuth).Patch("/me", s.handleUpdateProfile)
+			r.With(s.requireAuth).Post("/me/password", s.handleChangePassword)
+			r.Get("/{username}", s.handleGetProfile)
+		})
 		r.Route("/batches", func(r chi.Router) {
 			r.Use(s.requireAuth)
 			r.Post("/", s.handleCreateBatch)
