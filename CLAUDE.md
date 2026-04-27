@@ -49,6 +49,7 @@ internal/db           pgx pool + database/sql open helpers
 internal/jobs         River client + workers (background jobs, periodic schedules)
 internal/migrate      goose runner + River migrator (uses embedded migrations)
 internal/queries      sqlc query files + generated type-safe code
+internal/ratelimit    in-memory token-bucket limiter (per-IP, per-identifier)
 internal/server       chi HTTP router (/healthz, /readyz, /api/auth/*, /api/batches/*)
 internal/selftest     runtime smoke tests for `zymo selftest`
 internal/testutil     shared DB test setup
@@ -206,12 +207,28 @@ Authenticated CRUD over the brewer's own batches and the readings timeline that 
 
 **Login timing** — the login handler always runs an argon2 verify (against a sentinel hash if the user doesn't exist) so a network observer can't enumerate valid usernames by timing. See `auth.DummyHash` in `internal/auth/password.go`.
 
+## Login rate limiting
+
+Two layers, both in-memory token buckets ([`internal/ratelimit`](internal/ratelimit/ratelimit.go)). State is per-process — fine for the single-replica self-hosted baseline; swap the backing store if multi-replica becomes a thing.
+
+| Layer | Where | Burst | Refill | Keyed by |
+|---|---|---|---|---|
+| IP gate | middleware on `/api/auth/{register,login}` | 10 | 1 / 2s | `r.RemoteAddr` (post chi `RealIP`) |
+| Per-identifier gate | inside `handleLogin` after body decode | 5 | 1 / 12s | `strings.ToLower(req.Identifier)` |
+
+The IP gate trips first under broad floods; the identifier gate catches "single legitimate IP brute-forcing one account". Either trip returns 429 with `Retry-After: 60`.
+
+**Eviction is lazy** — `Allow()` opportunistically prunes idle entries on call. No background goroutine, no `Close()` to remember.
+
+**Trust assumption:** chi's `middleware.RealIP` rewrites `r.RemoteAddr` from `X-Forwarded-For` / `X-Real-IP`. Behind a reverse proxy that's correct; directly exposed, those headers are attacker-controlled and the IP gate is bypassable. Tighten via an explicit trusted-proxy config when we add one.
+
 ### Known auth gaps (deferred)
 
 - **Single-user TOCTOU** — bootstrap uses `CountUsers` then `INSERT` in two queries; two simultaneous registrations could both succeed. Realistic only under deliberate racing of a one-time event. Fix when motivated: SERIALIZABLE tx around the check+insert.
-- **No login rate limiting.** Argon2's cost slows brute force, but dedicated rate limiting (per-IP, per-user) is on the to-do list now that River is wired up — store attempts in Postgres, evict via a periodic job.
+- **Rate-limit state is in-process.** Multi-replica deployments will leak some headroom across replicas. Move to a shared store (Redis or a Postgres table evicted via a River job) when we ship multi-replica.
+- **No trusted-proxy config.** `middleware.RealIP` blindly trusts `X-Forwarded-For`; the IP rate limit is bypassable for directly-exposed deployments. Add an allowlist when warranted.
 - **No `last_seen_at` touch on activity.** `TouchSession` exists but the auth middleware doesn't call it; pick a strategy (every request vs rate-limited update) when the activity feed needs it.
-- **No client IP captured on sessions.** `sessions.ip` is `INET NULL` — we'll want to populate it once we agree on `X-Forwarded-For` trust policy.
+- **No client IP captured on sessions.** `sessions.ip` is `INET NULL` — we'll want to populate it once the trusted-proxy policy is settled.
 
 ## Background Jobs
 

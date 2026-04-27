@@ -4,15 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/time/rate"
 
 	"zymobrew/internal/config"
 	"zymobrew/internal/queries"
+	"zymobrew/internal/ratelimit"
 )
 
 type Server struct {
@@ -20,13 +23,21 @@ type Server struct {
 	cfg     config.Config
 	queries *queries.Queries
 	handler http.Handler
+
+	// Auth-path rate limiters. authIP gates /api/auth/{register,login} per
+	// client IP; loginUser additionally gates /api/auth/login per identifier
+	// so a single legitimate IP can't hammer one account.
+	authIP    *ratelimit.Limiter
+	loginUser *ratelimit.Limiter
 }
 
 func New(pool *pgxpool.Pool, cfg config.Config) *Server {
 	s := &Server{
-		pool:    pool,
-		cfg:     cfg,
-		queries: queries.New(pool),
+		pool:      pool,
+		cfg:       cfg,
+		queries:   queries.New(pool),
+		authIP:    ratelimit.New(rate.Every(2*time.Second), 10, 30*time.Minute),
+		loginUser: ratelimit.New(rate.Every(12*time.Second), 5, 30*time.Minute),
 	}
 	s.handler = s.routes()
 	return s
@@ -46,8 +57,11 @@ func (s *Server) routes() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Use(maxBodyBytes(1 << 20)) // 1 MiB ceiling on JSON bodies
 		r.Route("/auth", func(r chi.Router) {
-			r.Post("/register", s.handleRegister)
-			r.Post("/login", s.handleLogin)
+			r.Group(func(r chi.Router) {
+				r.Use(s.ipRateLimit(s.authIP))
+				r.Post("/register", s.handleRegister)
+				r.Post("/login", s.handleLogin)
+			})
 			r.Post("/logout", s.handleLogout)
 			r.With(s.requireAuth).Get("/me", s.handleMe)
 		})
@@ -78,6 +92,34 @@ func maxBodyBytes(n int64) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// ipRateLimit returns a middleware that consumes a token from `limiter`
+// keyed by the client's IP. Trust assumption: chi's middleware.RealIP has
+// already canonicalised X-Forwarded-For into r.RemoteAddr. Behind a proxy
+// that's correct; directly exposed, this trusts an attacker-controlled
+// header. Tighten when we add an explicit trusted-proxy config.
+func (s *Server) ipRateLimit(limiter *ratelimit.Limiter) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !limiter.Allow(clientIP(r)) {
+				w.Header().Set("Retry-After", "60")
+				writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many requests"})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// clientIP strips the port from r.RemoteAddr. Falls back to the raw value
+// if SplitHostPort fails (e.g. unix socket address shapes).
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

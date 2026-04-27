@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -235,6 +236,48 @@ func TestAuth_Me_RequiresAuth(t *testing.T) {
 	resp := doJSON(t, srv, http.MethodGet, "/api/auth/me", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("got %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestAuth_RateLimit_PerUser(t *testing.T) {
+	srv, _ := setupAuth(t, config.ModeOpen)
+	// Per-user burst is 5. The 6th login attempt for the same identifier
+	// must come back 429 — before the IP limit (burst 10) kicks in.
+	body := map[string]string{"identifier": "alice", "password": "wrongwrong"}
+	for i := 1; i <= 5; i++ {
+		resp := doJSON(t, srv, http.MethodPost, "/api/auth/login", body)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: got %d, want 401", i, resp.StatusCode)
+		}
+	}
+	resp := doJSON(t, srv, http.MethodPost, "/api/auth/login", body)
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("6th attempt: got %d, want 429", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Retry-After"); got == "" {
+		t.Errorf("expected Retry-After header on 429")
+	}
+}
+
+func TestAuth_RateLimit_PerIP(t *testing.T) {
+	srv, _ := setupAuth(t, config.ModeOpen)
+	// IP burst is 10. Spread requests across distinct identifiers so the
+	// per-user bucket doesn't trip first; then the 11th must 429 from IP.
+	for i := 1; i <= 10; i++ {
+		resp := doJSON(t, srv, http.MethodPost, "/api/auth/login", map[string]string{
+			"identifier": fmt.Sprintf("user_%d", i),
+			"password":   "wrongwrong",
+		})
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: got %d, want 401", i, resp.StatusCode)
+		}
+	}
+	resp := doJSON(t, srv, http.MethodPost, "/api/auth/login", map[string]string{
+		"identifier": "user_11",
+		"password":   "wrongwrong",
+	})
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("11th attempt: got %d, want 429", resp.StatusCode)
 	}
 }
 

@@ -215,6 +215,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Per-identifier throttle. The IP middleware already gates raw flood;
+	// this stops a single legitimate IP from brute-forcing one account.
+	// Lowercased so "Alice" and "alice" share a bucket (CITEXT semantics).
+	if req.Identifier != "" && !s.loginUser.Allow(strings.ToLower(req.Identifier)) {
+		w.Header().Set("Retry-After", "60")
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many login attempts for this account"})
+		return
+	}
+
 	id, hash, ok := s.lookupCredential(r.Context(), req.Identifier)
 	// Always run argon2 against either the real hash or a dummy, so the
 	// response time does not leak whether the user exists.
