@@ -13,24 +13,28 @@ import (
 )
 
 const createBatch = `-- name: CreateBatch :one
-INSERT INTO batches (brewer_id, name, brew_type, stage, started_at, notes, visibility)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO batches (brewer_id, recipe_id, recipe_revision_id, name, brew_type, stage, started_at, notes, visibility)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id, brewer_id, recipe_id, recipe_revision_id, name, brew_type, stage, started_at, bottled_at, visibility, notes, created_at, updated_at
 `
 
 type CreateBatchParams struct {
-	BrewerID   uuid.UUID          `json:"brewer_id"`
-	Name       string             `json:"name"`
-	BrewType   BrewType           `json:"brew_type"`
-	Stage      BatchStage         `json:"stage"`
-	StartedAt  pgtype.Timestamptz `json:"started_at"`
-	Notes      pgtype.Text        `json:"notes"`
-	Visibility Visibility         `json:"visibility"`
+	BrewerID         uuid.UUID          `json:"brewer_id"`
+	RecipeID         uuid.NullUUID      `json:"recipe_id"`
+	RecipeRevisionID uuid.NullUUID      `json:"recipe_revision_id"`
+	Name             string             `json:"name"`
+	BrewType         BrewType           `json:"brew_type"`
+	Stage            BatchStage         `json:"stage"`
+	StartedAt        pgtype.Timestamptz `json:"started_at"`
+	Notes            pgtype.Text        `json:"notes"`
+	Visibility       Visibility         `json:"visibility"`
 }
 
 func (q *Queries) CreateBatch(ctx context.Context, arg CreateBatchParams) (Batch, error) {
 	row := q.db.QueryRow(ctx, createBatch,
 		arg.BrewerID,
+		arg.RecipeID,
+		arg.RecipeRevisionID,
 		arg.Name,
 		arg.BrewType,
 		arg.Stage,

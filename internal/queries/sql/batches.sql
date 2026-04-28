@@ -1,6 +1,6 @@
 -- name: CreateBatch :one
-INSERT INTO batches (brewer_id, name, brew_type, stage, started_at, notes, visibility)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO batches (brewer_id, recipe_id, recipe_revision_id, name, brew_type, stage, started_at, notes, visibility)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
 -- name: GetBatchForUser :one

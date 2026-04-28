@@ -67,11 +67,14 @@ go run ./cmd/zymo serve
 
 | Var             | Default       | Notes |
 |-----------------|---------------|-------|
-| `DATABASE_URL`  | *(required)*  | Postgres connection URL |
-| `LISTEN_ADDR`   | `:8080`       | HTTP listen address |
-| `INSTANCE_MODE` | `single_user` | `single_user` \| `closed` \| `open` |
-| `AUTO_MIGRATE`  | `true`        | Apply pending migrations on `serve` startup |
-| `COOKIE_SECURE` | `false`       | Set true in production behind TLS |
+| `DATABASE_URL`    | *(required)*            | Postgres connection URL |
+| `LISTEN_ADDR`     | `:8080`                 | HTTP listen address |
+| `INSTANCE_MODE`   | `single_user`           | `single_user` \| `closed` \| `open` |
+| `AUTO_MIGRATE`    | `true`                  | Apply pending migrations on `serve` startup |
+| `COOKIE_SECURE`   | `false`                 | Set true in production behind TLS |
+| `VAPID_PUBLIC_KEY`  | *(optional)*          | VAPID public key for web-push (generate with `zymo vapid-keys`) |
+| `VAPID_PRIVATE_KEY` | *(optional)*          | VAPID private key for web-push |
+| `VAPID_SUBJECT`     | `mailto:admin@localhost` | VAPID contact (mailto: or https:) |
 
 ## Tests + Smoke Checks
 
@@ -90,8 +93,8 @@ go test ./...
 ## Phased Roadmap
 
 1. ~~Auth (local), profile, mead batch CRUD with readings + chart~~ ✓
-2. **Recipes, forking, instance feed, comments** ← in progress (Recipe CRUD + revisions + forking done; comments, likes/feed remaining)
-3. Calculators + reminders / web-push notifications
+2. ~~Recipes, forking, instance feed, comments~~ ✓
+3. ~~Calculators + reminders / web-push notifications~~ ✓ (calculators deferred; reminders + web-push done)
 4. Backup + export (first-class)
 5. Cider + wine (reuse ~90% of mead flow)
 6. Beer (new flows: mash, boil, IBU)
@@ -157,6 +160,69 @@ Either trip returns 429 with `Retry-After: 60`. Eviction is lazy — no backgrou
 
 **Transaction pattern**: create/update use `s.pool.Begin` + `s.queries.WithTx(tx)` — first use of explicit transactions in this codebase. Pattern: `defer tx.Rollback(ctx)` as safety net, explicit `tx.Commit(ctx)` at end.
 
+## Reminders + Notifications API
+
+### Batch Reminders
+
+All under `/api/batches/{id}/reminders`, requires auth + batch ownership (404 for others).
+
+`POST /api/batches/{id}/reminders` — create a manual reminder. Body: `title` (required), `description`, `fire_at` (RFC3339, required), `suggested_event_kind`. Returns reminder.
+`GET /api/batches/{id}/reminders` — list reminders for a batch, ordered by `fire_at ASC`.
+`PATCH /api/batches/{id}/reminders/{reminderId}` — update title/description/fire_at/status/suggested_event_kind. COALESCE pattern. Allowed status values: `scheduled`, `snoozed`, `completed`, `dismissed`.
+`DELETE /api/batches/{id}/reminders/{reminderId}` — cancels (sets `status=cancelled`). Returns 204. 404 if already fired or completed.
+
+**Reminder status lifecycle**: `scheduled` → (fired by dispatcher) → `fired` → user marks `completed` or `dismissed`. Can be `snoozed` (reschedule `fire_at`). Cancelled from any non-terminal state.
+
+**Dispatcher**: River job `reminder_dispatcher` runs every minute. Atomically claims all `WHERE status='scheduled' AND fire_at <= now()` in batches of 100 using `FOR UPDATE SKIP LOCKED`. Creates one `notifications` row per reminder.
+
+### Notifications Inbox
+
+`GET /api/notifications` — requires auth. Query params: `limit` (default 20, max 100), `offset`.
+`POST /api/notifications/{id}/read` — mark one notification read (204). 404 if not found.
+`POST /api/notifications/read-all` — mark all unread as read (204).
+
+### Notification Prefs
+
+`GET /api/notifications/prefs` — returns prefs (or defaults if not set: push_enabled=true, email_enabled=false, timezone=UTC).
+`PATCH /api/notifications/prefs` — upsert. Fields: `push_enabled`, `email_enabled`, `quiet_hours_start` ("HH:MM"), `quiet_hours_end` ("HH:MM"), `timezone` (IANA tz string). Quiet hours: suppresses push delivery (not in-app creation) — deferred until web-push is added.
+
+### Recipe Reminder Templates
+
+`GET /api/recipes/{id}/reminder-templates` — lists templates; visibility rules same as recipe GET.
+`POST /api/recipes/{id}/reminder-templates` — requires auth, owner only. Fields: `title` (required), `description`, `anchor` (default `pitch`; `absolute` rejected), `offset_minutes`, `suggested_event_kind`, `sort_order`.
+`PATCH /api/recipes/{id}/reminder-templates/{templateId}` — requires auth, owner only. COALESCE pattern.
+`DELETE /api/recipes/{id}/reminder-templates/{templateId}` — requires auth, owner only. 204.
+
+**`absolute` anchor** — rejected on recipe templates (no wall-clock date to resolve against). Valid only on direct batch reminders where the user supplies `fire_at` directly.
+
+**Materialization** — triggered automatically (best-effort, non-blocking):
+- `POST /api/batches` with `recipe_id` + `started_at` → materializes `batch_start` templates
+- `PATCH /api/batches/{id}` with `started_at` → materializes `batch_start` templates
+- `POST /api/batches/{id}/events` with kind `pitch`/`rack`/`bottle` → materializes corresponding anchor templates
+
+`MaterializeReminderTemplates` uses `NOT EXISTS` to prevent double-materialization. Template anchor `custom_event` is stored but not auto-materialized (deferred).
+
+**Batch–recipe linkage** — `POST /api/batches` now accepts optional `recipe_id`; pins to `current_revision_id` at creation time. Private recipes reject linking by non-owners. Recipe association cannot be changed after creation.
+
+### Web-Push (VAPID)
+
+`GET /api/push/public-key` — returns `{"public_key": "..."}` for browser subscription. 404 if not configured.
+`POST /api/push/subscribe` — requires auth. Body: `{"endpoint": "...", "keys": {"p256dh": "...", "auth": "..."}}`. Upserts `push_devices` row. Returns `{"id": "..."}`.
+`POST /api/push/unsubscribe` — requires auth. Body: `{"endpoint": "..."}`. 204.
+
+**VAPID keys**: generate with `zymo vapid-keys` (prints env var lines). Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and optionally `VAPID_SUBJECT` (default `mailto:admin@localhost`). If not set, push is silently skipped but in-app notifications still work.
+
+**Quiet hours**: dispatcher checks user's `notification_prefs.quiet_hours_*` (in user's timezone) before sending push. Handles midnight-wrapping windows (e.g. 22:00–06:00). In-app notifications are always created regardless of quiet hours.
+
+**Push payload**: JSON `{"title": "...", "body": "...", "url_path": "..."}`. Browser service worker receives this and shows a native notification.
+
+### Known gaps (deferred)
+
+- **Calculators** — ABV, OG→FG, honey weight, pitch rate. Self-contained API endpoints, no DB needed. Deferred from Phase 3.
+- **`custom_event` anchor** materialization — needs a way to specify which event title/kind to anchor to.
+- **Re-materialization on re-anchor** — if a batch's pitch event changes (edited `occurred_at`), existing reminders are not updated.
+- **Push subscription cleanup** — expired/invalid subscriptions (410 Gone from push service) should be deleted automatically.
+
 ### Known recipe API gaps (deferred)
 
 - ~~**No forking**~~ — `POST /api/recipes/{id}/fork` implemented. Forks default to `private`; owner can PATCH visibility.
@@ -187,6 +253,7 @@ River runs in-process. Queue state in `river_*` tables. `migrate.Up` runs goose 
 | Job | Schedule | Purpose |
 |---|---|---|
 | `expired_sessions_gc` | every hour, `RunOnStart: true` | `DELETE FROM sessions WHERE expires_at < now()` |
+| `reminder_dispatcher` | every minute, `RunOnStart: false` | Atomically claims due reminders (`FOR UPDATE SKIP LOCKED`), creates in-app `notifications` rows |
 
 **Adding a job**: new file `internal/jobs/<name>.go` with `<Name>Args` + `Kind()` + worker embedding `river.WorkerDefaults`. Register in `New()`. Test by constructing a synthetic `*river.Job[Args]` and calling `Work()` directly.
 

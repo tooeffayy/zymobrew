@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	webpush "github.com/SherClockHolmes/webpush-go"
+
 	"zymobrew/internal/config"
 	"zymobrew/internal/db"
 	"zymobrew/internal/jobs"
@@ -20,10 +22,11 @@ import (
 const usage = `zymo — fermentation tracking server
 
 usage:
-  zymo serve      run the HTTP server (default; auto-migrates unless AUTO_MIGRATE=false)
-  zymo migrate    apply pending migrations and exit
-  zymo selftest   run runtime smoke tests against the configured database
-  zymo version    print version
+  zymo serve       run the HTTP server (default; auto-migrates unless AUTO_MIGRATE=false)
+  zymo migrate     apply pending migrations and exit
+  zymo selftest    run runtime smoke tests against the configured database
+  zymo vapid-keys  generate a VAPID key pair and print them as env vars
+  zymo version     print version
 `
 
 func main() {
@@ -44,6 +47,13 @@ func main() {
 		run(ctx, func(ctx context.Context, cfg config.Config) error {
 			return selftest.Run(ctx, cfg, os.Stdout)
 		})
+	case "vapid-keys":
+		priv, pub, err := webpush.GenerateVAPIDKeys()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error generating VAPID keys: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("VAPID_PUBLIC_KEY=%s\nVAPID_PRIVATE_KEY=%s\n", pub, priv)
 	case "version":
 		fmt.Println("zymo dev")
 	case "help", "-h", "--help":
@@ -76,7 +86,7 @@ func serve(ctx context.Context, cfg config.Config) error {
 	}
 	defer pool.Close()
 
-	jobsClient, err := jobs.New(pool)
+	jobsClient, err := jobs.New(pool, cfg)
 	if err != nil {
 		return fmt.Errorf("jobs init: %w", err)
 	}

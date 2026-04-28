@@ -11,29 +11,39 @@ import (
 )
 
 type Querier interface {
+	CancelReminder(ctx context.Context, arg CancelReminderParams) (int64, error)
+	ClaimDueReminders(ctx context.Context, limit int32) ([]Reminder, error)
 	CountUsers(ctx context.Context) (int64, error)
 	CreateBatch(ctx context.Context, arg CreateBatchParams) (Batch, error)
 	CreateBatchEvent(ctx context.Context, arg CreateBatchEventParams) (BatchEvent, error)
 	CreateForkedRecipe(ctx context.Context, arg CreateForkedRecipeParams) (Recipe, error)
+	CreateNotification(ctx context.Context, arg CreateNotificationParams) (Notification, error)
 	CreateReading(ctx context.Context, arg CreateReadingParams) (Reading, error)
 	CreateRecipeComment(ctx context.Context, arg CreateRecipeCommentParams) (RecipeComment, error)
 	CreateRecipeDraft(ctx context.Context, arg CreateRecipeDraftParams) (Recipe, error)
 	CreateRecipeIngredient(ctx context.Context, arg CreateRecipeIngredientParams) (RecipeIngredient, error)
 	CreateRecipeRevision(ctx context.Context, arg CreateRecipeRevisionParams) (RecipeRevision, error)
+	CreateReminder(ctx context.Context, arg CreateReminderParams) (Reminder, error)
+	CreateReminderTemplate(ctx context.Context, arg CreateReminderTemplateParams) (RecipeReminderTemplate, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateTastingNote(ctx context.Context, arg CreateTastingNoteParams) (TastingNote, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateUserWithPassword(ctx context.Context, arg CreateUserWithPasswordParams) (User, error)
 	DeleteBatch(ctx context.Context, arg DeleteBatchParams) (int64, error)
 	DeleteExpiredSessions(ctx context.Context) error
+	DeletePushDevice(ctx context.Context, arg DeletePushDeviceParams) (int64, error)
 	DeleteRecipe(ctx context.Context, arg DeleteRecipeParams) (int64, error)
 	DeleteRecipeComment(ctx context.Context, arg DeleteRecipeCommentParams) (int64, error)
 	DeleteRecipeIngredients(ctx context.Context, recipeID uuid.UUID) error
+	DeleteReminderTemplate(ctx context.Context, arg DeleteReminderTemplateParams) (int64, error)
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
 	DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error
 	GetBatchForUser(ctx context.Context, arg GetBatchForUserParams) (Batch, error)
+	GetNotificationPrefs(ctx context.Context, userID uuid.UUID) (NotificationPref, error)
 	GetRecipeByID(ctx context.Context, id uuid.UUID) (Recipe, error)
 	GetRecipeRevisionByNumber(ctx context.Context, arg GetRecipeRevisionByNumberParams) (RecipeRevision, error)
+	GetReminder(ctx context.Context, arg GetReminderParams) (Reminder, error)
+	GetReminderTemplate(ctx context.Context, id uuid.UUID) (RecipeReminderTemplate, error)
 	GetRevisionByID(ctx context.Context, id uuid.UUID) (RecipeRevision, error)
 	GetSessionWithUser(ctx context.Context, tokenHash string) (GetSessionWithUserRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
@@ -44,22 +54,33 @@ type Querier interface {
 	IncrementForkCount(ctx context.Context, id uuid.UUID) error
 	LikeRecipe(ctx context.Context, arg LikeRecipeParams) error
 	ListBatchEventsForBatch(ctx context.Context, batchID uuid.UUID) ([]BatchEvent, error)
+	ListBatchReminders(ctx context.Context, arg ListBatchRemindersParams) ([]Reminder, error)
 	ListBatchesForUser(ctx context.Context, arg ListBatchesForUserParams) ([]Batch, error)
+	ListNotifications(ctx context.Context, arg ListNotificationsParams) ([]Notification, error)
 	ListPublicRecipes(ctx context.Context, arg ListPublicRecipesParams) ([]Recipe, error)
+	ListPushDevicesForUser(ctx context.Context, userID uuid.UUID) ([]PushDevice, error)
 	ListReadingsForBatch(ctx context.Context, batchID uuid.UUID) ([]Reading, error)
 	ListRecipeComments(ctx context.Context, arg ListRecipeCommentsParams) ([]ListRecipeCommentsRow, error)
 	ListRecipeIngredients(ctx context.Context, recipeID uuid.UUID) ([]RecipeIngredient, error)
 	ListRecipeRevisions(ctx context.Context, recipeID uuid.UUID) ([]RecipeRevision, error)
 	ListRecipesForAuthor(ctx context.Context, arg ListRecipesForAuthorParams) ([]Recipe, error)
+	ListReminderTemplates(ctx context.Context, recipeID uuid.UUID) ([]RecipeReminderTemplate, error)
 	ListTastingNotesForBatch(ctx context.Context, batchID uuid.UUID) ([]TastingNote, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
+	MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID) error
+	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) (int64, error)
+	MaterializeReminderTemplates(ctx context.Context, arg MaterializeReminderTemplatesParams) error
 	SetRecipeRevision(ctx context.Context, arg SetRecipeRevisionParams) (Recipe, error)
 	TouchSession(ctx context.Context, id uuid.UUID) error
 	UnlikeRecipe(ctx context.Context, arg UnlikeRecipeParams) error
 	UpdateBatch(ctx context.Context, arg UpdateBatchParams) (Batch, error)
 	UpdateRecipeMeta(ctx context.Context, arg UpdateRecipeMetaParams) (Recipe, error)
+	UpdateReminder(ctx context.Context, arg UpdateReminderParams) (Reminder, error)
+	UpdateReminderTemplate(ctx context.Context, arg UpdateReminderTemplateParams) (RecipeReminderTemplate, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
+	UpsertNotificationPrefs(ctx context.Context, arg UpsertNotificationPrefsParams) (NotificationPref, error)
+	UpsertPushDevice(ctx context.Context, arg UpsertPushDeviceParams) (PushDevice, error)
 }
 
 var _ Querier = (*Queries)(nil)

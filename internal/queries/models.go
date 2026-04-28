@@ -514,6 +514,8 @@ type PushDevice struct {
 	Platform   string             `json:"platform"`
 	Token      string             `json:"token"`
 	LastSeenAt pgtype.Timestamptz `json:"last_seen_at"`
+	P256dh     pgtype.Text        `json:"p256dh"`
+	Auth       pgtype.Text        `json:"auth"`
 }
 
 type Reading struct {

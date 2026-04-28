@@ -15,6 +15,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
+	"zymobrew/internal/config"
 	"zymobrew/internal/queries"
 )
 
@@ -29,11 +30,17 @@ type Client struct {
 // New constructs a River client with all workers registered and the
 // canonical periodic schedule applied. It does not start any workers — call
 // Start.
-func New(pool *pgxpool.Pool) (*Client, error) {
+func New(pool *pgxpool.Pool, cfg config.Config) (*Client, error) {
 	q := queries.New(pool)
 
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &expiredSessionsWorker{queries: q})
+	river.AddWorker(workers, &reminderDispatchWorker{
+		queries:     q,
+		vapidPub:    cfg.VAPIDPublicKey,
+		vapidPriv:   cfg.VAPIDPrivateKey,
+		vapidSubject: cfg.VAPIDSubject,
+	})
 
 	rc, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues: map[string]river.QueueConfig{
@@ -47,6 +54,13 @@ func New(pool *pgxpool.Pool) (*Client, error) {
 					return ExpiredSessionsArgs{}, nil
 				},
 				&river.PeriodicJobOpts{RunOnStart: true},
+			),
+			river.NewPeriodicJob(
+				river.PeriodicInterval(time.Minute),
+				func() (river.JobArgs, *river.InsertOpts) {
+					return ReminderDispatchArgs{}, nil
+				},
+				nil,
 			),
 		},
 		Logger: slog.Default(),

@@ -15,20 +15,26 @@ const (
 )
 
 type Config struct {
-	DatabaseURL  string
-	ListenAddr   string
-	InstanceMode InstanceMode
-	AutoMigrate  bool
-	CookieSecure bool
+	DatabaseURL     string
+	ListenAddr      string
+	InstanceMode    InstanceMode
+	AutoMigrate     bool
+	CookieSecure    bool
+	VAPIDPublicKey  string
+	VAPIDPrivateKey string
+	VAPIDSubject    string
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		DatabaseURL:  os.Getenv("DATABASE_URL"),
-		ListenAddr:   getenv("LISTEN_ADDR", ":8080"),
-		InstanceMode: InstanceMode(getenv("INSTANCE_MODE", string(ModeSingleUser))),
-		AutoMigrate:  getenvBool("AUTO_MIGRATE", true),
-		CookieSecure: getenvBool("COOKIE_SECURE", false),
+		DatabaseURL:     os.Getenv("DATABASE_URL"),
+		ListenAddr:      getenv("LISTEN_ADDR", ":8080"),
+		InstanceMode:    InstanceMode(getenv("INSTANCE_MODE", string(ModeSingleUser))),
+		AutoMigrate:     getenvBool("AUTO_MIGRATE", true),
+		CookieSecure:    getenvBool("COOKIE_SECURE", false),
+		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
+		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
+		VAPIDSubject:    getenv("VAPID_SUBJECT", "mailto:admin@localhost"),
 	}
 	if cfg.DatabaseURL == "" {
 		return cfg, fmt.Errorf("DATABASE_URL is required")

@@ -147,6 +147,7 @@ type createBatchRequest struct {
 	StartedAt  *time.Time `json:"started_at,omitempty"`
 	Notes      string     `json:"notes,omitempty"`
 	Visibility string     `json:"visibility"`
+	RecipeID   *string    `json:"recipe_id,omitempty"`
 }
 
 func (s *Server) handleCreateBatch(w http.ResponseWriter, r *http.Request) {
@@ -181,7 +182,7 @@ func (s *Server) handleCreateBatch(w http.ResponseWriter, r *http.Request) {
 		req.Visibility = "public"
 	}
 
-	batch, err := s.queries.CreateBatch(r.Context(), queries.CreateBatchParams{
+	params := queries.CreateBatchParams{
 		BrewerID:   user.ID,
 		Name:       req.Name,
 		BrewType:   queries.BrewType(req.BrewType),
@@ -189,7 +190,34 @@ func (s *Server) handleCreateBatch(w http.ResponseWriter, r *http.Request) {
 		StartedAt:  optTime(req.StartedAt),
 		Notes:      optText(req.Notes),
 		Visibility: queries.Visibility(req.Visibility),
-	})
+	}
+
+	// If a recipe is provided, pin the batch to its current revision.
+	if req.RecipeID != nil {
+		rid, err := uuid.Parse(*req.RecipeID)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid recipe_id"})
+			return
+		}
+		recipe, err := s.queries.GetRecipeByID(r.Context(), rid)
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "recipe not found"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create failed"})
+			return
+		}
+		// private recipes can only be used by their owner
+		if recipe.Visibility == queries.VisibilityPrivate && recipe.AuthorID != user.ID {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "recipe not found"})
+			return
+		}
+		params.RecipeID = uuid.NullUUID{UUID: recipe.ID, Valid: true}
+		params.RecipeRevisionID = recipe.CurrentRevisionID
+	}
+
+	batch, err := s.queries.CreateBatch(r.Context(), params)
 	if err != nil {
 		if isInvalidTextRepresentation(err) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid stage or visibility value"})
@@ -198,6 +226,12 @@ func (s *Server) handleCreateBatch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create failed"})
 		return
 	}
+
+	// Materialize batch_start-anchored templates if the batch starts immediately.
+	if batch.StartedAt.Valid && batch.RecipeID.Valid {
+		s.materializeTemplates(r.Context(), batch, queries.ReminderAnchorBatchStart, batch.StartedAt.Time)
+	}
+
 	writeJSON(w, http.StatusCreated, toBatchView(batch))
 }
 
@@ -310,6 +344,13 @@ func (s *Server) handleUpdateBatch(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
+	// Materialize batch_start templates when started_at is set for the first
+	// time. The NOT EXISTS guard in the SQL prevents double-materialization.
+	if req.StartedAt != nil && batch.StartedAt.Valid && batch.RecipeID.Valid {
+		s.materializeTemplates(r.Context(), batch, queries.ReminderAnchorBatchStart, batch.StartedAt.Time)
+	}
+
 	writeJSON(w, http.StatusOK, toBatchView(batch))
 }
 
@@ -424,6 +465,23 @@ func (s *Server) userOwnsBatch(ctx context.Context, userID, batchID uuid.UUID) b
 	return err == nil
 }
 
+// materializeTemplates inserts reminders for all templates on the batch's
+// recipe matching the given anchor, using anchorTime + offset as fire_at.
+// Errors are logged but not propagated — materialization is best-effort and
+// does not fail the triggering request.
+func (s *Server) materializeTemplates(ctx context.Context, batch queries.Batch, anchor queries.ReminderAnchor, anchorTime time.Time) {
+	if !batch.RecipeID.Valid {
+		return
+	}
+	_ = s.queries.MaterializeReminderTemplates(ctx, queries.MaterializeReminderTemplatesParams{
+		BatchID:    batch.ID,
+		UserID:     batch.BrewerID,
+		RecipeID:   batch.RecipeID.UUID,
+		Anchor:     anchor,
+		AnchorTime: pgtype.Timestamptz{Time: anchorTime, Valid: true},
+	})
+}
+
 // --- event handlers -------------------------------------------------------
 
 type createEventRequest struct {
@@ -467,8 +525,15 @@ func (s *Server) handleCreateBatchEvent(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch id"})
 		return
 	}
-	if !s.userOwnsBatch(r.Context(), user.ID, batchID) {
+	batch, err := s.queries.GetBatchForUser(r.Context(), queries.GetBatchForUserParams{
+		ID: batchID, BrewerID: user.ID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
 
@@ -513,6 +578,17 @@ func (s *Server) handleCreateBatchEvent(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create failed"})
 		return
 	}
+
+	// Materialize reminder templates anchored to this event kind.
+	anchorForKind := map[queries.EventKind]queries.ReminderAnchor{
+		queries.EventKindPitch:  queries.ReminderAnchorPitch,
+		queries.EventKindRack:   queries.ReminderAnchorRack,
+		queries.EventKindBottle: queries.ReminderAnchorBottle,
+	}
+	if anchor, ok := anchorForKind[event.Kind]; ok && batch.RecipeID.Valid {
+		s.materializeTemplates(r.Context(), batch, anchor, event.OccurredAt.Time)
+	}
+
 	writeJSON(w, http.StatusCreated, toEventView(event))
 }
 
