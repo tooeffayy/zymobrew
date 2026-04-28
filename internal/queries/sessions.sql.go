@@ -77,7 +77,7 @@ func (q *Queries) DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) e
 }
 
 const getSessionWithUser = `-- name: GetSessionWithUser :one
-SELECT sessions.id, sessions.user_id, sessions.token_hash, sessions.user_agent, sessions.ip, sessions.created_at, sessions.last_seen_at, sessions.expires_at, users.id, users.username, users.email, users.display_name, users.bio, users.avatar_url, users.deleted_at, users.deletion_scheduled_for, users.deletion_choices, users.deletion_reason, users.created_at, users.password_hash
+SELECT sessions.id, sessions.user_id, sessions.token_hash, sessions.user_agent, sessions.ip, sessions.created_at, sessions.last_seen_at, sessions.expires_at, users.id, users.username, users.email, users.display_name, users.bio, users.avatar_url, users.deleted_at, users.deletion_scheduled_for, users.deletion_choices, users.deletion_reason, users.created_at, users.password_hash, users.is_admin
 FROM sessions
 JOIN users ON users.id = sessions.user_id
 WHERE sessions.token_hash = $1
@@ -114,6 +114,7 @@ func (q *Queries) GetSessionWithUser(ctx context.Context, tokenHash string) (Get
 		&i.User.DeletionReason,
 		&i.User.CreatedAt,
 		&i.User.PasswordHash,
+		&i.User.IsAdmin,
 	)
 	return i, err
 }

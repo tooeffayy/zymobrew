@@ -17,6 +17,7 @@ import (
 
 	"zymobrew/internal/config"
 	"zymobrew/internal/queries"
+	"zymobrew/internal/storage"
 )
 
 // Client owns the River client and exposes lifecycle methods. The River
@@ -30,16 +31,24 @@ type Client struct {
 // New constructs a River client with all workers registered and the
 // canonical periodic schedule applied. It does not start any workers — call
 // Start.
-func New(pool *pgxpool.Pool, cfg config.Config) (*Client, error) {
+func New(pool *pgxpool.Pool, cfg config.Config, store storage.Store) (*Client, error) {
 	q := queries.New(pool)
 
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &expiredSessionsWorker{queries: q})
 	river.AddWorker(workers, &reminderDispatchWorker{
-		queries:     q,
-		vapidPub:    cfg.VAPIDPublicKey,
-		vapidPriv:   cfg.VAPIDPrivateKey,
+		queries:      q,
+		vapidPub:     cfg.VAPIDPublicKey,
+		vapidPriv:    cfg.VAPIDPrivateKey,
 		vapidSubject: cfg.VAPIDSubject,
+	})
+	river.AddWorker(workers, &userExportDispatchWorker{queries: q, store: store})
+	river.AddWorker(workers, &adminBackupScheduleWorker{queries: q, store: store})
+	river.AddWorker(workers, &adminBackupDispatchWorker{
+		queries:       q,
+		store:         store,
+		dbURL:         cfg.DatabaseURL,
+		retentionDays: cfg.BackupRetentionDays,
 	})
 
 	rc, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
@@ -59,6 +68,27 @@ func New(pool *pgxpool.Pool, cfg config.Config) (*Client, error) {
 				river.PeriodicInterval(time.Minute),
 				func() (river.JobArgs, *river.InsertOpts) {
 					return ReminderDispatchArgs{}, nil
+				},
+				nil,
+			),
+			river.NewPeriodicJob(
+				river.PeriodicInterval(time.Minute),
+				func() (river.JobArgs, *river.InsertOpts) {
+					return UserExportDispatchArgs{}, nil
+				},
+				nil,
+			),
+			river.NewPeriodicJob(
+				river.PeriodicInterval(time.Minute),
+				func() (river.JobArgs, *river.InsertOpts) {
+					return AdminBackupDispatchArgs{}, nil
+				},
+				nil,
+			),
+			river.NewPeriodicJob(
+				river.PeriodicInterval(24*time.Hour),
+				func() (river.JobArgs, *river.InsertOpts) {
+					return AdminBackupScheduleArgs{}, nil
 				},
 				nil,
 			),

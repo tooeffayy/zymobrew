@@ -8,12 +8,18 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
 	CancelReminder(ctx context.Context, arg CancelReminderParams) (int64, error)
 	ClaimDueReminders(ctx context.Context, limit int32) ([]Reminder, error)
+	ClaimPendingAdminBackups(ctx context.Context) ([]AdminBackup, error)
+	ClaimPendingUserExports(ctx context.Context) ([]UserExport, error)
+	CompleteAdminBackup(ctx context.Context, arg CompleteAdminBackupParams) (AdminBackup, error)
+	CompleteUserExport(ctx context.Context, arg CompleteUserExportParams) (UserExport, error)
 	CountUsers(ctx context.Context) (int64, error)
+	CreateAdminBackup(ctx context.Context, storageBackend string) (AdminBackup, error)
 	CreateBatch(ctx context.Context, arg CreateBatchParams) (Batch, error)
 	CreateBatchEvent(ctx context.Context, arg CreateBatchEventParams) (BatchEvent, error)
 	CreateForkedRecipe(ctx context.Context, arg CreateForkedRecipeParams) (Recipe, error)
@@ -28,8 +34,10 @@ type Querier interface {
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateTastingNote(ctx context.Context, arg CreateTastingNoteParams) (TastingNote, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	CreateUserExport(ctx context.Context, userID uuid.UUID) (UserExport, error)
 	CreateUserWithPassword(ctx context.Context, arg CreateUserWithPasswordParams) (User, error)
 	DeleteBatch(ctx context.Context, arg DeleteBatchParams) (int64, error)
+	DeleteExpiredAdminBackups(ctx context.Context, dollar_1 int32) ([]pgtype.Text, error)
 	DeleteExpiredSessions(ctx context.Context) error
 	DeletePushDevice(ctx context.Context, arg DeletePushDeviceParams) (int64, error)
 	DeleteRecipe(ctx context.Context, arg DeleteRecipeParams) (int64, error)
@@ -38,8 +46,13 @@ type Querier interface {
 	DeleteReminderTemplate(ctx context.Context, arg DeleteReminderTemplateParams) (int64, error)
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
 	DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error
+	ExpireUserExports(ctx context.Context) ([]pgtype.Text, error)
+	FailAdminBackup(ctx context.Context, arg FailAdminBackupParams) error
+	FailUserExport(ctx context.Context, arg FailUserExportParams) error
+	GetAdminBackup(ctx context.Context, id uuid.UUID) (AdminBackup, error)
 	GetBatchForUser(ctx context.Context, arg GetBatchForUserParams) (Batch, error)
 	GetNotificationPrefs(ctx context.Context, userID uuid.UUID) (NotificationPref, error)
+	GetPendingUserExport(ctx context.Context, userID uuid.UUID) (UserExport, error)
 	GetRecipeByID(ctx context.Context, id uuid.UUID) (Recipe, error)
 	GetRecipeRevisionByNumber(ctx context.Context, arg GetRecipeRevisionByNumberParams) (RecipeRevision, error)
 	GetReminder(ctx context.Context, arg GetReminderParams) (Reminder, error)
@@ -51,21 +64,29 @@ type Querier interface {
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserCredentialByEmail(ctx context.Context, email string) (GetUserCredentialByEmailRow, error)
 	GetUserCredentialByUsername(ctx context.Context, username string) (GetUserCredentialByUsernameRow, error)
+	GetUserExport(ctx context.Context, arg GetUserExportParams) (UserExport, error)
 	IncrementForkCount(ctx context.Context, id uuid.UUID) error
 	LikeRecipe(ctx context.Context, arg LikeRecipeParams) error
+	ListAdminBackups(ctx context.Context) ([]AdminBackup, error)
+	ListAllBatchesForUser(ctx context.Context, brewerID uuid.UUID) ([]Batch, error)
+	ListAllRecipesForAuthor(ctx context.Context, authorID uuid.UUID) ([]Recipe, error)
 	ListBatchEventsForBatch(ctx context.Context, batchID uuid.UUID) ([]BatchEvent, error)
 	ListBatchReminders(ctx context.Context, arg ListBatchRemindersParams) ([]Reminder, error)
 	ListBatchesForUser(ctx context.Context, arg ListBatchesForUserParams) ([]Batch, error)
+	ListFollowsByUser(ctx context.Context, followerID uuid.UUID) ([]Follow, error)
+	ListLikesByUser(ctx context.Context, userID uuid.UUID) ([]RecipeLike, error)
 	ListNotifications(ctx context.Context, arg ListNotificationsParams) ([]Notification, error)
 	ListPublicRecipes(ctx context.Context, arg ListPublicRecipesParams) ([]Recipe, error)
 	ListPushDevicesForUser(ctx context.Context, userID uuid.UUID) ([]PushDevice, error)
 	ListReadingsForBatch(ctx context.Context, batchID uuid.UUID) ([]Reading, error)
 	ListRecipeComments(ctx context.Context, arg ListRecipeCommentsParams) ([]ListRecipeCommentsRow, error)
+	ListRecipeCommentsByUser(ctx context.Context, authorID uuid.UUID) ([]RecipeComment, error)
 	ListRecipeIngredients(ctx context.Context, recipeID uuid.UUID) ([]RecipeIngredient, error)
 	ListRecipeRevisions(ctx context.Context, recipeID uuid.UUID) ([]RecipeRevision, error)
 	ListRecipesForAuthor(ctx context.Context, arg ListRecipesForAuthorParams) ([]Recipe, error)
 	ListReminderTemplates(ctx context.Context, recipeID uuid.UUID) ([]RecipeReminderTemplate, error)
 	ListTastingNotesForBatch(ctx context.Context, batchID uuid.UUID) ([]TastingNote, error)
+	ListUserExports(ctx context.Context, userID uuid.UUID) ([]UserExport, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID) error
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) (int64, error)

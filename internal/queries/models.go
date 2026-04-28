@@ -666,6 +666,7 @@ type User struct {
 	DeletionReason       pgtype.Text        `json:"deletion_reason"`
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 	PasswordHash         pgtype.Text        `json:"password_hash"`
+	IsAdmin              bool               `json:"is_admin"`
 }
 
 type UserExport struct {

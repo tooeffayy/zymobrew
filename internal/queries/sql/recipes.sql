@@ -43,6 +43,9 @@ WHERE author_id = $1
 ORDER BY updated_at DESC
 LIMIT $2 OFFSET $3;
 
+-- name: ListAllRecipesForAuthor :many
+SELECT * FROM recipes WHERE author_id = $1 ORDER BY created_at ASC;
+
 -- name: CreateRecipeIngredient :one
 INSERT INTO recipe_ingredients (recipe_id, kind, name, amount, unit, sort_order, details)
 VALUES ($1, $2, $3, $4, $5, $6, $7)

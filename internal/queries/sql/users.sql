@@ -4,8 +4,8 @@ VALUES ($1, $2, $3)
 RETURNING *;
 
 -- name: CreateUserWithPassword :one
-INSERT INTO users (username, email, display_name, password_hash)
-VALUES ($1, $2, $3, $4)
+INSERT INTO users (username, email, display_name, password_hash, is_admin)
+VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- name: GetUserCredentialByUsername :one

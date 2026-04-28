@@ -157,11 +157,13 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if req.DisplayName != "" {
 		display = pgtype.Text{String: req.DisplayName, Valid: true}
 	}
+	isAdmin := s.cfg.InstanceMode == config.ModeSingleUser
 	user, err := s.queries.CreateUserWithPassword(r.Context(), queries.CreateUserWithPasswordParams{
 		Username:     req.Username,
 		Email:        req.Email,
 		DisplayName:  display,
 		PasswordHash: pgtype.Text{String: hash, Valid: true},
+		IsAdmin:      isAdmin,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {

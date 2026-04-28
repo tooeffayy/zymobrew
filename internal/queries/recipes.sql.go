@@ -405,6 +405,49 @@ func (q *Queries) LikeRecipe(ctx context.Context, arg LikeRecipeParams) error {
 	return err
 }
 
+const listAllRecipesForAuthor = `-- name: ListAllRecipesForAuthor :many
+SELECT id, author_id, parent_id, parent_revision_id, current_revision_id, revision_count, fork_count, brew_type, style, name, description, target_og, target_fg, target_abv, batch_size_l, visibility, created_at, updated_at FROM recipes WHERE author_id = $1 ORDER BY created_at ASC
+`
+
+func (q *Queries) ListAllRecipesForAuthor(ctx context.Context, authorID uuid.UUID) ([]Recipe, error) {
+	rows, err := q.db.Query(ctx, listAllRecipesForAuthor, authorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Recipe{}
+	for rows.Next() {
+		var i Recipe
+		if err := rows.Scan(
+			&i.ID,
+			&i.AuthorID,
+			&i.ParentID,
+			&i.ParentRevisionID,
+			&i.CurrentRevisionID,
+			&i.RevisionCount,
+			&i.ForkCount,
+			&i.BrewType,
+			&i.Style,
+			&i.Name,
+			&i.Description,
+			&i.TargetOg,
+			&i.TargetFg,
+			&i.TargetAbv,
+			&i.BatchSizeL,
+			&i.Visibility,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPublicRecipes = `-- name: ListPublicRecipes :many
 SELECT id, author_id, parent_id, parent_revision_id, current_revision_id, revision_count, fork_count, brew_type, style, name, description, target_og, target_fg, target_abv, batch_size_l, visibility, created_at, updated_at FROM recipes
 WHERE visibility = 'public'

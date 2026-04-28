@@ -26,7 +26,7 @@ func TestSelftestPassesAgainstFreshDB(t *testing.T) {
 		t.Fatalf("selftest failed: %v\nreport:\n%s", err, buf.String())
 	}
 	out := buf.String()
-	for _, want := range []string{"connect", "ping", "migrations", "schema", "roundtrip"} {
+	for _, want := range []string{"connect", "ping", "migrations", "schema", "roundtrip", "storage"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing check %q in report:\n%s", want, out)
 		}

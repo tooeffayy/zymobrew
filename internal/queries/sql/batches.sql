@@ -27,3 +27,6 @@ RETURNING *;
 
 -- name: DeleteBatch :execrows
 DELETE FROM batches WHERE id = $1 AND brewer_id = $2;
+
+-- name: ListAllBatchesForUser :many
+SELECT * FROM batches WHERE brewer_id = $1 ORDER BY created_at ASC;

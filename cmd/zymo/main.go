@@ -17,6 +17,7 @@ import (
 	"zymobrew/internal/migrate"
 	"zymobrew/internal/selftest"
 	"zymobrew/internal/server"
+	"zymobrew/internal/storage"
 )
 
 const usage = `zymo — fermentation tracking server
@@ -86,7 +87,12 @@ func serve(ctx context.Context, cfg config.Config) error {
 	}
 	defer pool.Close()
 
-	jobsClient, err := jobs.New(pool, cfg)
+	store, err := storage.New(cfg)
+	if err != nil {
+		return fmt.Errorf("storage: %w", err)
+	}
+
+	jobsClient, err := jobs.New(pool, cfg, store)
 	if err != nil {
 		return fmt.Errorf("jobs init: %w", err)
 	}
@@ -101,7 +107,7 @@ func serve(ctx context.Context, cfg config.Config) error {
 		_ = jobsClient.Stop(stopCtx)
 	}()
 
-	srv := server.New(pool, cfg)
+	srv := server.New(pool, cfg, store)
 	log.Printf("zymo listening on %s (mode=%s)", cfg.ListenAddr, cfg.InstanceMode)
 	return srv.Run(ctx, cfg.ListenAddr)
 }

@@ -109,6 +109,44 @@ func (q *Queries) GetBatchForUser(ctx context.Context, arg GetBatchForUserParams
 	return i, err
 }
 
+const listAllBatchesForUser = `-- name: ListAllBatchesForUser :many
+SELECT id, brewer_id, recipe_id, recipe_revision_id, name, brew_type, stage, started_at, bottled_at, visibility, notes, created_at, updated_at FROM batches WHERE brewer_id = $1 ORDER BY created_at ASC
+`
+
+func (q *Queries) ListAllBatchesForUser(ctx context.Context, brewerID uuid.UUID) ([]Batch, error) {
+	rows, err := q.db.Query(ctx, listAllBatchesForUser, brewerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Batch{}
+	for rows.Next() {
+		var i Batch
+		if err := rows.Scan(
+			&i.ID,
+			&i.BrewerID,
+			&i.RecipeID,
+			&i.RecipeRevisionID,
+			&i.Name,
+			&i.BrewType,
+			&i.Stage,
+			&i.StartedAt,
+			&i.BottledAt,
+			&i.Visibility,
+			&i.Notes,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBatchesForUser = `-- name: ListBatchesForUser :many
 SELECT id, brewer_id, recipe_id, recipe_revision_id, name, brew_type, stage, started_at, bottled_at, visibility, notes, created_at, updated_at FROM batches
 WHERE brewer_id = $1

@@ -16,12 +16,14 @@ import (
 	"zymobrew/internal/config"
 	"zymobrew/internal/queries"
 	"zymobrew/internal/ratelimit"
+	"zymobrew/internal/storage"
 )
 
 type Server struct {
 	pool    *pgxpool.Pool
 	cfg     config.Config
 	queries *queries.Queries
+	store   storage.Store
 	handler http.Handler
 
 	// Auth-path rate limiters. authIP gates /api/auth/{register,login} per
@@ -31,11 +33,12 @@ type Server struct {
 	loginUser *ratelimit.Limiter
 }
 
-func New(pool *pgxpool.Pool, cfg config.Config) *Server {
+func New(pool *pgxpool.Pool, cfg config.Config, store storage.Store) *Server {
 	s := &Server{
 		pool:      pool,
 		cfg:       cfg,
 		queries:   queries.New(pool),
+		store:     store,
 		authIP:    ratelimit.New(rate.Every(2*time.Second), 10, 30*time.Minute),
 		loginUser: ratelimit.New(rate.Every(12*time.Second), 5, 30*time.Minute),
 	}
@@ -124,6 +127,23 @@ func (s *Server) routes() http.Handler {
 			r.Get("/public-key", s.handleGetVAPIDPublicKey)
 			r.With(s.requireAuth).Post("/subscribe", s.handleSubscribePush)
 			r.With(s.requireAuth).Post("/unsubscribe", s.handleUnsubscribePush)
+		})
+		r.Route("/users/me/exports", func(r chi.Router) {
+			r.Use(s.requireAuth)
+			r.Post("/", s.handleTriggerExport)
+			r.Get("/", s.handleListExports)
+			r.Get("/{id}", s.handleGetExport)
+			r.Get("/{id}/download", s.handleDownloadExport)
+		})
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(s.requireAuth)
+			r.Use(s.requireAdmin)
+			r.Route("/backups", func(r chi.Router) {
+				r.Post("/", s.handleTriggerAdminBackup)
+				r.Get("/", s.handleListAdminBackups)
+				r.Get("/{id}", s.handleGetAdminBackup)
+				r.Get("/{id}/download", s.handleDownloadAdminBackup)
+			})
 		})
 	})
 	return r

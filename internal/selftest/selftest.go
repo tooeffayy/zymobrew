@@ -9,12 +9,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"zymobrew/internal/config"
 	"zymobrew/internal/db"
 	"zymobrew/internal/migrate"
+	"zymobrew/internal/storage"
 )
 
 type check struct {
@@ -70,6 +72,13 @@ func Run(ctx context.Context, cfg config.Config, out io.Writer) error {
 	}
 	add(check{"roundtrip", true, ""})
 
+	backend, err := storageProbe(ctx, cfg)
+	if err != nil {
+		add(check{"storage", false, err.Error()})
+		return fmt.Errorf("selftest failed")
+	}
+	add(check{"storage", true, "backend=" + backend})
+
 	return nil
 }
 
@@ -78,6 +87,9 @@ func schemaCheck(ctx context.Context, pool *pgxpool.Pool) error {
 		"users", "sessions", "recipes", "recipe_revisions", "batches",
 		"readings", "batch_events", "tasting_notes", "reminders",
 		"notifications", "devices", "batch_devices",
+		"notification_prefs", "push_devices",
+		"recipe_reminder_templates", "recipe_likes", "recipe_comments", "follows",
+		"user_exports", "admin_backups",
 		// River background-job runtime — verifies migration ran end-to-end.
 		"river_job", "river_migration",
 	}
@@ -150,6 +162,15 @@ func crudRoundtrip(ctx context.Context, pool *pgxpool.Pool) error {
 		batchID); err != nil {
 		return fmt.Errorf("insert event: %w", err)
 	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO user_exports (user_id, status) VALUES ($1, 'pending')`,
+		userID); err != nil {
+		return fmt.Errorf("insert user_export: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO admin_backups (status, storage_backend) VALUES ('pending', 'local')`); err != nil {
+		return fmt.Errorf("insert admin_backup: %w", err)
+	}
 	return nil
 }
 
@@ -165,6 +186,49 @@ func report(out io.Writer, checks []check) {
 			fmt.Fprintf(out, "[%s] %s\n", mark, c.name)
 		}
 	}
+}
+
+// storageProbe verifies that the configured storage backend is reachable and
+// writable: it writes a small probe object, reads it back to confirm the
+// content round-trips correctly, then deletes it.
+func storageProbe(ctx context.Context, cfg config.Config) (backend string, err error) {
+	store, err := storage.New(cfg)
+	if err != nil {
+		return "", fmt.Errorf("init: %w", err)
+	}
+
+	suffix, err := randomSuffix()
+	if err != nil {
+		return "", fmt.Errorf("rand: %w", err)
+	}
+	key := "selftest/probe-" + suffix + ".txt"
+	const payload = "zymo selftest storage probe"
+
+	if err := store.Put(ctx, key, strings.NewReader(payload), int64(len(payload))); err != nil {
+		return "", fmt.Errorf("put: %w", err)
+	}
+	// Always clean up, even if the read fails.
+	defer func() {
+		if delErr := store.Delete(ctx, key); delErr != nil && err == nil {
+			err = fmt.Errorf("delete probe: %w", delErr)
+		}
+	}()
+
+	rc, _, err := store.Get(ctx, key)
+	if err != nil {
+		return "", fmt.Errorf("get: %w", err)
+	}
+	defer rc.Close()
+
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		return "", fmt.Errorf("read: %w", err)
+	}
+	if string(got) != payload {
+		return "", fmt.Errorf("content mismatch: got %q, want %q", string(got), payload)
+	}
+
+	return store.Backend(), nil
 }
 
 func randomSuffix() (string, error) {

@@ -27,7 +27,7 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (username, email, display_name)
 VALUES ($1, $2, $3)
-RETURNING id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash
+RETURNING id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash, is_admin
 `
 
 type CreateUserParams struct {
@@ -52,14 +52,15 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.DeletionReason,
 		&i.CreatedAt,
 		&i.PasswordHash,
+		&i.IsAdmin,
 	)
 	return i, err
 }
 
 const createUserWithPassword = `-- name: CreateUserWithPassword :one
-INSERT INTO users (username, email, display_name, password_hash)
-VALUES ($1, $2, $3, $4)
-RETURNING id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash
+INSERT INTO users (username, email, display_name, password_hash, is_admin)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash, is_admin
 `
 
 type CreateUserWithPasswordParams struct {
@@ -67,6 +68,7 @@ type CreateUserWithPasswordParams struct {
 	Email        string      `json:"email"`
 	DisplayName  pgtype.Text `json:"display_name"`
 	PasswordHash pgtype.Text `json:"password_hash"`
+	IsAdmin      bool        `json:"is_admin"`
 }
 
 func (q *Queries) CreateUserWithPassword(ctx context.Context, arg CreateUserWithPasswordParams) (User, error) {
@@ -75,6 +77,7 @@ func (q *Queries) CreateUserWithPassword(ctx context.Context, arg CreateUserWith
 		arg.Email,
 		arg.DisplayName,
 		arg.PasswordHash,
+		arg.IsAdmin,
 	)
 	var i User
 	err := row.Scan(
@@ -90,12 +93,13 @@ func (q *Queries) CreateUserWithPassword(ctx context.Context, arg CreateUserWith
 		&i.DeletionReason,
 		&i.CreatedAt,
 		&i.PasswordHash,
+		&i.IsAdmin,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash FROM users
+SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash, is_admin FROM users
 WHERE email = $1 AND deleted_at IS NULL
 `
 
@@ -115,12 +119,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.DeletionReason,
 		&i.CreatedAt,
 		&i.PasswordHash,
+		&i.IsAdmin,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash FROM users
+SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash, is_admin FROM users
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -140,12 +145,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.DeletionReason,
 		&i.CreatedAt,
 		&i.PasswordHash,
+		&i.IsAdmin,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash FROM users
+SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash, is_admin FROM users
 WHERE username = $1 AND deleted_at IS NULL
 `
 
@@ -165,6 +171,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.DeletionReason,
 		&i.CreatedAt,
 		&i.PasswordHash,
+		&i.IsAdmin,
 	)
 	return i, err
 }
@@ -218,7 +225,7 @@ func (q *Queries) GetUserCredentialByUsername(ctx context.Context, username stri
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash FROM users
+SELECT id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash, is_admin FROM users
 WHERE deleted_at IS NULL
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
@@ -251,6 +258,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.DeletionReason,
 			&i.CreatedAt,
 			&i.PasswordHash,
+			&i.IsAdmin,
 		); err != nil {
 			return nil, err
 		}
@@ -268,7 +276,7 @@ UPDATE users SET
   bio          = COALESCE($2,          bio),
   avatar_url   = COALESCE($3,   avatar_url)
 WHERE id = $4 AND deleted_at IS NULL
-RETURNING id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash
+RETURNING id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash, is_admin
 `
 
 type UpdateUserParams struct {
@@ -299,6 +307,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.DeletionReason,
 		&i.CreatedAt,
 		&i.PasswordHash,
+		&i.IsAdmin,
 	)
 	return i, err
 }

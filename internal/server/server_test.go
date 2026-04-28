@@ -14,7 +14,7 @@ import (
 
 func newServerNoDB(t *testing.T) *server.Server {
 	t.Helper()
-	return server.New(nil, config.Config{InstanceMode: config.ModeOpen})
+	return server.New(nil, config.Config{InstanceMode: config.ModeOpen}, nil)
 }
 
 func TestHealthz(t *testing.T) {
@@ -50,7 +50,7 @@ func TestReadyzWithDB(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.Pool(t, ctx)
 
-	srv := server.New(pool, config.Config{InstanceMode: config.ModeOpen})
+	srv := server.New(pool, config.Config{InstanceMode: config.ModeOpen}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
