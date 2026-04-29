@@ -102,7 +102,7 @@ func (w *reminderDispatchWorker) Work(ctx context.Context, _ *river.Job[Reminder
 			if !dev.P256dh.Valid || !dev.Auth.Valid {
 				continue
 			}
-			w.sendPush(dev.Token, dev.P256dh.String, dev.Auth.String, payload)
+			w.sendPush(ctx, dev, payload)
 		}
 	}
 	return nil
@@ -133,10 +133,10 @@ func (w *reminderDispatchWorker) userDevices(ctx context.Context, userID uuid.UU
 	return devs, nil
 }
 
-func (w *reminderDispatchWorker) sendPush(endpoint, p256dh, auth string, payload []byte) {
+func (w *reminderDispatchWorker) sendPush(ctx context.Context, dev queries.PushDevice, payload []byte) {
 	sub := &webpush.Subscription{
-		Endpoint: endpoint,
-		Keys:     webpush.Keys{P256dh: p256dh, Auth: auth},
+		Endpoint: dev.Token,
+		Keys:     webpush.Keys{P256dh: dev.P256dh.String, Auth: dev.Auth.String},
 	}
 	resp, err := webpush.SendNotification(payload, sub, &webpush.Options{
 		HTTPClient:      &http.Client{Timeout: 10 * time.Second},
@@ -147,12 +147,25 @@ func (w *reminderDispatchWorker) sendPush(endpoint, p256dh, auth string, payload
 		Urgency:         webpush.UrgencyNormal,
 	})
 	if err != nil {
-		slog.Error("web push send", "endpoint", endpoint, "err", err)
+		slog.Error("web push send", "endpoint", dev.Token, "err", err)
 		return
 	}
 	defer resp.Body.Close()
+
+	// 404/410 mean the subscription has been permanently revoked by the push
+	// service (browser uninstalled, user blocked, expired). Drop the row so
+	// future ticks don't keep retrying it.
+	if resp.StatusCode == http.StatusGone || resp.StatusCode == http.StatusNotFound {
+		if _, err := w.queries.DeletePushDevice(ctx, queries.DeletePushDeviceParams{
+			UserID: dev.UserID,
+			Token:  dev.Token,
+		}); err != nil {
+			slog.Error("delete revoked push device", "user_id", dev.UserID, "endpoint", dev.Token, "err", err)
+		}
+		return
+	}
 	if resp.StatusCode >= 400 {
-		slog.Warn("web push rejected", "endpoint", endpoint, "status", resp.StatusCode)
+		slog.Warn("web push rejected", "endpoint", dev.Token, "status", resp.StatusCode)
 	}
 }
 

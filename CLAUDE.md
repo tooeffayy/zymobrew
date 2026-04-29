@@ -29,7 +29,8 @@ A self-hostable fermentation tracking app. Name from *zymurgy*, the science of f
 ## Project Layout
 
 ```
-cmd/zymo/             entry point (serve | migrate | selftest | version)
+cmd/zymo/             entry point (serve | migrate | selftest | vapid-keys | reprocess-deletions | version)
+internal/account      anonymization tx (sessions/push/notifs/exports wiped, recipes/batches retained)
 internal/auth         argon2id password hashing + session token primitives
 internal/config       env-based config loader
 internal/db           pgx pool + database/sql open helpers
@@ -38,8 +39,9 @@ internal/migrate      goose runner + River migrator (uses embedded migrations)
 internal/queries      sqlc generated type-safe code (Go only)
 internal/queries/sql  sqlc query source files (*.sql)
 internal/ratelimit    in-memory token-bucket limiter (per-IP, per-identifier)
-internal/server       chi HTTP router — /healthz, /readyz, /api/auth/*, /api/users/*, /api/recipes/*, /api/batches/*
+internal/server       chi HTTP router — /healthz, /readyz, /docs, /api/openapi.yaml, /api/auth/*, /api/users/*, /api/recipes/*, /api/batches/*, /api/notifications/*, /api/push/*, /api/users/me/exports/*, /api/admin/backups/*
 internal/selftest     runtime smoke tests for `zymo selftest`
+internal/storage      Store interface + local + S3 backends (Put/Get/Delete/PresignGet)
 internal/testutil     shared DB test setup
 migrations/           embedded SQL migrations + embed.go
 ```
@@ -54,12 +56,14 @@ export DATABASE_URL=postgres://zymo:zymo@localhost:5433/zymo?sslmode=disable
 go run ./cmd/zymo serve
 ```
 
-| Command         | Purpose |
-|-----------------|---------|
-| `zymo serve`    | Runs HTTP server. Auto-migrates unless `AUTO_MIGRATE=false`. |
-| `zymo migrate`  | Apply pending migrations and exit. |
-| `zymo selftest` | Smoke-check a live instance (connect → ping → schema → CRUD round-trip). |
-| `zymo version`  | Print build version. |
+| Command                    | Purpose |
+|----------------------------|---------|
+| `zymo serve`               | Runs HTTP server. Auto-migrates unless `AUTO_MIGRATE=false`. |
+| `zymo migrate`             | Apply pending migrations and exit. |
+| `zymo selftest`            | Smoke-check a live instance (connect → ping → schema → CRUD round-trip). |
+| `zymo vapid-keys`          | Generate a VAPID key pair and print as env vars. |
+| `zymo reprocess-deletions` | Re-anonymize accounts whose deletion was undone by a backup restore. |
+| `zymo version`             | Print build version. |
 
 **Regenerating queries**: edit `internal/queries/sql/*.sql`, then run `$(go env GOPATH)/bin/sqlc generate`. Generated files are committed.
 
@@ -75,6 +79,14 @@ go run ./cmd/zymo serve
 | `VAPID_PUBLIC_KEY`  | *(optional)*          | VAPID public key for web-push (generate with `zymo vapid-keys`) |
 | `VAPID_PRIVATE_KEY` | *(optional)*          | VAPID private key for web-push |
 | `VAPID_SUBJECT`     | `mailto:admin@localhost` | VAPID contact (mailto: or https:) |
+| `STORAGE_BACKEND`     | `local`               | `local` \| `s3` — used for user exports and admin backups |
+| `STORAGE_LOCAL_PATH`  | `./data`              | Filesystem root for the local backend |
+| `S3_ENDPOINT`         | *(optional)*          | S3-compatible endpoint URL (e.g. MinIO). Empty for AWS S3. |
+| `S3_REGION`           | `us-east-1`           | S3 region |
+| `S3_BUCKET`           | *(required if s3)*    | S3 bucket name |
+| `S3_ACCESS_KEY`       | *(required if s3)*    | S3 access key |
+| `S3_SECRET_KEY`       | *(required if s3)*    | S3 secret key |
+| `BACKUP_RETENTION_DAYS` | `30`                | Hard-delete admin backups (rows + blobs) after N days |
 
 ## Tests + Smoke Checks
 
@@ -95,7 +107,7 @@ go test ./...
 1. ~~Auth (local), profile, mead batch CRUD with readings + chart~~ ✓
 2. ~~Recipes, forking, instance feed, comments~~ ✓
 3. ~~Calculators + reminders / web-push notifications~~ ✓ (calculators deferred; reminders + web-push done)
-4. Backup + export (first-class)
+4. ~~Backup + export (first-class)~~ ✓
 5. Cider + wine (reuse ~90% of mead flow)
 6. Beer (new flows: mash, boil, IBU)
 7. Kombucha (continuous fermentation model — F1/F2)
@@ -164,7 +176,7 @@ These cross-cutting rules apply across all resources:
 
 **MVP guard** — `brew_type != mead` is rejected at the API surface. Schema supports more types for later phases.
 
-**Auth** — all `/api/batches/*`, `/api/notifications/*`, `/api/users/me/*`, and `/api/users/me/exports/*` require auth. Recipe/profile reads are public. See Auth section for session mechanics.
+**Auth** — all `/api/batches/*`, `/api/notifications/*`, `/api/users/me/*`, `/api/users/me/exports/*`, and `/api/admin/*` require auth. `/api/admin/*` additionally requires `users.is_admin = true` (`requireAdmin` middleware → 403). Recipe/profile reads are public. See Auth section for session mechanics.
 
 ### Recipes
 
@@ -208,10 +220,32 @@ These cross-cutting rules apply across all resources:
 - **Calculators** — ABV, OG→FG, honey weight, pitch rate. Deferred from Phase 3.
 - **`custom_event` anchor** materialization — needs event title/kind selector.
 - **Re-materialization on re-anchor** — editing a pitch event's `occurred_at` does not update existing reminders.
-- **Push subscription cleanup** — 410 Gone from push service should auto-delete the row.
 - **No pagination cursor** — all lists use limit/offset; add cursor when feeds grow large.
 - **Unbounded readings/events** — no pagination; add cursor when device adapters (Tilt/RAPT) land.
 - **`source` is free text** — constrain to known set when device adapters ship.
+
+### Backups + Exports
+
+**Two surfaces, one storage backend.** User exports (`/api/users/me/exports/*`) ship a per-user ZIP of their data. Admin backups (`/api/admin/backups/*`) capture a full-database `pg_dump`. Both write through `internal/storage` (`local` or `s3`); both follow the reminder-dispatcher pattern — HTTP handler creates a `pending` row, periodic River worker claims it with `FOR UPDATE SKIP LOCKED` and processes inline.
+
+**User export ZIP layout** — `manifest.json` (schema version + export timestamp), `profile.json`, `recipes.json` (recipes + ingredients + revisions), `batches.json` (batches + readings + events + tasting notes), `social.json` (follows + likes + comments). ZIP is built into a temp file first so the size is known before `Put`.
+
+**Admin backup pipeline** — `pg_dump --format=custom` is streamed straight into `store.Put(..., size=-1)` via `io.Pipe`; size is counted as bytes flow through. **Credentials never appear in `ps` output** — connection params for postgres:// URLs are passed via `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`/`PGSSLMODE`, not as command-line flags. Key-value DSNs fall back to `--dbname=...` (credentials *would* be visible on that path; tighten if we ever support that DSN form in production).
+
+**Download path** — `serveStorageFile` calls `store.PresignGet(key, 15m)`. S3 returns a signed URL → `302` redirect to the client. Local backend returns `""` → server streams the file directly with a `Content-Disposition: attachment` header. Local pre-export: only one in-progress export per user (`GetPendingUserExport` → `409 Conflict`).
+
+**Retention model**
+- User exports: dispatcher runs `ExpireUserExports` each tick (`status = expired` for completed rows past `expires_at`); blobs deleted via `store.Delete`. Rows retained for audit.
+- Admin backups: dispatcher runs `DeleteExpiredAdminBackups($BACKUP_RETENTION_DAYS)` each tick — rows *and* blobs hard-deleted (no audit need; `pg_dump` is the source of truth).
+
+**Account-deletion interaction** — `internal/account.Anonymize` deletes the user's `user_exports` rows and corresponding blobs as part of the wipe; admin backups are unaffected (instance-level, not per-user).
+
+#### Known deferred gaps
+
+- **ZIP-only export format** — tar.gz / zstd pencilled in for next session.
+- **No checksum on stored blobs** — surface SHA-256 on download endpoints.
+- **Backup encryption at rest** — currently relies on backend-level encryption (S3 SSE, disk crypto). Add app-level GPG when running on untrusted storage.
+- **No restore CLI** — backups are restored manually with `pg_restore`. `zymo reprocess-deletions` covers the deletion-after-restore corner.
 
 ## Background Jobs
 
@@ -220,7 +254,10 @@ River runs in-process. Queue state in `river_*` tables. `migrate.Up` runs goose 
 | Job | Schedule | Purpose |
 |---|---|---|
 | `expired_sessions_gc` | every hour, `RunOnStart: true` | `DELETE FROM sessions WHERE expires_at < now()` |
-| `reminder_dispatcher` | every minute, `RunOnStart: false` | Atomically claims due reminders (`FOR UPDATE SKIP LOCKED`), creates in-app `notifications` rows |
+| `reminder_dispatcher` | every minute | Atomically claims due reminders (`FOR UPDATE SKIP LOCKED`), creates in-app `notifications` rows |
+| `user_export_dispatcher` | every minute | Claims pending `user_exports` (`FOR UPDATE SKIP LOCKED`), builds ZIP, uploads, marks complete. Also expires + deletes blobs of past-`expires_at` exports. |
+| `admin_backup_dispatcher` | every minute | Claims pending `admin_backups` (`FOR UPDATE SKIP LOCKED`), streams `pg_dump --format=custom` into storage. Also hard-deletes rows + blobs past `BACKUP_RETENTION_DAYS`. |
+| `admin_backup_scheduler` | every 24h | Inserts a pending `admin_backups` row; the dispatcher picks it up within a minute. |
 
 **Adding a job**: new file `internal/jobs/<name>.go` with `<Name>Args` + `Kind()` + worker embedding `river.WorkerDefaults`. Register in `New()`. Test by constructing a synthetic `*river.Job[Args]` and calling `Work()` directly.
 
@@ -269,7 +306,7 @@ River runs in-process. Queue state in `river_*` tables. `migrate.Up` runs goose 
 
 ---
 
-> Future-phase schemas (Phase 2+ DB schema, reminders, community tables), useful queries, deferred feature notes, backup/export, account deletion, and hardware integration are in [docs/design-reference.md](docs/design-reference.md).
+> Future-phase schemas (Phase 2+ DB schema, reminders, community tables), useful queries, deferred feature notes, and hardware integration are in [docs/design-reference.md](docs/design-reference.md).
 
 ## Open Decisions
 
