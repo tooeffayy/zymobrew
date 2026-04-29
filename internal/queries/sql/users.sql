@@ -49,3 +49,35 @@ UPDATE users SET
   avatar_url   = COALESCE(sqlc.narg('avatar_url'),   avatar_url)
 WHERE id = sqlc.arg('id') AND deleted_at IS NULL
 RETURNING *;
+
+-- AnonymizeUser strips PII from a user row in place. The row is preserved so
+-- foreign keys on immutable history (recipe_revisions, admin_audit_log) and
+-- public content (recipes, comments) remain valid. Username/email are
+-- replaced with derived placeholders that satisfy the UNIQUE constraints;
+-- the .invalid TLD is reserved (RFC 2606) so the address can never resolve.
+-- name: AnonymizeUser :exec
+UPDATE users SET
+  username               = 'deleted-' || id::text,
+  email                  = 'deleted-' || id::text || '@deleted.invalid',
+  password_hash          = NULL,
+  display_name           = NULL,
+  bio                    = NULL,
+  avatar_url             = NULL,
+  deletion_scheduled_for = NULL,
+  deletion_choices       = NULL,
+  deletion_reason        = NULL,
+  deleted_at             = now()
+WHERE id = $1;
+
+-- name: CreateAccountDeletionRequest :one
+INSERT INTO account_deletion_requests (user_id) VALUES ($1) RETURNING *;
+
+-- ListUnprocessedDeletionRequests returns deletion requests for users whose
+-- anonymization was undone by a backup restore. Used by the
+-- `zymo reprocess-deletions` command to re-apply pending deletions.
+-- name: ListUnprocessedDeletionRequests :many
+SELECT adr.id, adr.user_id, adr.requested_at
+FROM account_deletion_requests adr
+JOIN users u ON u.id = adr.user_id
+WHERE u.deleted_at IS NULL
+ORDER BY adr.requested_at;

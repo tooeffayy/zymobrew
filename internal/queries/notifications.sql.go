@@ -51,6 +51,24 @@ func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotification
 	return i, err
 }
 
+const deleteNotificationPrefsForUser = `-- name: DeleteNotificationPrefsForUser :exec
+DELETE FROM notification_prefs WHERE user_id = $1
+`
+
+func (q *Queries) DeleteNotificationPrefsForUser(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteNotificationPrefsForUser, userID)
+	return err
+}
+
+const deleteNotificationsForUser = `-- name: DeleteNotificationsForUser :exec
+DELETE FROM notifications WHERE user_id = $1
+`
+
+func (q *Queries) DeleteNotificationsForUser(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteNotificationsForUser, userID)
+	return err
+}
+
 const getNotificationPrefs = `-- name: GetNotificationPrefs :one
 SELECT user_id, push_enabled, email_enabled, quiet_hours_start, quiet_hours_end, timezone FROM notification_prefs WHERE user_id = $1
 `

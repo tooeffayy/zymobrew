@@ -42,6 +42,13 @@ UPDATE user_exports SET status = 'expired'
 WHERE expires_at < now() AND status = 'complete'
 RETURNING file_path;
 
+-- name: ListUserExportFilePathsForUser :many
+SELECT file_path FROM user_exports
+WHERE user_id = $1 AND file_path IS NOT NULL;
+
+-- name: DeleteUserExportsForUser :exec
+DELETE FROM user_exports WHERE user_id = $1;
+
 -- =============================================================================
 -- Admin backups
 -- =============================================================================

@@ -11,10 +11,12 @@ import (
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
+	"zymobrew/internal/account"
 	"zymobrew/internal/config"
 	"zymobrew/internal/db"
 	"zymobrew/internal/jobs"
 	"zymobrew/internal/migrate"
+	"zymobrew/internal/queries"
 	"zymobrew/internal/selftest"
 	"zymobrew/internal/server"
 	"zymobrew/internal/storage"
@@ -23,11 +25,12 @@ import (
 const usage = `zymo — fermentation tracking server
 
 usage:
-  zymo serve       run the HTTP server (default; auto-migrates unless AUTO_MIGRATE=false)
-  zymo migrate     apply pending migrations and exit
-  zymo selftest    run runtime smoke tests against the configured database
-  zymo vapid-keys  generate a VAPID key pair and print them as env vars
-  zymo version     print version
+  zymo serve                run the HTTP server (default; auto-migrates unless AUTO_MIGRATE=false)
+  zymo migrate              apply pending migrations and exit
+  zymo selftest             run runtime smoke tests against the configured database
+  zymo vapid-keys           generate a VAPID key pair and print them as env vars
+  zymo reprocess-deletions  re-anonymize accounts whose deletion was undone by a backup restore
+  zymo version              print version
 `
 
 func main() {
@@ -55,6 +58,8 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("VAPID_PUBLIC_KEY=%s\nVAPID_PRIVATE_KEY=%s\n", pub, priv)
+	case "reprocess-deletions":
+		run(ctx, reprocessDeletions)
 	case "version":
 		fmt.Println("zymo dev")
 	case "help", "-h", "--help":
@@ -119,4 +124,44 @@ func runMigrate(ctx context.Context, cfg config.Config) error {
 	}
 	defer sqlDB.Close()
 	return migrate.Up(ctx, sqlDB)
+}
+
+// reprocessDeletions re-runs anonymization for any account_deletion_requests
+// rows whose user is not currently soft-deleted — the case after restoring
+// a backup taken before the user's deletion was processed.
+func reprocessDeletions(ctx context.Context, cfg config.Config) error {
+	pool, err := db.NewPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("db pool: %w", err)
+	}
+	defer pool.Close()
+
+	store, err := storage.New(cfg)
+	if err != nil {
+		return fmt.Errorf("storage: %w", err)
+	}
+
+	q := queries.New(pool)
+	pending, err := q.ListUnprocessedDeletionRequests(ctx)
+	if err != nil {
+		return fmt.Errorf("list unprocessed: %w", err)
+	}
+	if len(pending) == 0 {
+		fmt.Println("no pending deletions to reprocess")
+		return nil
+	}
+
+	failures := 0
+	for _, row := range pending {
+		if err := account.Anonymize(ctx, pool, q, store, row.UserID); err != nil {
+			fmt.Fprintf(os.Stderr, "user %s: %v\n", row.UserID, err)
+			failures++
+			continue
+		}
+		fmt.Printf("anonymized %s (request %s)\n", row.UserID, row.ID)
+	}
+	if failures > 0 {
+		return fmt.Errorf("%d of %d deletions failed", failures, len(pending))
+	}
+	return nil
 }

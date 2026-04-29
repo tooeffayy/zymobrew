@@ -817,6 +817,54 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+    delete:
+      tags: [users]
+      operationId: deleteAccount
+      summary: Anonymize own account (GDPR-style erasure)
+      description: |
+        Strips PII from the user row in place: username/email become
+        derived placeholders, password and profile fields are cleared,
+        and `deleted_at` is set. Sessions, push devices, notification
+        prefs/notifications, and export rows + blobs are deleted.
+        Recipes, comments, batches, and audit history are retained
+        attached to the now-anonymized row. Refused for admin accounts —
+        admin role must be handed off first. The action is logged in
+        `account_deletion_requests` so a backup-restore can be
+        re-anonymized via `zymo reprocess-deletions`.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+      responses:
+        "204":
+          description: Account anonymized; session cookie cleared
+        "400":
+          description: Invalid JSON or account has no password set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Password incorrect or not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Admin accounts must hand off role before deletion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/users/me/password:
     post:

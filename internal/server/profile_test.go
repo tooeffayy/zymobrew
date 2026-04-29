@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -276,6 +277,138 @@ func TestProfile_ChangePassword_RequiresAuth(t *testing.T) {
 	resp := doJSON(t, srv, http.MethodPost, "/api/users/me/password", map[string]string{
 		"current_password": "supersecret",
 		"new_password":     "newpassword123",
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("got %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestProfile_DeleteAccount_HappyPath(t *testing.T) {
+	srv, pool := setupAuth(t, config.ModeOpen)
+	ctx := context.Background()
+
+	// Register and capture the user id so we can inspect post-anonymize state.
+	resp := doJSON(t, srv, http.MethodPost, "/api/auth/register", map[string]string{
+		"username": "alice",
+		"email":    "alice@example.com",
+		"password": "supersecret",
+	})
+	cookies := resp.Cookies()
+	var registered map[string]any
+	decode(t, resp, &registered)
+	user := registered["user"].(map[string]any)
+	userID := user["id"].(string)
+
+	// Open a second session — must be revoked by the delete.
+	resp = doJSON(t, srv, http.MethodPost, "/api/auth/login", map[string]string{
+		"identifier": "alice",
+		"password":   "supersecret",
+	})
+	otherCookies := resp.Cookies()
+
+	// Wrong password is rejected without anonymizing.
+	resp = doJSON(t, srv, http.MethodDelete, "/api/users/me", map[string]string{
+		"password": "wrong",
+	}, cookies...)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong password: got %d, want 401", resp.StatusCode)
+	}
+
+	// Right password anonymizes and returns 204.
+	resp = doJSON(t, srv, http.MethodDelete, "/api/users/me", map[string]string{
+		"password": "supersecret",
+	}, cookies...)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete account: got %d, want 204", resp.StatusCode)
+	}
+
+	// User row anonymized in place.
+	var (
+		username, email string
+		passwordHash    *string
+		deletedAt       *string
+	)
+	if err := pool.QueryRow(ctx,
+		`SELECT username, email, password_hash, deleted_at::text FROM users WHERE id = $1`,
+		userID,
+	).Scan(&username, &email, &passwordHash, &deletedAt); err != nil {
+		t.Fatalf("user row should still exist (anonymized): %v", err)
+	}
+	if !strings.HasPrefix(username, "deleted-") {
+		t.Errorf("username not anonymized: %q", username)
+	}
+	if !strings.HasSuffix(email, "@deleted.invalid") {
+		t.Errorf("email not anonymized: %q", email)
+	}
+	if passwordHash != nil {
+		t.Errorf("password_hash should be NULL, got %q", *passwordHash)
+	}
+	if deletedAt == nil {
+		t.Error("deleted_at should be set")
+	}
+
+	// Both sessions revoked.
+	for name, c := range map[string][]*http.Cookie{"primary": cookies, "other": otherCookies} {
+		resp = doJSON(t, srv, http.MethodGet, "/api/auth/me", nil, c...)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s session still valid: got %d, want 401", name, resp.StatusCode)
+		}
+	}
+
+	// account_deletion_requests row recorded.
+	var n int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM account_deletion_requests WHERE user_id = $1`, userID,
+	).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("account_deletion_requests rows for user: got %d, want 1", n)
+	}
+
+	// Profile lookup 404s — anonymized users vanish from the public surface.
+	resp = doJSON(t, srv, http.MethodGet, "/api/users/alice", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("anonymized profile lookup: got %d, want 404", resp.StatusCode)
+	}
+
+	// Username freed: re-register with the same handle now succeeds.
+	resp = doJSON(t, srv, http.MethodPost, "/api/auth/register", map[string]string{
+		"username": "alice",
+		"email":    "alice2@example.com",
+		"password": "supersecret",
+	})
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		t.Errorf("re-register after anonymize: got %d", resp.StatusCode)
+	}
+}
+
+func TestProfile_DeleteAccount_AdminBlocked(t *testing.T) {
+	srv, pool := setupAuth(t, config.ModeOpen)
+	ctx := context.Background()
+
+	resp := doJSON(t, srv, http.MethodPost, "/api/auth/register", map[string]string{
+		"username": "admin",
+		"email":    "admin@example.com",
+		"password": "supersecret",
+	})
+	cookies := resp.Cookies()
+	if _, err := pool.Exec(ctx, "UPDATE users SET is_admin = TRUE WHERE username = 'admin'"); err != nil {
+		t.Fatal(err)
+	}
+
+	resp = doJSON(t, srv, http.MethodDelete, "/api/users/me", map[string]string{
+		"password": "supersecret",
+	}, cookies...)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("admin self-delete: got %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestProfile_DeleteAccount_RequiresAuth(t *testing.T) {
+	srv, _ := setupAuth(t, config.ModeOpen)
+	resp := doJSON(t, srv, http.MethodDelete, "/api/users/me", map[string]string{
+		"password": "supersecret",
 	})
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("got %d, want 401", resp.StatusCode)

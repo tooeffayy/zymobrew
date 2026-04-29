@@ -12,6 +12,12 @@ import (
 )
 
 type Querier interface {
+	// AnonymizeUser strips PII from a user row in place. The row is preserved so
+	// foreign keys on immutable history (recipe_revisions, admin_audit_log) and
+	// public content (recipes, comments) remain valid. Username/email are
+	// replaced with derived placeholders that satisfy the UNIQUE constraints;
+	// the .invalid TLD is reserved (RFC 2606) so the address can never resolve.
+	AnonymizeUser(ctx context.Context, id uuid.UUID) error
 	CancelReminder(ctx context.Context, arg CancelReminderParams) (int64, error)
 	ClaimDueReminders(ctx context.Context, limit int32) ([]Reminder, error)
 	ClaimPendingAdminBackups(ctx context.Context) ([]AdminBackup, error)
@@ -19,6 +25,10 @@ type Querier interface {
 	CompleteAdminBackup(ctx context.Context, arg CompleteAdminBackupParams) (AdminBackup, error)
 	CompleteUserExport(ctx context.Context, arg CompleteUserExportParams) (UserExport, error)
 	CountUsers(ctx context.Context) (int64, error)
+	CreateAccountDeletionRequest(ctx context.Context, userID uuid.UUID) (AccountDeletionRequest, error)
+	// =============================================================================
+	// Admin backups
+	// =============================================================================
 	CreateAdminBackup(ctx context.Context, storageBackend string) (AdminBackup, error)
 	CreateBatch(ctx context.Context, arg CreateBatchParams) (Batch, error)
 	CreateBatchEvent(ctx context.Context, arg CreateBatchEventParams) (BatchEvent, error)
@@ -34,18 +44,25 @@ type Querier interface {
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateTastingNote(ctx context.Context, arg CreateTastingNoteParams) (TastingNote, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// =============================================================================
+	// User exports
+	// =============================================================================
 	CreateUserExport(ctx context.Context, userID uuid.UUID) (UserExport, error)
 	CreateUserWithPassword(ctx context.Context, arg CreateUserWithPasswordParams) (User, error)
 	DeleteBatch(ctx context.Context, arg DeleteBatchParams) (int64, error)
 	DeleteExpiredAdminBackups(ctx context.Context, dollar_1 int32) ([]pgtype.Text, error)
 	DeleteExpiredSessions(ctx context.Context) error
+	DeleteNotificationPrefsForUser(ctx context.Context, userID uuid.UUID) error
+	DeleteNotificationsForUser(ctx context.Context, userID uuid.UUID) error
 	DeletePushDevice(ctx context.Context, arg DeletePushDeviceParams) (int64, error)
+	DeletePushDevicesForUser(ctx context.Context, userID uuid.UUID) error
 	DeleteRecipe(ctx context.Context, arg DeleteRecipeParams) (int64, error)
 	DeleteRecipeComment(ctx context.Context, arg DeleteRecipeCommentParams) (int64, error)
 	DeleteRecipeIngredients(ctx context.Context, recipeID uuid.UUID) error
 	DeleteReminderTemplate(ctx context.Context, arg DeleteReminderTemplateParams) (int64, error)
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
 	DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error
+	DeleteUserExportsForUser(ctx context.Context, userID uuid.UUID) error
 	ExpireUserExports(ctx context.Context) ([]pgtype.Text, error)
 	FailAdminBackup(ctx context.Context, arg FailAdminBackupParams) error
 	FailUserExport(ctx context.Context, arg FailUserExportParams) error
@@ -73,6 +90,9 @@ type Querier interface {
 	ListBatchEventsForBatch(ctx context.Context, batchID uuid.UUID) ([]BatchEvent, error)
 	ListBatchReminders(ctx context.Context, arg ListBatchRemindersParams) ([]Reminder, error)
 	ListBatchesForUser(ctx context.Context, arg ListBatchesForUserParams) ([]Batch, error)
+	// =============================================================================
+	// Social data for export
+	// =============================================================================
 	ListFollowsByUser(ctx context.Context, followerID uuid.UUID) ([]Follow, error)
 	ListLikesByUser(ctx context.Context, userID uuid.UUID) ([]RecipeLike, error)
 	ListNotifications(ctx context.Context, arg ListNotificationsParams) ([]Notification, error)
@@ -86,6 +106,11 @@ type Querier interface {
 	ListRecipesForAuthor(ctx context.Context, arg ListRecipesForAuthorParams) ([]Recipe, error)
 	ListReminderTemplates(ctx context.Context, recipeID uuid.UUID) ([]RecipeReminderTemplate, error)
 	ListTastingNotesForBatch(ctx context.Context, batchID uuid.UUID) ([]TastingNote, error)
+	// ListUnprocessedDeletionRequests returns deletion requests for users whose
+	// anonymization was undone by a backup restore. Used by the
+	// `zymo reprocess-deletions` command to re-apply pending deletions.
+	ListUnprocessedDeletionRequests(ctx context.Context) ([]AccountDeletionRequest, error)
+	ListUserExportFilePathsForUser(ctx context.Context, userID uuid.UUID) ([]pgtype.Text, error)
 	ListUserExports(ctx context.Context, userID uuid.UUID) ([]UserExport, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID) error

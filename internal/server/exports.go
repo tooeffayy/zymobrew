@@ -101,7 +101,7 @@ func (s *Server) handleDownloadExport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": fmt.Sprintf("export status is %s", export.Status)})
 		return
 	}
-	s.serveStorageFile(w, r, export.FilePath.String, fmt.Sprintf("zymo-export-%s.zip", id))
+	s.serveStorageFile(w, r, export.FilePath.String, fmt.Sprintf("zymo-export-%s.zip", id), "application/zip")
 }
 
 // --- Admin backups ---
@@ -165,12 +165,12 @@ func (s *Server) handleDownloadAdminBackup(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusConflict, map[string]string{"error": fmt.Sprintf("backup status is %s", backup.Status)})
 		return
 	}
-	s.serveStorageFile(w, r, backup.FilePath.String, fmt.Sprintf("zymo-backup-%s.dump", id))
+	s.serveStorageFile(w, r, backup.FilePath.String, fmt.Sprintf("zymo-backup-%s.dump", id), "application/octet-stream")
 }
 
 // serveStorageFile either redirects to a presigned URL (S3) or streams the
 // file directly (local backend).
-func (s *Server) serveStorageFile(w http.ResponseWriter, r *http.Request, key, filename string) {
+func (s *Server) serveStorageFile(w http.ResponseWriter, r *http.Request, key, filename, contentType string) {
 	presigned, err := s.store.PresignGet(r.Context(), key, 15*time.Minute)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
@@ -188,7 +188,7 @@ func (s *Server) serveStorageFile(w http.ResponseWriter, r *http.Request, key, f
 	defer rc.Close()
 
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Type", contentType)
 	if size > 0 {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	}

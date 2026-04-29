@@ -385,6 +385,12 @@ func (ns NullVisibility) Value() (driver.Value, error) {
 	return string(ns.Visibility), nil
 }
 
+type AccountDeletionRequest struct {
+	ID          uuid.UUID          `json:"id"`
+	UserID      uuid.UUID          `json:"user_id"`
+	RequestedAt pgtype.Timestamptz `json:"requested_at"`
+}
+
 type AdminAuditLog struct {
 	ID         uuid.UUID          `json:"id"`
 	AdminID    uuid.UUID          `json:"admin_id"`

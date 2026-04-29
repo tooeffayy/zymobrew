@@ -72,6 +72,7 @@ func (s *Server) routes() http.Handler {
 		})
 		r.Route("/users", func(r chi.Router) {
 			r.With(s.requireAuth).Patch("/me", s.handleUpdateProfile)
+			r.With(s.requireAuth).Delete("/me", s.handleDeleteAccount)
 			r.With(s.requireAuth).Post("/me/password", s.handleChangePassword)
 			r.Get("/{username}", s.handleGetProfile)
 		})

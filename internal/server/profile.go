@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"zymobrew/internal/account"
 	"zymobrew/internal/auth"
 	"zymobrew/internal/queries"
 )
@@ -163,4 +164,54 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, authResponse{Token: token, User: toPublicUser(*user)})
+}
+
+type deleteAccountRequest struct {
+	Password string `json:"password"`
+}
+
+// handleDeleteAccount anonymizes the caller's account in place: PII is
+// stripped from the user row, identifying tables (sessions, push devices,
+// notification prefs/notifications, exports) are wiped, but recipes,
+// comments, batches, and audit history are preserved attached to the
+// anonymized row. An account_deletion_requests row is recorded so a
+// post-restore reprocess pass can re-anonymize if a backup undoes the
+// change.
+func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+
+	if user.IsAdmin {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin must hand off role before deletion"})
+		return
+	}
+
+	var req deleteAccountRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if !user.PasswordHash.Valid {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "account has no password set"})
+		return
+	}
+	if err := auth.VerifyPassword(req.Password, user.PasswordHash.String); err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "password incorrect"})
+		return
+	}
+
+	// Record the request first so a backup-restore reprocess can find it
+	// even if anonymization itself partially fails. The CASCADE FK on user_id
+	// keeps it tied to the (still-present, soon-anonymized) user row.
+	if _, err := s.queries.CreateAccountDeletionRequest(r.Context(), user.ID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
+		return
+	}
+
+	if err := account.Anonymize(r.Context(), s.pool, s.queries, s.store, user.ID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
+		return
+	}
+
+	s.clearSessionCookie(w)
+	w.WriteHeader(http.StatusNoContent)
 }

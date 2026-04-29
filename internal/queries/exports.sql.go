@@ -229,6 +229,15 @@ func (q *Queries) DeleteExpiredAdminBackups(ctx context.Context, dollar_1 int32)
 	return items, nil
 }
 
+const deleteUserExportsForUser = `-- name: DeleteUserExportsForUser :exec
+DELETE FROM user_exports WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserExportsForUser(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserExportsForUser, userID)
+	return err
+}
+
 const expireUserExports = `-- name: ExpireUserExports :many
 UPDATE user_exports SET status = 'expired'
 WHERE expires_at < now() AND status = 'complete'
@@ -462,6 +471,31 @@ func (q *Queries) ListRecipeCommentsByUser(ctx context.Context, authorID uuid.UU
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserExportFilePathsForUser = `-- name: ListUserExportFilePathsForUser :many
+SELECT file_path FROM user_exports
+WHERE user_id = $1 AND file_path IS NOT NULL
+`
+
+func (q *Queries) ListUserExportFilePathsForUser(ctx context.Context, userID uuid.UUID) ([]pgtype.Text, error) {
+	rows, err := q.db.Query(ctx, listUserExportFilePathsForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.Text{}
+	for rows.Next() {
+		var file_path pgtype.Text
+		if err := rows.Scan(&file_path); err != nil {
+			return nil, err
+		}
+		items = append(items, file_path)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

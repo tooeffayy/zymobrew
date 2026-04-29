@@ -30,3 +30,9 @@ ON CONFLICT (user_id) DO UPDATE SET
   quiet_hours_end   = EXCLUDED.quiet_hours_end,
   timezone          = EXCLUDED.timezone
 RETURNING *;
+
+-- name: DeleteNotificationsForUser :exec
+DELETE FROM notifications WHERE user_id = $1;
+
+-- name: DeleteNotificationPrefsForUser :exec
+DELETE FROM notification_prefs WHERE user_id = $1;

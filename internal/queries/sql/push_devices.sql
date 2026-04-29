@@ -12,3 +12,6 @@ DELETE FROM push_devices WHERE user_id = $1 AND token = $2;
 
 -- name: ListPushDevicesForUser :many
 SELECT * FROM push_devices WHERE user_id = $1;
+
+-- name: DeletePushDevicesForUser :exec
+DELETE FROM push_devices WHERE user_id = $1;

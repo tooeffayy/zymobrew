@@ -115,6 +115,21 @@ go test ./...
 - **Login timing**: always runs argon2 (against a dummy hash if user not found) to prevent username enumeration by timing. See `auth.DummyHash`.
 - **Cookie security**: `COOKIE_SECURE=true` for production. CSRF currently SameSite=Lax; CSRF tokens deferred until cross-origin frontends exist.
 
+## Account Deletion (anonymization)
+
+`DELETE /api/users/me` strips PII from the user row in place rather than hard-deleting it. The blocking FKs (`recipe_revisions.author_id`, `admin_audit_log.admin_id`) point at *the user row*, not its PII — so anonymization preserves audit/history integrity while satisfying GDPR (Recital 26: anonymized data is no longer personal data).
+
+**What gets cleared** (one tx, see `internal/account.Anonymize`):
+- `users` row: username → `deleted-<id>`, email → `deleted-<id>@deleted.invalid` (RFC 2606 reserved TLD), `password_hash`/`display_name`/`bio`/`avatar_url`/`deletion_*` → NULL, `deleted_at` set.
+- Wiped: `sessions`, `push_devices`, `notifications`, `notification_prefs`, `user_exports` (rows + blobs).
+- Retained: recipes, recipe_revisions, recipe_comments, recipe_likes, follows, batches, readings, events, tasting_notes, reminders. Author renders as the `deleted-<id>` placeholder.
+
+**Guards**: refuses if `is_admin = true` (must hand off first); requires password confirmation in body.
+
+**Backup-restore safety**: every deletion writes an `account_deletion_requests` row (CASCADE FK on user). After restoring a backup taken before the user was anonymized, run `zymo reprocess-deletions` — it walks unprocessed requests (joined to `users` where `deleted_at IS NULL`) and re-runs `account.Anonymize` for each.
+
+**Dormant columns**: `deletion_scheduled_for`, `deletion_choices`, `deletion_reason` were planned for a grace-period flow with per-content-type choices. Kept in schema for that future flow; the current implementation is immediate.
+
 ### Known auth gaps (deferred)
 
 - **Single-user TOCTOU** — `CountUsers` + `INSERT` are two queries; concurrent bootstraps could both succeed. Fix: SERIALIZABLE tx.

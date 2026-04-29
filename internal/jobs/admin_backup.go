@@ -92,7 +92,8 @@ func (w *adminBackupDispatchWorker) processBackup(ctx context.Context, row queri
 		}
 	}()
 
-	putErr := w.store.Put(ctx, key, pr, -1)
+	cr := &countingReader{r: pr}
+	putErr := w.store.Put(ctx, key, cr, -1)
 	// Close the read end so the goroutine exits if Put returned early due to
 	// error — otherwise cmd.Run() blocks on a full pipe forever.
 	_ = pr.Close()
@@ -108,7 +109,7 @@ func (w *adminBackupDispatchWorker) processBackup(ctx context.Context, row queri
 	_, err := w.queries.CompleteAdminBackup(ctx, queries.CompleteAdminBackupParams{
 		ID:        row.ID,
 		FilePath:  pgtype.Text{String: key, Valid: true},
-		SizeBytes: pgtype.Int8{Valid: false}, // size unknown when streaming
+		SizeBytes: pgtype.Int8{Int64: cr.n, Valid: true},
 	})
 	return err
 }
@@ -127,6 +128,17 @@ func (w *adminBackupDispatchWorker) pruneExpired(ctx context.Context) {
 			slog.Error("delete expired backup file", "path", p.String, "err", err)
 		}
 	}
+}
+
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // buildPgDumpCmd constructs a pg_dump command. When the DATABASE_URL is a

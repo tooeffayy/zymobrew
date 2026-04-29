@@ -12,6 +12,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const anonymizeUser = `-- name: AnonymizeUser :exec
+UPDATE users SET
+  username               = 'deleted-' || id::text,
+  email                  = 'deleted-' || id::text || '@deleted.invalid',
+  password_hash          = NULL,
+  display_name           = NULL,
+  bio                    = NULL,
+  avatar_url             = NULL,
+  deletion_scheduled_for = NULL,
+  deletion_choices       = NULL,
+  deletion_reason        = NULL,
+  deleted_at             = now()
+WHERE id = $1
+`
+
+// AnonymizeUser strips PII from a user row in place. The row is preserved so
+// foreign keys on immutable history (recipe_revisions, admin_audit_log) and
+// public content (recipes, comments) remain valid. Username/email are
+// replaced with derived placeholders that satisfy the UNIQUE constraints;
+// the .invalid TLD is reserved (RFC 2606) so the address can never resolve.
+func (q *Queries) AnonymizeUser(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, anonymizeUser, id)
+	return err
+}
+
 const countUsers = `-- name: CountUsers :one
 SELECT count(*) FROM users
 WHERE deleted_at IS NULL
@@ -22,6 +47,17 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const createAccountDeletionRequest = `-- name: CreateAccountDeletionRequest :one
+INSERT INTO account_deletion_requests (user_id) VALUES ($1) RETURNING id, user_id, requested_at
+`
+
+func (q *Queries) CreateAccountDeletionRequest(ctx context.Context, userID uuid.UUID) (AccountDeletionRequest, error) {
+	row := q.db.QueryRow(ctx, createAccountDeletionRequest, userID)
+	var i AccountDeletionRequest
+	err := row.Scan(&i.ID, &i.UserID, &i.RequestedAt)
+	return i, err
 }
 
 const createUser = `-- name: CreateUser :one
@@ -222,6 +258,37 @@ func (q *Queries) GetUserCredentialByUsername(ctx context.Context, username stri
 		&i.PasswordHash,
 	)
 	return i, err
+}
+
+const listUnprocessedDeletionRequests = `-- name: ListUnprocessedDeletionRequests :many
+SELECT adr.id, adr.user_id, adr.requested_at
+FROM account_deletion_requests adr
+JOIN users u ON u.id = adr.user_id
+WHERE u.deleted_at IS NULL
+ORDER BY adr.requested_at
+`
+
+// ListUnprocessedDeletionRequests returns deletion requests for users whose
+// anonymization was undone by a backup restore. Used by the
+// `zymo reprocess-deletions` command to re-apply pending deletions.
+func (q *Queries) ListUnprocessedDeletionRequests(ctx context.Context) ([]AccountDeletionRequest, error) {
+	rows, err := q.db.Query(ctx, listUnprocessedDeletionRequests)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AccountDeletionRequest{}
+	for rows.Next() {
+		var i AccountDeletionRequest
+		if err := rows.Scan(&i.ID, &i.UserID, &i.RequestedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUsers = `-- name: ListUsers :many
