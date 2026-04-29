@@ -410,6 +410,7 @@ type AdminBackup struct {
 	Error          pgtype.Text        `json:"error"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+	Sha256         pgtype.Text        `json:"sha256"`
 }
 
 type Batch struct {
@@ -685,6 +686,7 @@ type UserExport struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	CompletedAt pgtype.Timestamptz `json:"completed_at"`
 	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	Sha256      pgtype.Text        `json:"sha256"`
 }
 
 type UserImport struct {

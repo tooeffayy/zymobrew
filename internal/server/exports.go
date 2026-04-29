@@ -101,7 +101,7 @@ func (s *Server) handleDownloadExport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": fmt.Sprintf("export status is %s", export.Status)})
 		return
 	}
-	s.serveStorageFile(w, r, export.FilePath.String, fmt.Sprintf("zymo-export-%s.zip", id), "application/zip")
+	s.serveStorageFile(w, r, export.FilePath.String, fmt.Sprintf("zymo-export-%s.zip", id), "application/zip", textOrEmpty(export.Sha256))
 }
 
 // --- Admin backups ---
@@ -165,12 +165,19 @@ func (s *Server) handleDownloadAdminBackup(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusConflict, map[string]string{"error": fmt.Sprintf("backup status is %s", backup.Status)})
 		return
 	}
-	s.serveStorageFile(w, r, backup.FilePath.String, fmt.Sprintf("zymo-backup-%s.dump", id), "application/octet-stream")
+	s.serveStorageFile(w, r, backup.FilePath.String, fmt.Sprintf("zymo-backup-%s.dump", id), "application/octet-stream", textOrEmpty(backup.Sha256))
 }
 
 // serveStorageFile either redirects to a presigned URL (S3) or streams the
-// file directly (local backend).
-func (s *Server) serveStorageFile(w http.ResponseWriter, r *http.Request, key, filename, contentType string) {
+// file directly (local backend). When sha256 is non-empty it's surfaced as
+// X-Content-SHA256 on the response, useful for `curl | sha256sum -c -`
+// integrity checks. On the S3 redirect path the header rides on the 302;
+// the actual S3 response won't carry it, so clients verifying after a
+// redirect should rely on the JSON view's `sha256` field instead.
+func (s *Server) serveStorageFile(w http.ResponseWriter, r *http.Request, key, filename, contentType, sha256 string) {
+	if sha256 != "" {
+		w.Header().Set("X-Content-SHA256", sha256)
+	}
 	presigned, err := s.store.PresignGet(r.Context(), key, 15*time.Minute)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
@@ -207,6 +214,9 @@ func exportView(e queries.UserExport) map[string]any {
 	if e.SizeBytes.Valid {
 		v["size_bytes"] = e.SizeBytes.Int64
 	}
+	if e.Sha256.Valid {
+		v["sha256"] = e.Sha256.String
+	}
 	if e.CompletedAt.Valid {
 		v["completed_at"] = e.CompletedAt.Time
 	}
@@ -228,6 +238,9 @@ func backupView(b queries.AdminBackup) map[string]any {
 	}
 	if b.SizeBytes.Valid {
 		v["size_bytes"] = b.SizeBytes.Int64
+	}
+	if b.Sha256.Valid {
+		v["sha256"] = b.Sha256.String
 	}
 	if b.CompletedAt.Valid {
 		v["completed_at"] = b.CompletedAt.Time

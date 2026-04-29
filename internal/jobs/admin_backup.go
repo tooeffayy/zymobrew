@@ -2,6 +2,8 @@ package jobs
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -92,10 +94,12 @@ func (w *adminBackupDispatchWorker) processBackup(ctx context.Context, row queri
 		}
 	}()
 
-	cr := &countingReader{r: pr}
+	hasher := sha256.New()
+	cr := &countingReader{r: io.TeeReader(pr, hasher)}
 	putErr := w.store.Put(ctx, key, cr, -1)
 	// Close the read end so the goroutine exits if Put returned early due to
-	// error — otherwise cmd.Run() blocks on a full pipe forever.
+	// error — otherwise cmd.Run() blocks on a full pipe forever. TeeReader
+	// only writes on successful read, so Put aborting cleanly cascades here.
 	_ = pr.Close()
 	<-done
 
@@ -105,11 +109,13 @@ func (w *adminBackupDispatchWorker) processBackup(ctx context.Context, row queri
 	if putErr != nil {
 		return fmt.Errorf("store put: %w", putErr)
 	}
+	digest := hex.EncodeToString(hasher.Sum(nil))
 
 	_, err := w.queries.CompleteAdminBackup(ctx, queries.CompleteAdminBackupParams{
 		ID:        row.ID,
 		FilePath:  pgtype.Text{String: key, Valid: true},
 		SizeBytes: pgtype.Int8{Int64: cr.n, Valid: true},
+		Sha256:    pgtype.Text{String: digest, Valid: true},
 	})
 	return err
 }

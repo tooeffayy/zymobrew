@@ -28,7 +28,7 @@ RETURNING *;
 
 -- name: CompleteUserExport :one
 UPDATE user_exports
-SET status = 'complete', file_path = $2, size_bytes = $3,
+SET status = 'complete', file_path = $2, size_bytes = $3, sha256 = $4,
     completed_at = now(), expires_at = now() + interval '7 days'
 WHERE id = $1
 RETURNING *;
@@ -74,7 +74,7 @@ RETURNING *;
 
 -- name: CompleteAdminBackup :one
 UPDATE admin_backups
-SET status = 'complete', file_path = $2, size_bytes = $3, completed_at = now()
+SET status = 'complete', file_path = $2, size_bytes = $3, sha256 = $4, completed_at = now()
 WHERE id = $1
 RETURNING *;
 

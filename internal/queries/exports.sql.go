@@ -20,7 +20,7 @@ WHERE id IN (
   LIMIT 1
   FOR UPDATE SKIP LOCKED
 )
-RETURNING id, status, file_path, size_bytes, storage_backend, error, created_at, completed_at
+RETURNING id, status, file_path, size_bytes, storage_backend, error, created_at, completed_at, sha256
 `
 
 func (q *Queries) ClaimPendingAdminBackups(ctx context.Context) ([]AdminBackup, error) {
@@ -41,6 +41,7 @@ func (q *Queries) ClaimPendingAdminBackups(ctx context.Context) ([]AdminBackup, 
 			&i.Error,
 			&i.CreatedAt,
 			&i.CompletedAt,
+			&i.Sha256,
 		); err != nil {
 			return nil, err
 		}
@@ -60,7 +61,7 @@ WHERE id IN (
   LIMIT 5
   FOR UPDATE SKIP LOCKED
 )
-RETURNING id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at
+RETURNING id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256
 `
 
 func (q *Queries) ClaimPendingUserExports(ctx context.Context) ([]UserExport, error) {
@@ -82,6 +83,7 @@ func (q *Queries) ClaimPendingUserExports(ctx context.Context) ([]UserExport, er
 			&i.CreatedAt,
 			&i.CompletedAt,
 			&i.ExpiresAt,
+			&i.Sha256,
 		); err != nil {
 			return nil, err
 		}
@@ -95,19 +97,25 @@ func (q *Queries) ClaimPendingUserExports(ctx context.Context) ([]UserExport, er
 
 const completeAdminBackup = `-- name: CompleteAdminBackup :one
 UPDATE admin_backups
-SET status = 'complete', file_path = $2, size_bytes = $3, completed_at = now()
+SET status = 'complete', file_path = $2, size_bytes = $3, sha256 = $4, completed_at = now()
 WHERE id = $1
-RETURNING id, status, file_path, size_bytes, storage_backend, error, created_at, completed_at
+RETURNING id, status, file_path, size_bytes, storage_backend, error, created_at, completed_at, sha256
 `
 
 type CompleteAdminBackupParams struct {
 	ID        uuid.UUID   `json:"id"`
 	FilePath  pgtype.Text `json:"file_path"`
 	SizeBytes pgtype.Int8 `json:"size_bytes"`
+	Sha256    pgtype.Text `json:"sha256"`
 }
 
 func (q *Queries) CompleteAdminBackup(ctx context.Context, arg CompleteAdminBackupParams) (AdminBackup, error) {
-	row := q.db.QueryRow(ctx, completeAdminBackup, arg.ID, arg.FilePath, arg.SizeBytes)
+	row := q.db.QueryRow(ctx, completeAdminBackup,
+		arg.ID,
+		arg.FilePath,
+		arg.SizeBytes,
+		arg.Sha256,
+	)
 	var i AdminBackup
 	err := row.Scan(
 		&i.ID,
@@ -118,26 +126,33 @@ func (q *Queries) CompleteAdminBackup(ctx context.Context, arg CompleteAdminBack
 		&i.Error,
 		&i.CreatedAt,
 		&i.CompletedAt,
+		&i.Sha256,
 	)
 	return i, err
 }
 
 const completeUserExport = `-- name: CompleteUserExport :one
 UPDATE user_exports
-SET status = 'complete', file_path = $2, size_bytes = $3,
+SET status = 'complete', file_path = $2, size_bytes = $3, sha256 = $4,
     completed_at = now(), expires_at = now() + interval '7 days'
 WHERE id = $1
-RETURNING id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at
+RETURNING id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256
 `
 
 type CompleteUserExportParams struct {
 	ID        uuid.UUID   `json:"id"`
 	FilePath  pgtype.Text `json:"file_path"`
 	SizeBytes pgtype.Int8 `json:"size_bytes"`
+	Sha256    pgtype.Text `json:"sha256"`
 }
 
 func (q *Queries) CompleteUserExport(ctx context.Context, arg CompleteUserExportParams) (UserExport, error) {
-	row := q.db.QueryRow(ctx, completeUserExport, arg.ID, arg.FilePath, arg.SizeBytes)
+	row := q.db.QueryRow(ctx, completeUserExport,
+		arg.ID,
+		arg.FilePath,
+		arg.SizeBytes,
+		arg.Sha256,
+	)
 	var i UserExport
 	err := row.Scan(
 		&i.ID,
@@ -149,13 +164,14 @@ func (q *Queries) CompleteUserExport(ctx context.Context, arg CompleteUserExport
 		&i.CreatedAt,
 		&i.CompletedAt,
 		&i.ExpiresAt,
+		&i.Sha256,
 	)
 	return i, err
 }
 
 const createAdminBackup = `-- name: CreateAdminBackup :one
 
-INSERT INTO admin_backups (status, storage_backend) VALUES ('pending', $1) RETURNING id, status, file_path, size_bytes, storage_backend, error, created_at, completed_at
+INSERT INTO admin_backups (status, storage_backend) VALUES ('pending', $1) RETURNING id, status, file_path, size_bytes, storage_backend, error, created_at, completed_at, sha256
 `
 
 // =============================================================================
@@ -173,13 +189,14 @@ func (q *Queries) CreateAdminBackup(ctx context.Context, storageBackend string) 
 		&i.Error,
 		&i.CreatedAt,
 		&i.CompletedAt,
+		&i.Sha256,
 	)
 	return i, err
 }
 
 const createUserExport = `-- name: CreateUserExport :one
 
-INSERT INTO user_exports (user_id, status) VALUES ($1, 'pending') RETURNING id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at
+INSERT INTO user_exports (user_id, status) VALUES ($1, 'pending') RETURNING id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256
 `
 
 // =============================================================================
@@ -198,6 +215,7 @@ func (q *Queries) CreateUserExport(ctx context.Context, userID uuid.UUID) (UserE
 		&i.CreatedAt,
 		&i.CompletedAt,
 		&i.ExpiresAt,
+		&i.Sha256,
 	)
 	return i, err
 }
@@ -295,7 +313,7 @@ func (q *Queries) FailUserExport(ctx context.Context, arg FailUserExportParams) 
 }
 
 const getAdminBackup = `-- name: GetAdminBackup :one
-SELECT id, status, file_path, size_bytes, storage_backend, error, created_at, completed_at FROM admin_backups WHERE id = $1
+SELECT id, status, file_path, size_bytes, storage_backend, error, created_at, completed_at, sha256 FROM admin_backups WHERE id = $1
 `
 
 func (q *Queries) GetAdminBackup(ctx context.Context, id uuid.UUID) (AdminBackup, error) {
@@ -310,12 +328,13 @@ func (q *Queries) GetAdminBackup(ctx context.Context, id uuid.UUID) (AdminBackup
 		&i.Error,
 		&i.CreatedAt,
 		&i.CompletedAt,
+		&i.Sha256,
 	)
 	return i, err
 }
 
 const getPendingUserExport = `-- name: GetPendingUserExport :one
-SELECT id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at FROM user_exports
+SELECT id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256 FROM user_exports
 WHERE user_id = $1 AND status IN ('pending', 'running')
 LIMIT 1
 `
@@ -333,12 +352,13 @@ func (q *Queries) GetPendingUserExport(ctx context.Context, userID uuid.UUID) (U
 		&i.CreatedAt,
 		&i.CompletedAt,
 		&i.ExpiresAt,
+		&i.Sha256,
 	)
 	return i, err
 }
 
 const getUserExport = `-- name: GetUserExport :one
-SELECT id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at FROM user_exports WHERE id = $1 AND user_id = $2
+SELECT id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256 FROM user_exports WHERE id = $1 AND user_id = $2
 `
 
 type GetUserExportParams struct {
@@ -359,12 +379,13 @@ func (q *Queries) GetUserExport(ctx context.Context, arg GetUserExportParams) (U
 		&i.CreatedAt,
 		&i.CompletedAt,
 		&i.ExpiresAt,
+		&i.Sha256,
 	)
 	return i, err
 }
 
 const listAdminBackups = `-- name: ListAdminBackups :many
-SELECT id, status, file_path, size_bytes, storage_backend, error, created_at, completed_at FROM admin_backups ORDER BY created_at DESC LIMIT 20
+SELECT id, status, file_path, size_bytes, storage_backend, error, created_at, completed_at, sha256 FROM admin_backups ORDER BY created_at DESC LIMIT 20
 `
 
 func (q *Queries) ListAdminBackups(ctx context.Context) ([]AdminBackup, error) {
@@ -385,6 +406,7 @@ func (q *Queries) ListAdminBackups(ctx context.Context) ([]AdminBackup, error) {
 			&i.Error,
 			&i.CreatedAt,
 			&i.CompletedAt,
+			&i.Sha256,
 		); err != nil {
 			return nil, err
 		}
@@ -504,7 +526,7 @@ func (q *Queries) ListUserExportFilePathsForUser(ctx context.Context, userID uui
 }
 
 const listUserExports = `-- name: ListUserExports :many
-SELECT id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at FROM user_exports WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20
+SELECT id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256 FROM user_exports WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20
 `
 
 func (q *Queries) ListUserExports(ctx context.Context, userID uuid.UUID) ([]UserExport, error) {
@@ -526,6 +548,7 @@ func (q *Queries) ListUserExports(ctx context.Context, userID uuid.UUID) ([]User
 			&i.CreatedAt,
 			&i.CompletedAt,
 			&i.ExpiresAt,
+			&i.Sha256,
 		); err != nil {
 			return nil, err
 		}

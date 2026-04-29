@@ -245,10 +245,11 @@ These cross-cutting rules apply across all resources:
 
 **Account-deletion interaction** — `internal/account.Anonymize` deletes the user's `user_exports` rows and corresponding blobs as part of the wipe; admin backups are unaffected (instance-level, not per-user).
 
+**Integrity** — both blob types carry a SHA-256 hash, computed inline during upload via `io.TeeReader` (no extra pass). Stored as lowercase hex in `user_exports.sha256` / `admin_backups.sha256`, exposed in the JSON view, and surfaced as `X-Content-SHA256` on the download response (rides on the `302` for S3-presigned downloads — clients verifying after a redirect should rely on the JSON view's `sha256` field instead, since the upstream S3 response won't carry the header).
+
 #### Known deferred gaps
 
 - **ZIP-only export format** — tar.gz / zstd pencilled in for next session.
-- **No checksum on stored blobs** — surface SHA-256 on download endpoints.
 - **Backup encryption at rest** — currently relies on backend-level encryption (S3 SSE, disk crypto). Add app-level GPG when running on untrusted storage.
 - **No restore CLI** — backups are restored manually with `pg_restore`. `zymo reprocess-deletions` covers the deletion-after-restore corner.
 

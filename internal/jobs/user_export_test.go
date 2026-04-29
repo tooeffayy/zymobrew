@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"testing"
 
@@ -67,6 +69,9 @@ func TestUserExportDispatchWorker(t *testing.T) {
 	if !updated.SizeBytes.Valid || updated.SizeBytes.Int64 <= 0 {
 		t.Fatal("size_bytes not set or zero")
 	}
+	if !updated.Sha256.Valid || len(updated.Sha256.String) != 64 {
+		t.Fatalf("sha256 not set or not 64 hex chars: %q", updated.Sha256.String)
+	}
 
 	// Verify the ZIP contents.
 	rc, size, err := store.Get(ctx, updated.FilePath.String)
@@ -78,6 +83,14 @@ func TestUserExportDispatchWorker(t *testing.T) {
 	raw, err := io.ReadAll(rc)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// Integrity contract: the sha256 the API exposes must equal the hash of
+	// the bytes a client would download. If this assertion ever fails,
+	// somebody has decoupled the upload-time hash from the actual blob.
+	sum := sha256.Sum256(raw)
+	if want := hex.EncodeToString(sum[:]); want != updated.Sha256.String {
+		t.Fatalf("sha256 mismatch:\n  stored: %s\n  bytes:  %s", updated.Sha256.String, want)
 	}
 	zr, err := zip.NewReader(bytes.NewReader(raw), size)
 	if err != nil {

@@ -498,6 +498,9 @@ components:
           enum: [pending, running, complete, failed, expired]
         size_bytes:
           type: integer
+        sha256:
+          type: string
+          description: Lowercase hex SHA-256 of the blob, present once status=complete.
         completed_at:
           $ref: '#/components/schemas/DateTime'
         expires_at:
@@ -520,6 +523,9 @@ components:
           type: string
         size_bytes:
           type: integer
+        sha256:
+          type: string
+          description: Lowercase hex SHA-256 of the dump, present once status=complete.
         completed_at:
           $ref: '#/components/schemas/DateTime'
         error:

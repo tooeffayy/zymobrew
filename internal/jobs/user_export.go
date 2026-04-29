@@ -3,6 +3,8 @@ package jobs
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -75,15 +77,20 @@ func (w *userExportDispatchWorker) processExport(ctx context.Context, row querie
 		return err
 	}
 
+	hasher := sha256.New()
+	teed := io.TeeReader(tmp, hasher)
+
 	key := fmt.Sprintf("exports/users/%s/%s.zip", userID, row.ID)
-	if err := w.store.Put(ctx, key, tmp, size); err != nil {
+	if err := w.store.Put(ctx, key, teed, size); err != nil {
 		return fmt.Errorf("store put: %w", err)
 	}
+	digest := hex.EncodeToString(hasher.Sum(nil))
 
 	_, err = w.queries.CompleteUserExport(ctx, queries.CompleteUserExportParams{
 		ID:        row.ID,
 		FilePath:  pgtype.Text{String: key, Valid: true},
 		SizeBytes: pgtype.Int8{Int64: size, Valid: true},
+		Sha256:    pgtype.Text{String: digest, Valid: true},
 	})
 	return err
 }
