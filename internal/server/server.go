@@ -56,6 +56,8 @@ func (s *Server) routes() http.Handler {
 
 	r.Get("/healthz", s.healthz)
 	r.Get("/readyz", s.readyz)
+	r.Get("/docs", s.handleDocs)
+	r.Get("/api/openapi.yaml", s.handleOpenAPISpec)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Use(maxBodyBytes(1 << 20)) // 1 MiB ceiling on JSON bodies

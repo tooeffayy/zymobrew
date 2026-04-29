@@ -134,117 +134,70 @@ Two layers, in-memory token buckets (`internal/ratelimit`). Per-process — acce
 
 Either trip returns 429 with `Retry-After: 60`. Eviction is lazy — no background goroutine.
 
-## Profile API
+## API Reference
 
-- `GET /api/users/{username}` — public profile (id, username, display_name, bio, avatar_url, created_at). No email.
-- `PATCH /api/users/me` — update display_name / bio / avatar_url. Caps: display_name 64 chars, bio 2 KiB, avatar_url 512 bytes. COALESCE pattern — omitted fields unchanged.
-- `POST /api/users/me/password` — change password. Verifies current, rejects same-as-current, rotates all sessions.
+Full request/response shapes and status codes are in the OpenAPI spec: `internal/server/openapi.yaml`. When the server is running, the rendered docs are at `/docs` and the raw spec at `/api/openapi.yaml`.
 
-## Recipes API
+`TestOpenAPICoversAllRoutes` (in `openapi_test.go`) walks the chi router and fails if any route is missing from the spec.
 
-`GET /api/recipes` — public feed, `visibility = 'public'`, newest first. Query params: `limit` (default 20, max 100), `offset`.
-`POST /api/recipes` — requires auth. MVP guard: rejects `brew_type != mead`. Returns full recipe view with revision 1.
-`GET /api/recipes/mine` — requires auth. Returns all recipes for the authenticated user (all visibilities), newest first.
-`GET /api/recipes/{id}` — returns recipe with live ingredients. Visibility rules: `public` or `unlisted` = anyone; `private` = owner only (404 for others — existence not leaked).
-`PATCH /api/recipes/{id}` — requires auth, owner only. COALESCE pattern for meta fields. **Always creates a new revision.** Replaces ingredients wholesale (DELETE + re-INSERT). Returns updated recipe view.
-`DELETE /api/recipes/{id}` — requires auth, owner only.
-`POST /api/recipes/{id}/fork` — requires auth. Creates a private copy of the recipe pinned to the source's current revision. Optional body: `name` (override), `message` (revision 1 message). Private recipes return 404 to non-owners (existence not leaked). Self-fork and fork-of-fork both allowed. Increments `fork_count` on source atomically in the same transaction.
-`GET /api/recipes/{id}/revisions` — summary list (no ingredients). Publicly gated same as GET.
-`GET /api/recipes/{id}/revisions/{rev}` — full revision detail; `ingredients` is the JSONB snapshot from that point in time.
+## API Behavioral Invariants
 
-**Validation caps**: name 200 chars, style 100 chars, description 10 KiB, max 50 ingredients per recipe.
+These cross-cutting rules apply across all resources:
 
-**Revision semantics**: every PATCH creates an immutable revision row. `revision_count` auto-increments in SQL via `SetRecipeRevision`. Revision numbers are per-recipe integers starting at 1. `current_revision_id` on the recipe row is the O(1) HEAD pointer.
+**Visibility = 404, not 403** — private recipes/batches/exports return 404 to non-owners. Existence is never leaked.
 
-**Visibility model**: `public` (in feed + direct), `unlisted` (direct only, not in feed), `private` (owner only). All unauthorized access returns 404, not 403.
+**COALESCE PATCH** — all PATCH endpoints use `COALESCE(new_value, existing_value)`. Omitted fields are unchanged. Fields cannot be cleared to NULL yet.
 
-**Transaction pattern**: create/update use `s.pool.Begin` + `s.queries.WithTx(tx)` — first use of explicit transactions in this codebase. Pattern: `defer tx.Rollback(ctx)` as safety net, explicit `tx.Commit(ctx)` at end.
+**MVP guard** — `brew_type != mead` is rejected at the API surface. Schema supports more types for later phases.
 
-## Reminders + Notifications API
+**Auth** — all `/api/batches/*`, `/api/notifications/*`, `/api/users/me/*`, and `/api/users/me/exports/*` require auth. Recipe/profile reads are public. See Auth section for session mechanics.
 
-### Batch Reminders
+### Recipes
 
-All under `/api/batches/{id}/reminders`, requires auth + batch ownership (404 for others).
+**Revision semantics** — every PATCH creates an immutable revision row. `revision_count` auto-increments via `SetRecipeRevision`. Revision numbers are per-recipe integers starting at 1. `current_revision_id` is the O(1) HEAD pointer.
 
-`POST /api/batches/{id}/reminders` — create a manual reminder. Body: `title` (required), `description`, `fire_at` (RFC3339, required), `suggested_event_kind`. Returns reminder.
-`GET /api/batches/{id}/reminders` — list reminders for a batch, ordered by `fire_at ASC`.
-`PATCH /api/batches/{id}/reminders/{reminderId}` — update title/description/fire_at/status/suggested_event_kind. COALESCE pattern. Allowed status values: `scheduled`, `snoozed`, `completed`, `dismissed`.
-`DELETE /api/batches/{id}/reminders/{reminderId}` — cancels (sets `status=cancelled`). Returns 204. 404 if already fired or completed.
+**Visibility model** — `public` (in feed + direct), `unlisted` (direct only), `private` (owner only).
 
-**Reminder status lifecycle**: `scheduled` → (fired by dispatcher) → `fired` → user marks `completed` or `dismissed`. Can be `snoozed` (reschedule `fire_at`). Cancelled from any non-terminal state.
-
-**Dispatcher**: River job `reminder_dispatcher` runs every minute. Atomically claims all `WHERE status='scheduled' AND fire_at <= now()` in batches of 100 using `FOR UPDATE SKIP LOCKED`. Creates one `notifications` row per reminder.
-
-### Notifications Inbox
-
-`GET /api/notifications` — requires auth. Query params: `limit` (default 20, max 100), `offset`.
-`POST /api/notifications/{id}/read` — mark one notification read (204). 404 if not found.
-`POST /api/notifications/read-all` — mark all unread as read (204).
-
-### Notification Prefs
-
-`GET /api/notifications/prefs` — returns prefs (or defaults if not set: push_enabled=true, email_enabled=false, timezone=UTC).
-`PATCH /api/notifications/prefs` — upsert. Fields: `push_enabled`, `email_enabled`, `quiet_hours_start` ("HH:MM"), `quiet_hours_end` ("HH:MM"), `timezone` (IANA tz string). Quiet hours: suppresses push delivery (not in-app creation) — deferred until web-push is added.
-
-### Recipe Reminder Templates
-
-`GET /api/recipes/{id}/reminder-templates` — lists templates; visibility rules same as recipe GET.
-`POST /api/recipes/{id}/reminder-templates` — requires auth, owner only. Fields: `title` (required), `description`, `anchor` (default `pitch`; `absolute` rejected), `offset_minutes`, `suggested_event_kind`, `sort_order`.
-`PATCH /api/recipes/{id}/reminder-templates/{templateId}` — requires auth, owner only. COALESCE pattern.
-`DELETE /api/recipes/{id}/reminder-templates/{templateId}` — requires auth, owner only. 204.
-
-**`absolute` anchor** — rejected on recipe templates (no wall-clock date to resolve against). Valid only on direct batch reminders where the user supplies `fire_at` directly.
-
-**Materialization** — triggered automatically (best-effort, non-blocking):
-- `POST /api/batches` with `recipe_id` + `started_at` → materializes `batch_start` templates
-- `PATCH /api/batches/{id}` with `started_at` → materializes `batch_start` templates
-- `POST /api/batches/{id}/events` with kind `pitch`/`rack`/`bottle` → materializes corresponding anchor templates
-
-`MaterializeReminderTemplates` uses `NOT EXISTS` to prevent double-materialization. Template anchor `custom_event` is stored but not auto-materialized (deferred).
-
-**Batch–recipe linkage** — `POST /api/batches` now accepts optional `recipe_id`; pins to `current_revision_id` at creation time. Private recipes reject linking by non-owners. Recipe association cannot be changed after creation.
-
-### Web-Push (VAPID)
-
-`GET /api/push/public-key` — returns `{"public_key": "..."}` for browser subscription. 404 if not configured.
-`POST /api/push/subscribe` — requires auth. Body: `{"endpoint": "...", "keys": {"p256dh": "...", "auth": "..."}}`. Upserts `push_devices` row. Returns `{"id": "..."}`.
-`POST /api/push/unsubscribe` — requires auth. Body: `{"endpoint": "..."}`. 204.
-
-**VAPID keys**: generate with `zymo vapid-keys` (prints env var lines). Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and optionally `VAPID_SUBJECT` (default `mailto:admin@localhost`). If not set, push is silently skipped but in-app notifications still work.
-
-**Quiet hours**: dispatcher checks user's `notification_prefs.quiet_hours_*` (in user's timezone) before sending push. Handles midnight-wrapping windows (e.g. 22:00–06:00). In-app notifications are always created regardless of quiet hours.
-
-**Push payload**: JSON `{"title": "...", "body": "...", "url_path": "..."}`. Browser service worker receives this and shows a native notification.
-
-### Known gaps (deferred)
-
-- **Calculators** — ABV, OG→FG, honey weight, pitch rate. Self-contained API endpoints, no DB needed. Deferred from Phase 3.
-- **`custom_event` anchor** materialization — needs a way to specify which event title/kind to anchor to.
-- **Re-materialization on re-anchor** — if a batch's pitch event changes (edited `occurred_at`), existing reminders are not updated.
-- **Push subscription cleanup** — expired/invalid subscriptions (410 Gone from push service) should be deleted automatically.
-
-### Known recipe API gaps (deferred)
-
-- ~~**No forking**~~ — `POST /api/recipes/{id}/fork` implemented. Forks default to `private`; owner can PATCH visibility.
-- **No pagination cursor** — uses limit/offset; add cursor when feed grows large.
-- **PATCH can't clear to NULL** — same as batches.
-- **No optimistic concurrency** — last-write-wins on PATCH.
-
-## Batches API
-
-All `/api/batches/*` requires auth. 404 (not 403) for other users' rows — existence not leaked. MVP guard: rejects `brew_type != mead`.
-
-**PATCH semantics** — `COALESCE(narg, col)` pattern. Omitted fields unchanged. Cannot clear to NULL yet.
+**Transaction pattern** — create/update use `s.pool.Begin` + `s.queries.WithTx(tx)`. Pattern: `defer tx.Rollback(ctx)` as safety net, explicit `tx.Commit(ctx)` at end.
 
 **NUMERIC handling** — gravity/temp/pH are `pgtype.Numeric`. Handlers use `numericPtr`/`floatToNumeric` helpers. sqlc doesn't accept Go pointer types in nullable overrides.
 
-### Known batch API gaps (deferred)
+### Reminders
 
-- **Unbounded list responses** — readings/events return all rows. Add cursor pagination when device adapters (Tilt/RAPT) land.
+**`absolute` anchor** — rejected on recipe templates (no wall-clock date to resolve against). Valid only on direct batch reminders where the user supplies `fire_at` directly.
+
+**Reminder status lifecycle** — `scheduled` → (dispatcher fires) → `fired` → user marks `completed` or `dismissed`. Can be `snoozed`. Cancelled from any non-terminal state.
+
+**Dispatcher** — River job `reminder_dispatcher` runs every minute. Atomically claims due reminders with `FOR UPDATE SKIP LOCKED`, creates one `notifications` row per reminder.
+
+**Materialization** — best-effort, non-blocking. Triggered on:
+- `POST /api/batches` with `recipe_id` + `started_at` → `batch_start` templates
+- `PATCH /api/batches/{id}` with `started_at` → `batch_start` templates
+- `POST /api/batches/{id}/events` with kind `pitch`/`rack`/`bottle` → corresponding anchor templates
+
+`MaterializeReminderTemplates` uses `NOT EXISTS` to prevent double-materialization.
+
+**Batch–recipe linkage** — `recipe_id` pins to `current_revision_id` at batch creation. Private recipes reject linking by non-owners. Cannot be changed after creation.
+
+### Notifications + Push
+
+**In-app notifications always created** regardless of quiet hours or push config.
+
+**Quiet hours** — dispatcher checks `notification_prefs.quiet_hours_*` in the user's timezone before sending push. Handles midnight-wrapping windows.
+
+**Push payload** — JSON `{"title": "...", "body": "...", "url_path": "..."}`. Browser service worker shows a native notification.
+
+**VAPID keys** — generate with `zymo vapid-keys`. If not set, push is silently skipped but in-app notifications still work.
+
+### Known deferred gaps
+
+- **Calculators** — ABV, OG→FG, honey weight, pitch rate. Deferred from Phase 3.
+- **`custom_event` anchor** materialization — needs event title/kind selector.
+- **Re-materialization on re-anchor** — editing a pitch event's `occurred_at` does not update existing reminders.
+- **Push subscription cleanup** — 410 Gone from push service should auto-delete the row.
+- **No pagination cursor** — all lists use limit/offset; add cursor when feeds grow large.
+- **Unbounded readings/events** — no pagination; add cursor when device adapters (Tilt/RAPT) land.
 - **`source` is free text** — constrain to known set when device adapters ship.
-- **Race: ownership check + insert** — two queries; fold into `INSERT ... WHERE EXISTS` when motivated.
-- **PATCH can't clear to NULL** — add per-field clear handling when a real workflow needs it.
-- **No optimistic concurrency** — last-write-wins on PATCH. Add If-Match when multi-device matters.
 
 ## Background Jobs
 

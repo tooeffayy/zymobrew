@@ -1,0 +1,2855 @@
+openapi: 3.1.0
+info:
+  title: Zymo API
+  version: "1"
+  description: Self-hostable fermentation tracking API. All unauthorized access returns 404, not 403, to avoid leaking resource existence.
+  license:
+    name: AGPL-3.0-only
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+
+servers:
+  - url: /
+    description: This instance
+
+tags:
+  - name: system
+    description: Health and readiness probes
+  - name: docs
+    description: API documentation
+  - name: auth
+    description: Registration, login, logout, current user
+  - name: users
+    description: Public profiles and account settings
+  - name: recipes
+    description: Recipe CRUD, revisions, forking, comments, likes, reminder templates
+  - name: batches
+    description: Batch CRUD, readings, events, tasting notes, reminders
+  - name: notifications
+    description: In-app notification inbox and preferences
+  - name: push
+    description: Web Push (VAPID) subscription management
+  - name: exports
+    description: User data export
+  - name: admin
+    description: Admin-only database backups
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: zymo_session
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    UUID:
+      type: string
+      format: uuid
+
+    DateTime:
+      type: string
+      format: date-time
+
+    PublicUser:
+      type: object
+      required: [id, username, email]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        username:
+          type: string
+        email:
+          type: string
+        display_name:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+          description: Opaque session token. Also sent as Set-Cookie.
+        user:
+          $ref: '#/components/schemas/PublicUser'
+
+    PublicProfile:
+      type: object
+      required: [id, username, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        username:
+          type: string
+        display_name:
+          type: string
+        bio:
+          type: string
+        avatar_url:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+    Ingredient:
+      type: object
+      required: [id, kind, name, sort_order, details]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        kind:
+          type: string
+          enum: [honey, water, yeast, nutrient, fruit, spice, oak, acid, tannin, other]
+        name:
+          type: string
+        amount:
+          type: number
+        unit:
+          type: string
+        sort_order:
+          type: integer
+        details:
+          type: object
+
+    IngredientInput:
+      type: object
+      required: [kind, name]
+      properties:
+        kind:
+          type: string
+          enum: [honey, water, yeast, nutrient, fruit, spice, oak, acid, tannin, other]
+        name:
+          type: string
+          maxLength: 200
+        amount:
+          type: number
+        unit:
+          type: string
+        sort_order:
+          type: integer
+          default: 0
+        details:
+          type: object
+
+    Recipe:
+      type: object
+      required: [id, author_id, revision_number, revision_count, fork_count, brew_type, name, visibility, ingredients, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        author_id:
+          $ref: '#/components/schemas/UUID'
+        parent_id:
+          $ref: '#/components/schemas/UUID'
+        revision_number:
+          type: integer
+        revision_count:
+          type: integer
+        fork_count:
+          type: integer
+        brew_type:
+          type: string
+          enum: [mead, beer, cider, wine, kombucha]
+        style:
+          type: string
+          maxLength: 100
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 10240
+        target_og:
+          type: number
+        target_fg:
+          type: number
+        target_abv:
+          type: number
+        batch_size_l:
+          type: number
+        visibility:
+          type: string
+          enum: [public, unlisted, private]
+        message:
+          type: string
+        ingredients:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ingredient'
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+        updated_at:
+          $ref: '#/components/schemas/DateTime'
+
+    RecipeListItem:
+      type: object
+      required: [id, author_id, revision_count, fork_count, brew_type, name, visibility, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        author_id:
+          $ref: '#/components/schemas/UUID'
+        parent_id:
+          $ref: '#/components/schemas/UUID'
+        revision_count:
+          type: integer
+        fork_count:
+          type: integer
+        brew_type:
+          type: string
+          enum: [mead, beer, cider, wine, kombucha]
+        style:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        target_og:
+          type: number
+        target_fg:
+          type: number
+        target_abv:
+          type: number
+        batch_size_l:
+          type: number
+        visibility:
+          type: string
+          enum: [public, unlisted, private]
+        updated_at:
+          $ref: '#/components/schemas/DateTime'
+
+    RevisionSummary:
+      type: object
+      required: [id, revision_number, author_id, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        revision_number:
+          type: integer
+        author_id:
+          $ref: '#/components/schemas/UUID'
+        message:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+    RevisionDetail:
+      type: object
+      required: [id, revision_number, author_id, name, ingredients, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        revision_number:
+          type: integer
+        author_id:
+          $ref: '#/components/schemas/UUID'
+        message:
+          type: string
+        name:
+          type: string
+        style:
+          type: string
+        description:
+          type: string
+        target_og:
+          type: number
+        target_fg:
+          type: number
+        target_abv:
+          type: number
+        batch_size_l:
+          type: number
+        ingredients:
+          type: array
+          items:
+            type: object
+          description: JSONB snapshot of ingredients at revision time.
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+    Comment:
+      type: object
+      required: [id, recipe_id, author_id, author_username, body, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        recipe_id:
+          $ref: '#/components/schemas/UUID'
+        author_id:
+          $ref: '#/components/schemas/UUID'
+        author_username:
+          type: string
+        body:
+          type: string
+          maxLength: 10240
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+    Batch:
+      type: object
+      required: [id, name, brew_type, stage, visibility, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        name:
+          type: string
+          maxLength: 200
+        brew_type:
+          type: string
+          enum: [mead, beer, cider, wine, kombucha]
+        stage:
+          type: string
+          enum: [planning, primary, secondary, aging, bottled, archived]
+        started_at:
+          $ref: '#/components/schemas/DateTime'
+        bottled_at:
+          $ref: '#/components/schemas/DateTime'
+        visibility:
+          type: string
+          enum: [public, unlisted, private]
+        notes:
+          type: string
+          maxLength: 10240
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+        updated_at:
+          $ref: '#/components/schemas/DateTime'
+
+    Reading:
+      type: object
+      required: [id, batch_id, taken_at, source]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        batch_id:
+          $ref: '#/components/schemas/UUID'
+        taken_at:
+          $ref: '#/components/schemas/DateTime'
+        gravity:
+          type: number
+        temperature_c:
+          type: number
+        ph:
+          type: number
+        notes:
+          type: string
+        source:
+          type: string
+          default: manual
+
+    BatchEvent:
+      type: object
+      required: [id, batch_id, occurred_at, kind, details]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        batch_id:
+          $ref: '#/components/schemas/UUID'
+        occurred_at:
+          $ref: '#/components/schemas/DateTime'
+        kind:
+          type: string
+          enum: [pitch, nutrient_addition, degas, rack, addition, stabilize, backsweeten, bottle, photo, note, other]
+        title:
+          type: string
+        description:
+          type: string
+        details:
+          type: object
+
+    TastingNote:
+      type: object
+      required: [id, batch_id, author_id, tasted_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        batch_id:
+          $ref: '#/components/schemas/UUID'
+        author_id:
+          $ref: '#/components/schemas/UUID'
+        tasted_at:
+          $ref: '#/components/schemas/DateTime'
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        aroma:
+          type: string
+        flavor:
+          type: string
+        mouthfeel:
+          type: string
+        finish:
+          type: string
+        notes:
+          type: string
+
+    Reminder:
+      type: object
+      required: [id, title, fire_at, status, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        batch_id:
+          $ref: '#/components/schemas/UUID'
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2048
+        fire_at:
+          $ref: '#/components/schemas/DateTime'
+        status:
+          type: string
+          enum: [scheduled, fired, completed, snoozed, dismissed, cancelled]
+        fired_at:
+          $ref: '#/components/schemas/DateTime'
+        completed_at:
+          $ref: '#/components/schemas/DateTime'
+        suggested_event_kind:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+    Notification:
+      type: object
+      required: [id, kind, title, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        reminder_id:
+          $ref: '#/components/schemas/UUID'
+        kind:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        url_path:
+          type: string
+        read_at:
+          $ref: '#/components/schemas/DateTime'
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+    NotificationPrefs:
+      type: object
+      required: [push_enabled, email_enabled, timezone]
+      properties:
+        push_enabled:
+          type: boolean
+        email_enabled:
+          type: boolean
+        quiet_hours_start:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+          description: "HH:MM in user's timezone"
+        quiet_hours_end:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+          description: "HH:MM in user's timezone"
+        timezone:
+          type: string
+          description: IANA timezone identifier
+
+    ReminderTemplate:
+      type: object
+      required: [id, recipe_id, title, anchor, offset_minutes, sort_order]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        recipe_id:
+          $ref: '#/components/schemas/UUID'
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2048
+        anchor:
+          type: string
+          enum: [batch_start, pitch, rack, bottle, custom_event]
+          description: "`absolute` is rejected on templates; use direct batch reminders for wall-clock times."
+        offset_minutes:
+          type: integer
+          description: Minutes to add to the anchor timestamp.
+        suggested_event_kind:
+          type: string
+        sort_order:
+          type: integer
+
+    Export:
+      type: object
+      required: [id, status, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        status:
+          type: string
+          enum: [pending, running, complete, failed, expired]
+        size_bytes:
+          type: integer
+        completed_at:
+          $ref: '#/components/schemas/DateTime'
+        expires_at:
+          $ref: '#/components/schemas/DateTime'
+        error:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+    AdminBackup:
+      type: object
+      required: [id, status, storage_backend, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        status:
+          type: string
+          enum: [pending, running, complete, failed, expired]
+        storage_backend:
+          type: string
+        size_bytes:
+          type: integer
+        completed_at:
+          $ref: '#/components/schemas/DateTime'
+        error:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+
+paths:
+
+  # --- System ------------------------------------------------------------------
+
+  /healthz:
+    get:
+      tags: [system]
+      operationId: healthz
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Server is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+  /readyz:
+    get:
+      tags: [system]
+      operationId: readyz
+      summary: Readiness probe (requires DB ping)
+      responses:
+        "200":
+          description: Database reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        "503":
+          description: Database unreachable
+          content:
+            application/json:
+              schema:
+                type: object
+
+  # --- Docs --------------------------------------------------------------------
+
+  /docs:
+    get:
+      tags: [docs]
+      operationId: getDocs
+      summary: Redoc API documentation UI
+      responses:
+        "200":
+          description: HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/openapi.yaml:
+    get:
+      tags: [docs]
+      operationId: getOpenAPISpec
+      summary: OpenAPI 3.1 spec (this document)
+      responses:
+        "200":
+          description: YAML spec
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  # --- Auth --------------------------------------------------------------------
+
+  /api/auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Register a new account
+      description: |
+        Behaviour depends on `INSTANCE_MODE`:
+        - `open`: always allowed
+        - `single_user`: allowed only while the user table is empty (bootstraps the admin)
+        - `closed`: always forbidden
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, email, password]
+              properties:
+                username:
+                  type: string
+                  pattern: '^[a-zA-Z0-9_-]{3,32}$'
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                display_name:
+                  type: string
+                  maxLength: 64
+      responses:
+        "201":
+          description: Account created; session issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Registration disabled by instance mode
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Username or email already taken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "429":
+          description: Rate limited
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Log in with username/email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier:
+                  type: string
+                  description: Username or email address
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Authenticated; session issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "429":
+          description: Rate limited
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Revoke current session
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+  /api/auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Current authenticated user
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicUser'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # --- Users -------------------------------------------------------------------
+
+  /api/users/{username}:
+    get:
+      tags: [users]
+      operationId: getProfile
+      summary: Public profile for any user
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Public profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProfile'
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/users/me:
+    patch:
+      tags: [users]
+      operationId: updateProfile
+      summary: Update own profile fields (COALESCE — omitted fields unchanged)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name:
+                  type: string
+                  maxLength: 64
+                bio:
+                  type: string
+                  maxLength: 2048
+                avatar_url:
+                  type: string
+                  maxLength: 512
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProfile'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/users/me/password:
+    post:
+      tags: [users]
+      operationId: changePassword
+      summary: Change password; rotates all sessions
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password:
+                  type: string
+                new_password:
+                  type: string
+                  minLength: 8
+      responses:
+        "200":
+          description: Password changed; new session issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Current password incorrect
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # --- Recipes -----------------------------------------------------------------
+
+  /api/recipes:
+    get:
+      tags: [recipes]
+      operationId: listRecipes
+      summary: Public recipe feed (visibility=public, newest first)
+      parameters:
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Recipe list (max 100 per page)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RecipeListItem'
+    post:
+      tags: [recipes]
+      operationId: createRecipe
+      summary: Create a new recipe (mead only in this build)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  maxLength: 200
+                brew_type:
+                  type: string
+                  enum: [mead]
+                  default: mead
+                style:
+                  type: string
+                  maxLength: 100
+                description:
+                  type: string
+                  maxLength: 10240
+                target_og:
+                  type: number
+                target_fg:
+                  type: number
+                target_abv:
+                  type: number
+                batch_size_l:
+                  type: number
+                visibility:
+                  type: string
+                  enum: [public, unlisted, private]
+                  default: public
+                message:
+                  type: string
+                  description: Revision 1 message
+                ingredients:
+                  type: array
+                  maxItems: 50
+                  items:
+                    $ref: '#/components/schemas/IngredientInput'
+      responses:
+        "201":
+          description: Recipe created with revision 1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipe'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/recipes/mine:
+    get:
+      tags: [recipes]
+      operationId: listMyRecipes
+      summary: All recipes for the authenticated user (all visibilities)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Recipe list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RecipeListItem'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/recipes/{id}:
+    get:
+      tags: [recipes]
+      operationId: getRecipe
+      summary: Get recipe with live ingredients
+      description: |
+        Visibility rules: `public` or `unlisted` = anyone; `private` = owner only.
+        Non-owners get 404, not 403.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: Recipe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipe'
+        "404":
+          description: Not found or not visible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags: [recipes]
+      operationId: updateRecipe
+      summary: Update recipe (owner only). Always creates a new revision.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 200
+                style:
+                  type: string
+                  maxLength: 100
+                description:
+                  type: string
+                  maxLength: 10240
+                target_og:
+                  type: number
+                target_fg:
+                  type: number
+                target_abv:
+                  type: number
+                batch_size_l:
+                  type: number
+                visibility:
+                  type: string
+                  enum: [public, unlisted, private]
+                message:
+                  type: string
+                ingredients:
+                  type: array
+                  maxItems: 50
+                  items:
+                    $ref: '#/components/schemas/IngredientInput'
+                  description: When present, replaces all ingredients wholesale.
+      responses:
+        "200":
+          description: Updated recipe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipe'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [recipes]
+      operationId: deleteRecipe
+      summary: Delete recipe (owner only)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/recipes/{id}/fork:
+    post:
+      tags: [recipes]
+      operationId: forkRecipe
+      summary: Fork a recipe. Result is a private copy pinned to source's current revision.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 200
+                  description: Override name; defaults to source name.
+                message:
+                  type: string
+                  description: Revision 1 message for the fork.
+      responses:
+        "201":
+          description: Forked recipe (private)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipe'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Source recipe not found or is private
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/recipes/{id}/revisions:
+    get:
+      tags: [recipes]
+      operationId: listRevisions
+      summary: Revision summary list (no ingredients). Same visibility rules as GET recipe.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: Revision list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revisions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RevisionSummary'
+        "404":
+          description: Not found or not visible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/recipes/{id}/revisions/{rev}:
+    get:
+      tags: [recipes]
+      operationId: getRevision
+      summary: Full revision detail with JSONB ingredient snapshot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - name: rev
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Per-recipe revision number starting at 1
+      responses:
+        "200":
+          description: Revision detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevisionDetail'
+        "404":
+          description: Not found or not visible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/recipes/{id}/comments:
+    get:
+      tags: [recipes]
+      operationId: listComments
+      summary: List comments on a recipe
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Comment list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  comments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Comment'
+        "404":
+          description: Not found or not visible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags: [recipes]
+      operationId: createComment
+      summary: Add a comment to a recipe
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body:
+                  type: string
+                  maxLength: 10240
+      responses:
+        "201":
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Recipe not found or not visible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/recipes/{id}/comments/{commentId}:
+    delete:
+      tags: [recipes]
+      operationId: deleteComment
+      summary: Delete own comment
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Comment not found or not author
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/recipes/{id}/like:
+    post:
+      tags: [recipes]
+      operationId: likeRecipe
+      summary: Like a recipe (idempotent)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "204":
+          description: Liked
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not found or not visible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [recipes]
+      operationId: unlikeRecipe
+      summary: Remove like from a recipe
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "204":
+          description: Like removed
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/recipes/{id}/reminder-templates:
+    get:
+      tags: [recipes]
+      operationId: listReminderTemplates
+      summary: List reminder templates for a recipe. Same visibility rules as GET recipe.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: Template list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReminderTemplate'
+        "404":
+          description: Not found or not visible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags: [recipes]
+      operationId: createReminderTemplate
+      summary: Add a reminder template to a recipe (owner only)
+      description: "`absolute` anchor is rejected — templates resolve against batch timestamps at materialization time."
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  maxLength: 200
+                description:
+                  type: string
+                  maxLength: 2048
+                anchor:
+                  type: string
+                  enum: [batch_start, pitch, rack, bottle, custom_event]
+                  default: pitch
+                offset_minutes:
+                  type: integer
+                  default: 0
+                suggested_event_kind:
+                  type: string
+                sort_order:
+                  type: integer
+                  default: 0
+      responses:
+        "201":
+          description: Template created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderTemplate'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Not the recipe owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Recipe not found or not visible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/recipes/{id}/reminder-templates/{templateId}:
+    patch:
+      tags: [recipes]
+      operationId: updateReminderTemplate
+      summary: Update a reminder template (owner only, COALESCE)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  maxLength: 200
+                description:
+                  type: string
+                  maxLength: 2048
+                anchor:
+                  type: string
+                  enum: [batch_start, pitch, rack, bottle, custom_event]
+                offset_minutes:
+                  type: integer
+                suggested_event_kind:
+                  type: string
+                sort_order:
+                  type: integer
+      responses:
+        "200":
+          description: Updated template
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderTemplate'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Not the recipe owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Template not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [recipes]
+      operationId: deleteReminderTemplate
+      summary: Delete a reminder template (owner only)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Not the recipe owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Template not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # --- Batches -----------------------------------------------------------------
+
+  /api/batches:
+    post:
+      tags: [batches]
+      operationId: createBatch
+      summary: Create a batch (mead only in this build)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  maxLength: 200
+                brew_type:
+                  type: string
+                  enum: [mead]
+                  default: mead
+                stage:
+                  type: string
+                  enum: [planning, primary, secondary, aging, bottled, archived]
+                  default: planning
+                started_at:
+                  $ref: '#/components/schemas/DateTime'
+                notes:
+                  type: string
+                  maxLength: 10240
+                visibility:
+                  type: string
+                  enum: [public, unlisted, private]
+                  default: public
+                recipe_id:
+                  $ref: '#/components/schemas/UUID'
+                  description: |
+                    Optional. Pins the batch to the recipe's current revision.
+                    Private recipes reject linking by non-owners.
+                    Cannot be changed after creation.
+      responses:
+        "201":
+          description: Batch created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batch'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Recipe not found or not accessible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags: [batches]
+      operationId: listBatches
+      summary: List batches for the authenticated user
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Batch list (max 100 per page)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batches:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Batch'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/batches/{id}:
+    get:
+      tags: [batches]
+      operationId: getBatch
+      summary: Get a batch (owner only)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: Batch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batch'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags: [batches]
+      operationId: updateBatch
+      summary: Update batch fields (owner only, COALESCE)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 200
+                stage:
+                  type: string
+                  enum: [planning, primary, secondary, aging, bottled, archived]
+                notes:
+                  type: string
+                  maxLength: 10240
+                started_at:
+                  $ref: '#/components/schemas/DateTime'
+                bottled_at:
+                  $ref: '#/components/schemas/DateTime'
+                visibility:
+                  type: string
+                  enum: [public, unlisted, private]
+      responses:
+        "200":
+          description: Updated batch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batch'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [batches]
+      operationId: deleteBatch
+      summary: Delete a batch (owner only)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/batches/{id}/readings:
+    post:
+      tags: [batches]
+      operationId: createReading
+      summary: Record a gravity/temp/pH reading
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: At least one of gravity, temperature_c, or ph is required.
+              properties:
+                taken_at:
+                  $ref: '#/components/schemas/DateTime'
+                gravity:
+                  type: number
+                temperature_c:
+                  type: number
+                ph:
+                  type: number
+                notes:
+                  type: string
+                source:
+                  type: string
+                  default: manual
+      responses:
+        "201":
+          description: Reading created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reading'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Batch not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags: [batches]
+      operationId: listReadings
+      summary: List all readings for a batch
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: Readings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  readings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Reading'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Batch not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/batches/{id}/events:
+    post:
+      tags: [batches]
+      operationId: createBatchEvent
+      summary: Log a batch event (pitch, rack, bottle, etc.)
+      description: |
+        Events with kind `pitch`, `rack`, or `bottle` trigger materialization of
+        matching reminder templates from the linked recipe.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                occurred_at:
+                  $ref: '#/components/schemas/DateTime'
+                kind:
+                  type: string
+                  enum: [pitch, nutrient_addition, degas, rack, addition, stabilize, backsweeten, bottle, photo, note, other]
+                title:
+                  type: string
+                description:
+                  type: string
+                details:
+                  type: object
+      responses:
+        "201":
+          description: Event created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchEvent'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Batch not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags: [batches]
+      operationId: listBatchEvents
+      summary: List all events for a batch
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BatchEvent'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Batch not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/batches/{id}/tasting-notes:
+    post:
+      tags: [batches]
+      operationId: createTastingNote
+      summary: Add a tasting note to a batch
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: At least one field must be set.
+              properties:
+                tasted_at:
+                  $ref: '#/components/schemas/DateTime'
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                aroma:
+                  type: string
+                flavor:
+                  type: string
+                mouthfeel:
+                  type: string
+                finish:
+                  type: string
+                notes:
+                  type: string
+      responses:
+        "201":
+          description: Tasting note created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TastingNote'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Batch not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags: [batches]
+      operationId: listTastingNotes
+      summary: List tasting notes for a batch
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: Tasting notes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasting_notes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TastingNote'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Batch not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/batches/{id}/reminders:
+    post:
+      tags: [batches]
+      operationId: createReminder
+      summary: Create a manual reminder for a batch
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, fire_at]
+              properties:
+                title:
+                  type: string
+                  maxLength: 200
+                description:
+                  type: string
+                  maxLength: 2048
+                fire_at:
+                  type: string
+                  format: date-time
+                  description: RFC3339 timestamp
+                suggested_event_kind:
+                  type: string
+      responses:
+        "201":
+          description: Reminder created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reminder'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Batch not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags: [batches]
+      operationId: listReminders
+      summary: List reminders for a batch, ordered by fire_at ASC
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: Reminders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Reminder'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Batch not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/batches/{id}/reminders/{reminderId}:
+    patch:
+      tags: [batches]
+      operationId: updateReminder
+      summary: Update a reminder (COALESCE). Allowed statuses for manual transition — scheduled, snoozed, completed, dismissed.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - name: reminderId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  maxLength: 200
+                description:
+                  type: string
+                  maxLength: 2048
+                fire_at:
+                  type: string
+                  format: date-time
+                status:
+                  type: string
+                  enum: [scheduled, snoozed, completed, dismissed]
+                suggested_event_kind:
+                  type: string
+      responses:
+        "200":
+          description: Updated reminder
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reminder'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Reminder not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [batches]
+      operationId: deleteReminder
+      summary: Cancel a reminder (sets status=cancelled). 404 if already fired or completed.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - name: reminderId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "204":
+          description: Cancelled
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Reminder not found or already in terminal state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # --- Notifications -----------------------------------------------------------
+
+  /api/notifications:
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      summary: In-app notification inbox
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Notifications (newest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/notifications/read-all:
+    post:
+      tags: [notifications]
+      operationId: markAllNotificationsRead
+      summary: Mark all unread notifications as read
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Done
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/notifications/{id}/read:
+    post:
+      tags: [notifications]
+      operationId: markNotificationRead
+      summary: Mark a single notification as read
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "204":
+          description: Marked read
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Notification not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/notifications/prefs:
+    get:
+      tags: [notifications]
+      operationId: getNotificationPrefs
+      summary: Get notification preferences (defaults if not set)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPrefs'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags: [notifications]
+      operationId: updateNotificationPrefs
+      summary: Upsert notification preferences (COALESCE)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                push_enabled:
+                  type: boolean
+                email_enabled:
+                  type: boolean
+                quiet_hours_start:
+                  type: string
+                  pattern: '^\d{2}:\d{2}$'
+                quiet_hours_end:
+                  type: string
+                  pattern: '^\d{2}:\d{2}$'
+                timezone:
+                  type: string
+                  description: IANA timezone identifier
+      responses:
+        "200":
+          description: Updated preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPrefs'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Invalid timezone or time format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # --- Push --------------------------------------------------------------------
+
+  /api/push/public-key:
+    get:
+      tags: [push]
+      operationId: getVAPIDPublicKey
+      summary: VAPID public key for browser PushSubscription creation
+      description: Returns 404 if `VAPID_PUBLIC_KEY` is not configured on this instance.
+      responses:
+        "200":
+          description: VAPID public key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  public_key:
+                    type: string
+        "404":
+          description: Web push not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/push/subscribe:
+    post:
+      tags: [push]
+      operationId: subscribePush
+      summary: Register a browser push subscription (upserts by endpoint)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint, keys]
+              properties:
+                endpoint:
+                  type: string
+                  format: uri
+                keys:
+                  type: object
+                  required: [p256dh, auth]
+                  properties:
+                    p256dh:
+                      type: string
+                    auth:
+                      type: string
+      responses:
+        "200":
+          description: Subscription registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    $ref: '#/components/schemas/UUID'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: Web push not configured on this instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/push/unsubscribe:
+    post:
+      tags: [push]
+      operationId: unsubscribePush
+      summary: Remove a browser push subscription
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint]
+              properties:
+                endpoint:
+                  type: string
+                  format: uri
+      responses:
+        "204":
+          description: Unsubscribed
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # --- Exports -----------------------------------------------------------------
+
+  /api/users/me/exports:
+    post:
+      tags: [exports]
+      operationId: triggerExport
+      summary: Trigger a user data export (async). Returns 409 if one is already in progress.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "202":
+          description: Export queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Export'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Export already in progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags: [exports]
+      operationId: listExports
+      summary: List exports for the authenticated user
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Export list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Export'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/users/me/exports/{id}:
+    get:
+      tags: [exports]
+      operationId: getExport
+      summary: Get export status
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: Export
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Export'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/users/me/exports/{id}/download:
+    get:
+      tags: [exports]
+      operationId: downloadExport
+      summary: Download completed export ZIP. Streams directly or redirects to presigned URL.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: ZIP archive
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "302":
+          description: Redirect to presigned storage URL (S3 backend)
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Export not yet complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # --- Admin -------------------------------------------------------------------
+
+  /api/admin/backups:
+    post:
+      tags: [admin]
+      operationId: triggerAdminBackup
+      summary: Trigger a pg_dump database backup (admin only, async)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "202":
+          description: Backup queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminBackup'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags: [admin]
+      operationId: listAdminBackups
+      summary: List all backups (admin only)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Backup list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminBackup'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/backups/{id}:
+    get:
+      tags: [admin]
+      operationId: getAdminBackup
+      summary: Get backup status (admin only)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: Backup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminBackup'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/backups/{id}/download:
+    get:
+      tags: [admin]
+      operationId: downloadAdminBackup
+      summary: Download completed pg_dump backup (admin only). Streams directly or redirects to presigned URL.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: pg_dump custom-format binary
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "302":
+          description: Redirect to presigned storage URL (S3 backend)
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Backup not yet complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
