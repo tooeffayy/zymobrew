@@ -17,8 +17,10 @@ func TestSelftestPassesAgainstFreshDB(t *testing.T) {
 	_ = testutil.Pool(t, ctx) // ensures schema is migrated; skips if no DB
 
 	cfg := config.Config{
-		DatabaseURL: os.Getenv("TEST_DATABASE_URL"),
-		ListenAddr:  ":0",
+		DatabaseURL:      os.Getenv("TEST_DATABASE_URL"),
+		ListenAddr:       ":0",
+		StorageBackend:   "local",
+		StorageLocalPath: t.TempDir(),
 	}
 
 	var buf bytes.Buffer

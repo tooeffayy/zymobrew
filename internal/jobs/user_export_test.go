@@ -122,8 +122,11 @@ func TestUserExportDispatchWorker_FailOnMissingUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Delete the user so the ZIP builder can't find them.
-	if _, err := tx.Exec(ctx, "DELETE FROM users WHERE id = $1", user.ID); err != nil {
+	// Anonymize the user (set deleted_at) so GetUserByID — which filters by
+	// deleted_at IS NULL — returns no rows and buildZIP fails. A hard DELETE
+	// would CASCADE the user_exports row away, leaving nothing for the worker
+	// to claim or the assertion to fetch.
+	if _, err := tx.Exec(ctx, "UPDATE users SET deleted_at = now() WHERE id = $1", user.ID); err != nil {
 		t.Fatal(err)
 	}
 
