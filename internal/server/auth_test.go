@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -172,6 +173,61 @@ func TestAuth_Register_SingleUserMode(t *testing.T) {
 	})
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("second register: got %d, want 403", resp.StatusCode)
+	}
+}
+
+// Concurrent bootstrap requests must produce exactly one admin row. Without
+// the SERIALIZABLE tx guarding count + insert, two requests could both observe
+// count=0 and both insert admins.
+func TestAuth_Register_SingleUserMode_ConcurrentBootstrapRace(t *testing.T) {
+	srv, pool := setupAuth(t, config.ModeSingleUser)
+
+	const n = 5
+	var wg sync.WaitGroup
+	statuses := make([]int, n)
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			resp := doJSON(t, srv, http.MethodPost, "/api/auth/register", map[string]string{
+				"username": fmt.Sprintf("user%d", i),
+				"email":    fmt.Sprintf("user%d@example.com", i),
+				"password": "supersecret",
+			})
+			statuses[i] = resp.StatusCode
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	created := 0
+	for _, s := range statuses {
+		if s == http.StatusCreated {
+			created++
+		} else if s != http.StatusForbidden {
+			t.Errorf("unexpected status %d (want 201 or 403)", s)
+		}
+	}
+	if created != 1 {
+		t.Fatalf("got %d successful registrations, want exactly 1; statuses=%v", created, statuses)
+	}
+
+	var userCount int
+	if err := pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM users").Scan(&userCount); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if userCount != 1 {
+		t.Fatalf("users table has %d rows, want 1", userCount)
+	}
+	var adminCount int
+	if err := pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM users WHERE is_admin").Scan(&adminCount); err != nil {
+		t.Fatalf("count admins: %v", err)
+	}
+	if adminCount != 1 {
+		t.Fatalf("got %d admin rows, want 1", adminCount)
 	}
 }
 

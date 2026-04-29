@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -24,6 +25,7 @@ import (
 const (
 	pgUniqueViolation         = "23505"
 	pgInvalidTextRepresentation = "22P02" // includes invalid enum values
+	pgSerializationFailure    = "40001"
 )
 
 func isUniqueViolation(err error) bool {
@@ -35,6 +37,13 @@ func isInvalidTextRepresentation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == pgInvalidTextRepresentation
 }
+
+func isSerializationFailure(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgSerializationFailure
+}
+
+var errRegistrationClosed = errors.New("registration closed")
 
 const (
 	sessionCookieName = "zymo_session"
@@ -143,8 +152,14 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password too short"})
 		return
 	}
-	if err := s.checkRegistrationAllowed(r.Context()); err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+	switch s.cfg.InstanceMode {
+	case config.ModeOpen, config.ModeSingleUser:
+		// fall through to insert path
+	case config.ModeClosed:
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "registration disabled"})
+		return
+	default:
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unknown instance mode"})
 		return
 	}
 
@@ -158,18 +173,23 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		display = pgtype.Text{String: req.DisplayName, Valid: true}
 	}
 	isAdmin := s.cfg.InstanceMode == config.ModeSingleUser
-	user, err := s.queries.CreateUserWithPassword(r.Context(), queries.CreateUserWithPasswordParams{
+	params := queries.CreateUserWithPasswordParams{
 		Username:     req.Username,
 		Email:        req.Email,
 		DisplayName:  display,
 		PasswordHash: pgtype.Text{String: hash, Valid: true},
 		IsAdmin:      isAdmin,
-	})
-	if err != nil {
-		if isUniqueViolation(err) {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "username or email already taken"})
-			return
-		}
+	}
+
+	user, err := s.createRegistrationUser(r.Context(), params)
+	switch {
+	case errors.Is(err, errRegistrationClosed):
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "registration disabled (single-user mode)"})
+		return
+	case isUniqueViolation(err):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "username or email already taken"})
+		return
+	case err != nil:
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "user create failed"})
 		return
 	}
@@ -182,27 +202,39 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, authResponse{Token: token, User: toPublicUser(user)})
 }
 
-// checkRegistrationAllowed enforces INSTANCE_MODE policy:
-//   - open:        always allowed
-//   - single_user: allowed only while users is empty (bootstraps the admin)
-//   - closed:      never via this endpoint (CLI-only user creation)
-func (s *Server) checkRegistrationAllowed(ctx context.Context) error {
-	switch s.cfg.InstanceMode {
-	case config.ModeOpen:
-		return nil
-	case config.ModeClosed:
-		return errors.New("registration disabled")
-	case config.ModeSingleUser:
-		count, err := s.queries.CountUsers(ctx)
-		if err != nil {
-			return errors.New("failed to check user count")
-		}
-		if count > 0 {
-			return errors.New("registration disabled (single-user mode)")
-		}
-		return nil
+// createRegistrationUser inserts the user, atomically gating single-user mode
+// on an empty users table. SERIALIZABLE here closes a TOCTOU where two
+// concurrent bootstraps both observe count=0 and both insert admin rows; the
+// loser's commit aborts with 40001, which we surface as "registration closed"
+// — the same outcome they'd see if they'd retried after the winner committed.
+func (s *Server) createRegistrationUser(ctx context.Context, params queries.CreateUserWithPasswordParams) (queries.User, error) {
+	if s.cfg.InstanceMode != config.ModeSingleUser {
+		return s.queries.CreateUserWithPassword(ctx, params)
 	}
-	return errors.New("unknown instance mode")
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return queries.User{}, err
+	}
+	defer tx.Rollback(ctx)
+	qtx := s.queries.WithTx(tx)
+	count, err := qtx.CountUsers(ctx)
+	if err != nil {
+		return queries.User{}, err
+	}
+	if count > 0 {
+		return queries.User{}, errRegistrationClosed
+	}
+	user, err := qtx.CreateUserWithPassword(ctx, params)
+	if err != nil {
+		return queries.User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		if isSerializationFailure(err) {
+			return queries.User{}, errRegistrationClosed
+		}
+		return queries.User{}, err
+	}
+	return user, nil
 }
 
 type loginRequest struct {

@@ -132,7 +132,6 @@ go test ./...
 
 ### Known auth gaps (deferred)
 
-- **Single-user TOCTOU** — `CountUsers` + `INSERT` are two queries; concurrent bootstraps could both succeed. Fix: SERIALIZABLE tx.
 - **Rate-limit state is in-process** — multi-replica deployments leak headroom. Move to shared store when multi-replica ships.
 - **No trusted-proxy config** — `middleware.RealIP` blindly trusts `X-Forwarded-For`. Add allowlist when warranted.
 - **No `last_seen_at` touch on activity** — `TouchSession` exists but isn't called. Decide strategy (every request vs. rate-limited) when activity feed needs it.
