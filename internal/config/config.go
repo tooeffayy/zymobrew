@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type InstanceMode string
@@ -33,6 +35,11 @@ type Config struct {
 	S3AccessKey       string
 	S3SecretKey       string
 	BackupRetentionDays int
+
+	// TrustedProxies is the set of CIDRs whose X-Forwarded-For header values
+	// we honor. Empty means trust no upstream — the raw connection IP wins
+	// and any XFF header is ignored. See internal/server/realip.go.
+	TrustedProxies []netip.Prefix
 }
 
 func Load() (Config, error) {
@@ -58,6 +65,11 @@ func Load() (Config, error) {
 	if cfg.DatabaseURL == "" {
 		return cfg, fmt.Errorf("DATABASE_URL is required")
 	}
+	prefixes, err := parseTrustedProxies(os.Getenv("TRUSTED_PROXIES"))
+	if err != nil {
+		return cfg, err
+	}
+	cfg.TrustedProxies = prefixes
 	switch cfg.InstanceMode {
 	case ModeSingleUser, ModeClosed, ModeOpen:
 	default:
@@ -95,4 +107,36 @@ func getenvInt(key string, def int) int {
 		return def
 	}
 	return n
+}
+
+// parseTrustedProxies parses a comma-separated list of CIDRs (e.g.
+// "10.0.0.0/8,fd00::/8"). Empty input → empty slice (trust nothing). A bare
+// IP is accepted and treated as a /32 or /128.
+func parseTrustedProxies(raw string) ([]netip.Prefix, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]netip.Prefix, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if strings.Contains(p, "/") {
+			pre, err := netip.ParsePrefix(p)
+			if err != nil {
+				return nil, fmt.Errorf("TRUSTED_PROXIES: invalid CIDR %q: %w", p, err)
+			}
+			out = append(out, pre)
+			continue
+		}
+		addr, err := netip.ParseAddr(p)
+		if err != nil {
+			return nil, fmt.Errorf("TRUSTED_PROXIES: invalid address %q: %w", p, err)
+		}
+		out = append(out, netip.PrefixFrom(addr, addr.BitLen()))
+	}
+	return out, nil
 }

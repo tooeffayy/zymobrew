@@ -49,7 +49,7 @@ func New(pool *pgxpool.Pool, cfg config.Config, store storage.Store) *Server {
 func (s *Server) routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	r.Use(realIP(s.cfg.TrustedProxies))
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(s.authMiddleware)
@@ -162,10 +162,10 @@ func maxBodyBytes(n int64) func(http.Handler) http.Handler {
 }
 
 // ipRateLimit returns a middleware that consumes a token from `limiter`
-// keyed by the client's IP. Trust assumption: chi's middleware.RealIP has
-// already canonicalised X-Forwarded-For into r.RemoteAddr. Behind a proxy
-// that's correct; directly exposed, this trusts an attacker-controlled
-// header. Tighten when we add an explicit trusted-proxy config.
+// keyed by the client's IP. The realIP middleware has already resolved
+// r.RemoteAddr against the TRUSTED_PROXIES allowlist — XFF from an
+// untrusted peer is ignored, so this can't be bypassed by attacker-set
+// headers.
 func (s *Server) ipRateLimit(limiter *ratelimit.Limiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

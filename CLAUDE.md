@@ -87,6 +87,7 @@ go run ./cmd/zymo serve
 | `S3_ACCESS_KEY`       | *(required if s3)*    | S3 access key |
 | `S3_SECRET_KEY`       | *(required if s3)*    | S3 secret key |
 | `BACKUP_RETENTION_DAYS` | `30`                | Hard-delete admin backups (rows + blobs) after N days |
+| `TRUSTED_PROXIES`     | *(empty)*             | Comma-separated CIDRs (e.g. `10.0.0.0/8,127.0.0.1`) whose `X-Forwarded-For` we honor. Empty = ignore XFF entirely. See Auth → Real IP resolution. |
 
 ## Tests + Smoke Checks
 
@@ -142,12 +143,17 @@ go test ./...
 
 **Dormant columns**: `deletion_scheduled_for`, `deletion_choices`, `deletion_reason` were planned for a grace-period flow with per-content-type choices. Kept in schema for that future flow; the current implementation is immediate.
 
+### Real IP resolution
+
+`internal/server/realip.go` replaces chi's `middleware.RealIP`. It walks `X-Forwarded-For` right-to-left, popping entries whose IP falls in `TRUSTED_PROXIES`, and stops at the first untrusted entry — that's the real client. If the connection peer isn't itself in the trusted set, XFF is ignored entirely (peer wins). Empty `TRUSTED_PROXIES` = trust nothing — safe default for direct exposure; an operator behind a real proxy must set the CIDR list explicitly. Single header honored: `X-Forwarded-For` only. RFC 7239 `Forwarded` and `X-Real-IP` are skipped (add when a deployment needs them).
+
+The resolved IP is stashed on the request context (`clientIPFromContext`) and `r.RemoteAddr` is rewritten so existing `net.SplitHostPort` callers see it without changes. `issueSession` writes it to `sessions.ip`.
+
+`last_seen_at` is touched in `authMiddleware` if the value loaded with the session is older than 5 min — fire-and-forget, no extra SELECT, write amplification bounded.
+
 ### Known auth gaps (deferred)
 
 - **Rate-limit state is in-process** — multi-replica deployments leak headroom. Move to shared store when multi-replica ships.
-- **No trusted-proxy config** — `middleware.RealIP` blindly trusts `X-Forwarded-For`. Add allowlist when warranted.
-- **No `last_seen_at` touch on activity** — `TouchSession` exists but isn't called. Decide strategy (every request vs. rate-limited) when activity feed needs it.
-- **No client IP on sessions** — `sessions.ip` is `INET NULL`; populate once trusted-proxy policy is settled.
 
 ## Login Rate Limiting
 

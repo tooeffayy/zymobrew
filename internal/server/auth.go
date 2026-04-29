@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"strings"
 	"time"
@@ -46,9 +47,10 @@ func isSerializationFailure(err error) bool {
 var errRegistrationClosed = errors.New("registration closed")
 
 const (
-	sessionCookieName = "zymo_session"
-	sessionDuration   = 30 * 24 * time.Hour
-	minPasswordLen    = 8
+	sessionCookieName    = "zymo_session"
+	sessionDuration      = 30 * 24 * time.Hour
+	sessionTouchInterval = 5 * time.Minute
+	minPasswordLen       = 8
 )
 
 var usernameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,32}$`)
@@ -74,6 +76,17 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		if err != nil {
 			next.ServeHTTP(w, r)
 			return
+		}
+		// Touch last_seen_at if it's stale. Throttling avoids one write per
+		// request on busy sessions; the threshold uses the value already
+		// loaded above, no extra SELECT. Fire-and-forget — a failed touch
+		// shouldn't fail the request.
+		if !row.Session.LastSeenAt.Valid || time.Since(row.Session.LastSeenAt.Time) > sessionTouchInterval {
+			go func(id uuid.UUID) {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				_ = s.queries.TouchSession(ctx, id)
+			}(row.Session.ID)
 		}
 		ctx := context.WithValue(r.Context(), userKey{}, &row.User)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -323,11 +336,15 @@ func (s *Server) issueSession(ctx context.Context, w http.ResponseWriter, r *htt
 	if v := r.UserAgent(); v != "" {
 		ua = pgtype.Text{String: v, Valid: true}
 	}
+	var ip *netip.Addr
+	if a := clientIPFromContext(r.Context()); a.IsValid() {
+		ip = &a
+	}
 	if _, err := s.queries.CreateSession(ctx, queries.CreateSessionParams{
 		UserID:    userID,
 		TokenHash: hash,
 		UserAgent: ua,
-		Ip:        nil,
+		Ip:        ip,
 		ExpiresAt: pgtype.Timestamptz{Time: expires, Valid: true},
 	}); err != nil {
 		return "", err

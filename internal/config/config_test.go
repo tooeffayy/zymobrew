@@ -41,3 +41,39 @@ func TestLoadRejectsInvalidMode(t *testing.T) {
 		t.Fatal("expected error for invalid INSTANCE_MODE")
 	}
 }
+
+func TestLoadParsesTrustedProxies(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x@y/z")
+	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8, 127.0.0.1, fd00::/8")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(cfg.TrustedProxies); got != 3 {
+		t.Fatalf("got %d prefixes, want 3 (%v)", got, cfg.TrustedProxies)
+	}
+	// Bare IP becomes a /32 (IPv4) — the operator can write either form.
+	if got, want := cfg.TrustedProxies[1].Bits(), 32; got != want {
+		t.Errorf("bare 127.0.0.1 → /%d, want /%d", got, want)
+	}
+}
+
+func TestLoadRejectsInvalidTrustedProxies(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x@y/z")
+	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8,not-an-ip")
+	if _, err := config.Load(); err == nil {
+		t.Fatal("expected error for malformed TRUSTED_PROXIES entry")
+	}
+}
+
+func TestLoadEmptyTrustedProxies(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x@y/z")
+	t.Setenv("TRUSTED_PROXIES", "")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TrustedProxies != nil {
+		t.Fatalf("empty TRUSTED_PROXIES should be nil, got %v", cfg.TrustedProxies)
+	}
+}
