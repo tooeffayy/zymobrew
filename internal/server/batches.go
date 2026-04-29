@@ -345,8 +345,9 @@ func (s *Server) handleUpdateBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Materialize batch_start templates when started_at is set for the first
-	// time. The NOT EXISTS guard in the SQL prevents double-materialization.
+	// Re-run materialization whenever started_at is included in the patch.
+	// On first set this creates the reminder rows; on re-anchor it shifts
+	// fire_at on existing scheduled reminders. See materializeTemplates.
 	if req.StartedAt != nil && batch.StartedAt.Valid && batch.RecipeID.Valid {
 		s.materializeTemplates(r.Context(), batch, queries.ReminderAnchorBatchStart, batch.StartedAt.Time)
 	}
@@ -465,14 +466,26 @@ func (s *Server) userOwnsBatch(ctx context.Context, userID, batchID uuid.UUID) b
 	return err == nil
 }
 
-// materializeTemplates inserts reminders for all templates on the batch's
-// recipe matching the given anchor, using anchorTime + offset as fire_at.
-// Errors are logged but not propagated — materialization is best-effort and
-// does not fail the triggering request.
+// materializeTemplates makes the reminders for this batch+anchor reflect
+// `anchorTime`. First it shifts fire_at on already-materialized scheduled
+// reminders (re-anchor: batch.started_at being patched, or eventually a
+// pitch/rack/bottle event's occurred_at being edited). Then it creates rows
+// for any templates not yet materialized — covers initial materialization
+// and templates added after the batch started.
+//
+// Both writes are best-effort and do not fail the triggering request. They
+// don't share a transaction; if the second one fails after the first
+// succeeded, the next call (via another PATCH or event) will reconcile.
 func (s *Server) materializeTemplates(ctx context.Context, batch queries.Batch, anchor queries.ReminderAnchor, anchorTime time.Time) {
 	if !batch.RecipeID.Valid {
 		return
 	}
+	_ = s.queries.ReanchorReminders(ctx, queries.ReanchorRemindersParams{
+		BatchID:    batch.ID,
+		RecipeID:   batch.RecipeID.UUID,
+		Anchor:     anchor,
+		AnchorTime: pgtype.Timestamptz{Time: anchorTime, Valid: true},
+	})
 	_ = s.queries.MaterializeReminderTemplates(ctx, queries.MaterializeReminderTemplatesParams{
 		BatchID:    batch.ID,
 		UserID:     batch.BrewerID,

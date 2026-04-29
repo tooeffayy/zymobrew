@@ -116,6 +116,12 @@ type Querier interface {
 	MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID) error
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) (int64, error)
 	MaterializeReminderTemplates(ctx context.Context, arg MaterializeReminderTemplatesParams) error
+	// Shifts fire_at on already-materialized reminders when the anchor moves
+	// (e.g. batch.started_at is patched). Status filter is intentionally narrower
+	// than MaterializeReminderTemplates' NOT EXISTS guard: only 'scheduled' rows
+	// are rescheduled. Don't un-fire a fired reminder, and don't yank a snoozed
+	// reminder's wake time out from under the user.
+	ReanchorReminders(ctx context.Context, arg ReanchorRemindersParams) error
 	SetRecipeRevision(ctx context.Context, arg SetRecipeRevisionParams) (Recipe, error)
 	TouchSession(ctx context.Context, id uuid.UUID) error
 	UnlikeRecipe(ctx context.Context, arg UnlikeRecipeParams) error

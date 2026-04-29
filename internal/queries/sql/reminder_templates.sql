@@ -44,3 +44,18 @@ WHERE t.recipe_id = sqlc.arg('recipe_id')::uuid
       AND r.batch_id = sqlc.arg('batch_id')::uuid
       AND r.status NOT IN ('cancelled', 'dismissed')
   );
+
+-- name: ReanchorReminders :exec
+-- Shifts fire_at on already-materialized reminders when the anchor moves
+-- (e.g. batch.started_at is patched). Status filter is intentionally narrower
+-- than MaterializeReminderTemplates' NOT EXISTS guard: only 'scheduled' rows
+-- are rescheduled. Don't un-fire a fired reminder, and don't yank a snoozed
+-- reminder's wake time out from under the user.
+UPDATE reminders SET
+  fire_at = sqlc.arg('anchor_time')::timestamptz + (t.offset_minutes * INTERVAL '1 minute')
+FROM recipe_reminder_templates t
+WHERE reminders.template_id = t.id
+  AND reminders.batch_id = sqlc.arg('batch_id')::uuid
+  AND t.recipe_id = sqlc.arg('recipe_id')::uuid
+  AND t.anchor = sqlc.arg('anchor')::reminder_anchor
+  AND reminders.status = 'scheduled';

@@ -201,7 +201,7 @@ These cross-cutting rules apply across all resources:
 - `PATCH /api/batches/{id}` with `started_at` → `batch_start` templates
 - `POST /api/batches/{id}/events` with kind `pitch`/`rack`/`bottle` → corresponding anchor templates
 
-`MaterializeReminderTemplates` uses `NOT EXISTS` to prevent double-materialization.
+`MaterializeReminderTemplates` uses `NOT EXISTS` to prevent double-materialization. Each materialize call also runs `ReanchorReminders` first, which UPDATEs `fire_at` on already-materialized **scheduled** reminders for that batch+anchor — so editing `started_at` shifts existing reminders forward. The status filter is deliberately narrower than `MaterializeReminderTemplates`': fired/snoozed/completed reminders are *not* re-anchored.
 
 **Batch–recipe linkage** — `recipe_id` pins to `current_revision_id` at batch creation. Private recipes reject linking by non-owners. Cannot be changed after creation.
 
@@ -219,7 +219,6 @@ These cross-cutting rules apply across all resources:
 
 - **Calculators** — ABV, OG→FG, honey weight, pitch rate. Deferred from Phase 3.
 - **`custom_event` anchor** materialization — needs event title/kind selector.
-- **Re-materialization on re-anchor** — editing a pitch event's `occurred_at` does not update existing reminders.
 - **No pagination cursor** — all lists use limit/offset; add cursor when feeds grow large.
 - **Unbounded readings/events** — no pagination; add cursor when device adapters (Tilt/RAPT) land.
 - **`source` is free text** — constrain to known set when device adapters ship.

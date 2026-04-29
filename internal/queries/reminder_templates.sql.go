@@ -164,6 +164,39 @@ func (q *Queries) MaterializeReminderTemplates(ctx context.Context, arg Material
 	return err
 }
 
+const reanchorReminders = `-- name: ReanchorReminders :exec
+UPDATE reminders SET
+  fire_at = $1::timestamptz + (t.offset_minutes * INTERVAL '1 minute')
+FROM recipe_reminder_templates t
+WHERE reminders.template_id = t.id
+  AND reminders.batch_id = $2::uuid
+  AND t.recipe_id = $3::uuid
+  AND t.anchor = $4::reminder_anchor
+  AND reminders.status = 'scheduled'
+`
+
+type ReanchorRemindersParams struct {
+	AnchorTime pgtype.Timestamptz `json:"anchor_time"`
+	BatchID    uuid.UUID          `json:"batch_id"`
+	RecipeID   uuid.UUID          `json:"recipe_id"`
+	Anchor     ReminderAnchor     `json:"anchor"`
+}
+
+// Shifts fire_at on already-materialized reminders when the anchor moves
+// (e.g. batch.started_at is patched). Status filter is intentionally narrower
+// than MaterializeReminderTemplates' NOT EXISTS guard: only 'scheduled' rows
+// are rescheduled. Don't un-fire a fired reminder, and don't yank a snoozed
+// reminder's wake time out from under the user.
+func (q *Queries) ReanchorReminders(ctx context.Context, arg ReanchorRemindersParams) error {
+	_, err := q.db.Exec(ctx, reanchorReminders,
+		arg.AnchorTime,
+		arg.BatchID,
+		arg.RecipeID,
+		arg.Anchor,
+	)
+	return err
+}
+
 const updateReminderTemplate = `-- name: UpdateReminderTemplate :one
 UPDATE recipe_reminder_templates SET
   title                = COALESCE($1,                title),
