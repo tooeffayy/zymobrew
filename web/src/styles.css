@@ -1,90 +1,321 @@
-/* Minimal styling — enough to make the auth shell legible without
-   committing to a design system. Plain CSS, no preprocessor. */
+/* Zymo styling — warm, considered, crafted. Plain CSS, no preprocessor.
+   Uses OKLCH for the palette so accent shifts stay perceptually uniform
+   across hover / soft / strong variants. */
 
 :root {
-  --bg:   #f8f7f4;
-  --fg:   #1f1d1a;
-  --muted:#6f6a63;
-  --line: #d9d3c8;
-  --accent: #6b3f1a;
-  --error: #b3261e;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Surfaces — page is white; tints are reserved for hover states and
+     subtle separators so the warm accent does the brand-carrying work. */
+  --bg:        oklch(100%  0     0);
+  --bg-tint:   oklch(97%   0.008 75);
+  --surface:   oklch(100%  0     0);
+  --surface-2: oklch(99%   0.005 80);
+
+  /* Text */
+  --fg:        oklch(22%   0.02  60);
+  --fg-soft:   oklch(40%   0.02  60);
+  --muted:     oklch(55%   0.015 60);
+  --line:      oklch(90%   0.01  70);
+  --line-soft: oklch(94%   0.008 70);
+
+  /* Brand — warm amber/honey, signals fermentation without being literal. */
+  --accent:        oklch(56%   0.13  55);
+  --accent-hover:  oklch(50%   0.14  55);
+  --accent-soft:   oklch(94%   0.04  75);
+  --accent-ring:   oklch(56%   0.13  55 / 0.35);
+
+  /* Semantic */
+  --error:       oklch(55%   0.19  25);
+  --error-soft:  oklch(96%   0.03  25);
+
+  /* Brew-type pill hues — keep mead = brand amber, others nudge around the wheel. */
+  --pill-mead-bg:     oklch(94% 0.05  75);
+  --pill-mead-fg:     oklch(40% 0.13  60);
+  --pill-cider-bg:    oklch(95% 0.05 130);
+  --pill-cider-fg:    oklch(38% 0.10 140);
+  --pill-wine-bg:     oklch(94% 0.05 350);
+  --pill-wine-fg:     oklch(40% 0.13 350);
+  --pill-beer-bg:     oklch(94% 0.05  85);
+  --pill-beer-fg:     oklch(38% 0.13  70);
+  --pill-kombucha-bg: oklch(94% 0.05 200);
+  --pill-kombucha-fg: oklch(38% 0.10 210);
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px oklch(20% 0.02 60 / 0.04), 0 1px 1px oklch(20% 0.02 60 / 0.03);
+  --shadow:    0 4px 12px oklch(20% 0.02 60 / 0.05), 0 2px 4px oklch(20% 0.02 60 / 0.04);
+  --shadow-lg: 0 12px 32px oklch(20% 0.02 60 / 0.08), 0 4px 12px oklch(20% 0.02 60 / 0.04);
+
+  /* Type */
+  font-family:
+    "InterVariable", "Inter",
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
+  font-feature-settings: "cv11", "ss01", "ss03";
+  /* Slightly tighter than browser default reads more polished at body sizes. */
+  font-size: 15px;
+  line-height: 1.55;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   color-scheme: light;
 }
 
 * { box-sizing: border-box; }
 
+html, body { margin: 0; }
+
 body {
-  margin: 0;
   background: var(--bg);
   color: var(--fg);
   min-height: 100vh;
+}
+
+/* --- Auth shell -------------------------------------------------------- */
+
+.auth-shell {
+  min-height: 100vh;
   display: grid;
   place-items: start center;
-  padding: 4rem 1rem;
+  padding: clamp(2rem, 8vh, 6rem) 1rem 2rem;
 }
+
+/* --- Site shell -------------------------------------------------------- */
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.875rem clamp(1rem, 4vw, 2rem);
+  /* Translucent over the gradient — gives the page a sense of depth. */
+  background: oklch(99% 0 0 / 0.78);
+  backdrop-filter: saturate(140%) blur(10px);
+  -webkit-backdrop-filter: saturate(140%) blur(10px);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.0625rem;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.brand::before {
+  /* Tiny mark next to the wordmark — keeps the header from feeling bare
+     without committing to a real logo asset. */
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.5rem;
+  border-radius: 999px;
+  background: var(--accent);
+  vertical-align: middle;
+  transform: translateY(-1px);
+}
+
+.site-nav {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.site-nav a,
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4375rem 0.75rem;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.site-nav a:hover,
+.link-button:hover {
+  color: var(--fg);
+  background: var(--bg-tint);
+}
+
+.site-nav a.active {
+  color: var(--fg);
+  background: var(--bg-tint);
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0.4375rem 0.75rem;
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.site-main {
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1rem, 4vw, 2rem) 4rem;
+}
+
+/* --- Page typography --------------------------------------------------- */
+
+h1, h2, h3 {
+  letter-spacing: -0.018em;
+  color: var(--fg);
+  margin: 0 0 0.75rem;
+}
+
+.page h1 {
+  font-size: clamp(1.75rem, 3.5vw, 2.25rem);
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-color: oklch(56% 0.13 55 / 0.35);
+  text-underline-offset: 2px;
+  transition: color 120ms ease;
+}
+
+a:hover {
+  color: var(--accent-hover);
+  text-decoration-color: currentColor;
+}
+
+/* --- Cards (auth + content) ------------------------------------------- */
 
 .card {
   width: 100%;
-  max-width: 24rem;
-  padding: 2rem;
-  background: white;
+  max-width: 25rem;
+  padding: 2rem 2rem 1.75rem;
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 14px;
+  box-shadow: var(--shadow);
 }
 
 .card h1 {
-  margin-top: 0;
   font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
 }
+
+/* --- Forms ------------------------------------------------------------- */
 
 label {
   display: block;
   margin-bottom: 1rem;
-  font-size: 0.875rem;
-  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--fg-soft);
+  letter-spacing: 0.005em;
 }
 
 input {
   display: block;
   width: 100%;
-  margin-top: 0.25rem;
-  padding: 0.5rem 0.625rem;
+  margin-top: 0.375rem;
+  padding: 0.625rem 0.75rem;
   font: inherit;
+  font-size: 0.9375rem;
   color: var(--fg);
-  background: white;
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 8px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
+input::placeholder { color: var(--muted); }
+
+input:hover  { border-color: oklch(82% 0.01 70); }
+input:focus,
+input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-ring);
 }
+
+/* Hide native number-input spinners. The brewing fields use inputMode
+   "decimal" so users type rather than nudge; the spinners just steal
+   horizontal space (they overlap the placeholder on the narrow Amount
+   column in the ingredient editor). */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] { -moz-appearance: textfield; }
 
 button {
   font: inherit;
-  padding: 0.5rem 1rem;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  padding: 0.625rem 1.125rem;
   background: var(--accent);
   color: white;
-  border: none;
-  border-radius: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--accent-ring), var(--shadow-sm);
 }
 
 button:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
-a {
-  color: var(--accent);
+/* --- Definition lists (used on /me) ----------------------------------- */
+
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.5rem 1.25rem;
+  margin: 1.5rem 0 0.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line-soft);
 }
 
-.error {
-  color: var(--error);
-  font-size: 0.875rem;
+dt {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
+
+dd {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+/* --- Utility ----------------------------------------------------------- */
 
 .muted {
   color: var(--muted);
@@ -92,22 +323,602 @@ a {
 }
 
 .mono {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   font-size: 0.8125rem;
+  color: var(--fg-soft);
 }
 
-dl {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 0.25rem 1rem;
-  margin: 1.5rem 0;
-}
-
-dt {
-  color: var(--muted);
+.error {
+  margin: 0 0 1rem;
+  padding: 0.625rem 0.875rem;
+  color: var(--error);
+  background: var(--error-soft);
+  border: 1px solid oklch(85% 0.05 25);
+  border-radius: 8px;
   font-size: 0.875rem;
 }
 
-dd {
+/* --- Recipe feed ------------------------------------------------------- */
+
+.recipe-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.5rem;
+  display: grid;
+  gap: 0.875rem;
+}
+
+.recipe-card {
+  position: relative;
+  padding: 1.25rem 1.375rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.recipe-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+  border-color: oklch(86% 0.015 70);
+}
+
+.recipe-title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  color: var(--fg);
+}
+
+.recipe-title:hover { color: var(--accent); }
+
+.recipe-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.recipe-desc {
+  margin: 0.625rem 0 0;
+  color: var(--fg-soft);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  /* Clamp long descriptions so a verbose recipe doesn't dominate the feed. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.recipe-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-top: 0.875rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--line-soft);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+}
+
+/* Brew-type pills — color-keyed by kind so the feed scans by category. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1875rem 0.5625rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.pill-mead     { background: var(--pill-mead-bg);     color: var(--pill-mead-fg); }
+.pill-cider    { background: var(--pill-cider-bg);    color: var(--pill-cider-fg); }
+.pill-wine     { background: var(--pill-wine-bg);     color: var(--pill-wine-fg); }
+.pill-beer     { background: var(--pill-beer-bg);     color: var(--pill-beer-fg); }
+.pill-kombucha { background: var(--pill-kombucha-bg); color: var(--pill-kombucha-fg); }
+
+/* --- Recipe detail ----------------------------------------------------- */
+
+.back-link {
+  margin: 0 0 1.25rem;
+  font-size: 0.875rem;
+}
+
+.back-link a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.back-link a:hover { color: var(--fg); }
+
+.recipe-header { margin-bottom: 2rem; }
+
+.recipe-header h1 {
+  font-size: clamp(1.875rem, 4vw, 2.5rem);
+  margin: 0.625rem 0 0.75rem;
+}
+
+.recipe-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.875rem;
+}
+
+.recipe-detail-desc {
   margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--fg-soft);
+  max-width: 44rem;
+}
+
+.pill-visibility {
+  background: oklch(94% 0.005 70);
+  color: var(--fg-soft);
+}
+
+.pill-owner {
+  background: oklch(95% 0.05 200);
+  color: oklch(38% 0.10 220);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.75rem;
+  margin: 0 0 2.5rem;
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.stat-value {
+  margin-top: 0.25rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
+.recipe-section {
+  margin-bottom: 2.5rem;
+}
+
+.recipe-section h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
+/* Single framed card grouping all ingredients. Width-capped so the
+   amount column doesn't drift to the far edge of a wide page — that
+   was the readability complaint when each row spanned the full main
+   column. Kind labels are section headers within the card; subsequent
+   sections separated by a soft divider. */
+.ingredient-card {
+  max-width: 32rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.ingredient-section + .ingredient-section {
+  border-top: 1px solid var(--line-soft);
+}
+
+.ingredient-kind {
+  margin: 0;
+  padding: 0.625rem 1rem 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.ingredient-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.375rem 1rem;
+  font-size: 0.9375rem;
+}
+
+.ingredient-section .ingredient-row:last-child {
+  padding-bottom: 0.625rem;
+}
+
+.ingredient-name {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.ingredient-amount {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.recipe-footer {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line-soft);
+  font-size: 0.8125rem;
+}
+
+/* --- Recipe detail action row ----------------------------------------- */
+
+/* Owner actions (Edit / Delete) and viewer actions (Fork) sit between
+   the header and the stats grid. Visually quieter than the primary CTA
+   so the page still reads recipe-first; danger variant earns its red
+   only on hover. */
+.recipe-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1.5rem;
+}
+
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4375rem 0.875rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--fg-soft);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: none;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.action-button:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--bg-tint);
+  border-color: oklch(86% 0.015 70);
+  transform: none;
+  box-shadow: none;
+}
+
+.action-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.action-button.danger:hover:not(:disabled) {
+  color: var(--error);
+  background: var(--error-soft);
+  border-color: oklch(85% 0.05 25);
+}
+
+/* --- Header CTA -------------------------------------------------------- */
+
+.header-cta {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4375rem 0.875rem;
+  border-radius: 6px;
+  background: var(--accent);
+  color: white !important;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+.header-cta:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+/* --- Empty state ------------------------------------------------------- */
+
+.empty-state {
+  margin: 2rem 0;
+  padding: 2rem;
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.empty-cta {
+  display: inline-block;
+  margin-top: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: var(--accent);
+  color: white;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.empty-cta:hover { background: var(--accent-hover); color: white; }
+
+/* --- Recipe form ------------------------------------------------------- */
+
+.recipe-form {
+  max-width: 44rem;
+  display: grid;
+  gap: 2rem;
+}
+
+.form-section {
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.form-section h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.section-help { font-weight: 400; }
+
+.field {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0;
+}
+
+.field > span:first-child {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--fg-soft);
+  letter-spacing: 0.005em;
+}
+
+.field-help {
+  font-size: 0.8125rem;
+}
+
+textarea {
+  display: block;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  font: inherit;
+  font-size: 0.9375rem;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  resize: vertical;
+  min-height: 4.5rem;
+  font-family: inherit;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+textarea:hover { border-color: oklch(82% 0.01 70); }
+textarea:focus,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-ring);
+}
+
+select {
+  display: block;
+  padding: 0.5rem 0.625rem;
+  font: inherit;
+  font-size: 0.9375rem;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path fill='none' stroke='%23999' stroke-width='1.5' d='M3 4.5l3 3 3-3'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+  background-size: 0.75rem;
+  padding-right: 2rem;
+}
+
+select:focus,
+select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-ring);
+}
+
+/* --- Segmented control ------------------------------------------------- */
+
+.segmented {
+  display: inline-flex;
+  padding: 0.1875rem;
+  background: oklch(96% 0.005 70);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  width: fit-content;
+}
+
+.segmented-item {
+  margin: 0;
+  position: relative;
+  padding: 0.4375rem 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--fg-soft);
+  border-radius: 6px;
+  cursor: pointer;
+  text-transform: capitalize;
+  transition: color 120ms ease, background 120ms ease;
+  user-select: none;
+}
+
+.segmented-item:hover { color: var(--fg); }
+
+.segmented-item input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+
+.segmented-item.active {
+  color: var(--fg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.segmented-item:has(input:focus-visible) {
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+
+/* --- Targets grid ------------------------------------------------------ */
+
+.targets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.875rem;
+}
+
+/* --- Ingredient editor rows ------------------------------------------- */
+
+.ingredient-edit-list {
+  display: grid;
+  gap: 0.625rem;
+}
+
+.ingredient-edit-row {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr) 5.5rem 6.25rem auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.ingredient-edit-row input,
+.ingredient-edit-row select {
+  margin: 0;
+}
+
+/* On narrow viewports, stack into two rows: kind+name on top,
+   amount+unit+remove below. Keeps the form usable on phones without
+   needing a full responsive redesign. */
+@media (max-width: 560px) {
+  .ingredient-edit-row {
+    grid-template-columns: 8rem minmax(0, 1fr) auto;
+    grid-template-areas:
+      "kind name name"
+      "amount unit remove";
+  }
+  .ingredient-edit-row > .kind-select { grid-area: kind; }
+  .ingredient-edit-row > input[aria-label="Name"]   { grid-area: name; }
+  .ingredient-edit-row > input[aria-label="Amount"] { grid-area: amount; }
+  .ingredient-edit-row > .unit-select               { grid-area: unit; }
+  .ingredient-edit-row > .row-remove                { grid-area: remove; }
+}
+
+.kind-select { text-transform: capitalize; }
+
+.row-remove {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  font-weight: 400;
+  line-height: 1;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  box-shadow: none;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.row-remove:hover:not(:disabled) {
+  color: var(--error);
+  background: var(--error-soft);
+  border-color: oklch(88% 0.04 25);
+  transform: none;
+  box-shadow: none;
+}
+
+.row-remove:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.add-button {
+  background: transparent;
+  color: var(--accent);
+  border: 1px dashed oklch(80% 0.06 60);
+  font-weight: 500;
+  box-shadow: none;
+  width: fit-content;
+  padding: 0.5rem 1rem;
+}
+
+.add-button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border-color: var(--accent);
+  transform: none;
+  box-shadow: none;
+}
+
+/* --- Form actions ------------------------------------------------------ */
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.cancel-link {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.9375rem;
+}
+
+.cancel-link:hover { color: var(--fg); }
+
+/* --- Motion respect ---------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+  .recipe-card:hover,
+  button:hover:not(:disabled) {
+    transform: none;
+  }
 }

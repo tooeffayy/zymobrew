@@ -18,9 +18,12 @@ export class ApiError extends Error {
   }
 }
 
-type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
-
-async function request<T>(method: string, path: string, body?: Json): Promise<T> {
+// Body is `unknown` rather than a tighter Json union because typed
+// payload shapes (e.g. RecipeFormPayload) don't structurally satisfy
+// `Record<string, unknown>` — TS treats their optional fields as
+// missing rather than `unknown`. We only ever JSON.stringify the body,
+// so the runtime contract is "JSON-serializable".
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     credentials: "same-origin",
@@ -59,10 +62,10 @@ function isErrorShape(v: unknown): v is { error: string } {
 }
 
 export const api = {
-  get:    <T>(path: string)              => request<T>("GET",    path),
-  post:   <T>(path: string, body?: Json) => request<T>("POST",   path, body),
-  patch:  <T>(path: string, body?: Json) => request<T>("PATCH",  path, body),
-  delete: <T>(path: string)              => request<T>("DELETE", path),
+  get:    <T>(path: string)                 => request<T>("GET",    path),
+  post:   <T>(path: string, body?: unknown) => request<T>("POST",   path, body),
+  patch:  <T>(path: string, body?: unknown) => request<T>("PATCH",  path, body),
+  delete: <T>(path: string)                 => request<T>("DELETE", path),
 };
 
 // --- Resource types -------------------------------------------------------
@@ -79,4 +82,80 @@ export interface PublicUser {
 export interface AuthResponse {
   token: string;
   user: PublicUser;
+}
+
+export type BrewType = "mead" | "beer" | "cider" | "wine" | "kombucha";
+export type Visibility = "public" | "unlisted" | "private";
+
+// Mirrors RecipeListItem in openapi.yaml — kept in sync by hand for now.
+export interface RecipeListItem {
+  id: string;
+  author_id: string;
+  parent_id?: string;
+  revision_count: number;
+  fork_count: number;
+  brew_type: BrewType;
+  style?: string;
+  name: string;
+  description?: string;
+  target_og?: number;
+  target_fg?: number;
+  target_abv?: number;
+  batch_size_l?: number;
+  visibility: Visibility;
+  updated_at: string;
+}
+
+// Server uses `next_cursor: string | null` — null means end-of-list.
+export interface RecipePage {
+  recipes: RecipeListItem[];
+  next_cursor: string | null;
+}
+
+export type IngredientKind =
+  | "honey"
+  | "water"
+  | "yeast"
+  | "nutrient"
+  | "fruit"
+  | "spice"
+  | "oak"
+  | "acid"
+  | "tannin"
+  | "other"
+  | "juice"
+  | "sugar";
+
+export interface Ingredient {
+  id: string;
+  kind: IngredientKind;
+  name: string;
+  amount?: number;
+  unit?: string;
+  sort_order: number;
+  details: Record<string, unknown>;
+}
+
+// Mirrors the Recipe schema in openapi.yaml. Returned by GET /api/recipes/{id}
+// — ingredients are the live (head-revision) set, not a revision snapshot.
+export interface Recipe {
+  id: string;
+  author_id: string;
+  parent_id?: string;
+  revision_number: number;
+  revision_count: number;
+  fork_count: number;
+  brew_type: BrewType;
+  style?: string;
+  name: string;
+  description?: string;
+  target_og?: number;
+  target_fg?: number;
+  target_abv?: number;
+  batch_size_l?: number;
+  visibility: Visibility;
+  message?: string;
+  ingredients: Ingredient[];
+  created_at: string;
+  updated_at: string;
 }
