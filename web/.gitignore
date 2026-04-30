@@ -1,0 +1,7 @@
+node_modules/
+
+# Vite output is rebuilt locally; only the placeholder dist/index.html
+# needs to be in git so //go:embed has something to read on a fresh
+# checkout. Track exceptions explicitly.
+dist/*
+!dist/.gitkeep

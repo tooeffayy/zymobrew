@@ -20,7 +20,7 @@ A self-hostable fermentation tracking app. Name from *zymurgy*, the science of f
 - `River` — Postgres-native background jobs. **No Redis dependency.**
 - Local accounts default; OIDC/OAuth optional via env config
 
-**Frontend**: Expo + React Native Web — one codebase, iOS/Android/web. Mobile prompts for instance URL on first launch (Mastodon-style).
+**Frontend**: React + Vite + TypeScript SPA in `web/`, compiled to static files and embedded into the Go binary via `//go:embed all:dist` (see `web/embed.go`). Plain CSS, no UI framework. Cookie auth (same-origin SPA, no tokens stored in JS). Mobile is deferred — when it lands, we'll either wrap the SPA as a PWA or build a native shell separately. (The original CLAUDE.md said Expo/RN Web; pivoted pre-1.0 because no UI had shipped and mobile wasn't on the near-term roadmap.)
 
 **Database**: Postgres 14+. Uses CITEXT, ENUMs, JSONB + GIN, partial indexes, recursive CTEs, `tsvector`.
 
@@ -41,7 +41,8 @@ internal/migrate      goose runner + River migrator (uses embedded migrations)
 internal/queries      sqlc generated type-safe code (Go only)
 internal/queries/sql  sqlc query source files (*.sql)
 internal/ratelimit    in-memory token-bucket limiter (per-IP, per-identifier)
-internal/server       chi HTTP router — /healthz, /readyz, /docs, /api/openapi.yaml, /api/auth/*, /api/users/*, /api/recipes/*, /api/batches/*, /api/notifications/*, /api/push/*, /api/users/me/exports/*, /api/admin/backups/*, /api/calculators/*
+internal/server       chi HTTP router — /healthz, /readyz, /docs, /api/openapi.yaml, /api/auth/*, /api/users/*, /api/recipes/*, /api/batches/*, /api/notifications/*, /api/push/*, /api/users/me/exports/*, /api/admin/backups/*, /api/calculators/*, plus SPA fallback for non-/api/* routes
+web/                  React + Vite + TS frontend; built to web/dist/ and embedded via //go:embed
 internal/selftest     runtime smoke tests for `zymo selftest`
 internal/storage      Store interface + local + S3 backends (Put/Get/Delete/PresignGet)
 internal/testutil     shared DB test setup

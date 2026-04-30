@@ -162,6 +162,12 @@ func (s *Server) routes() http.Handler {
 			})
 		})
 	})
+
+	// SPA + static asset handler. Anything not matched above falls
+	// through to the embedded React bundle: real files served from
+	// dist/, every other path falls back to index.html so client-side
+	// routing handles deep links. /api/* explicitly returns JSON 404s.
+	r.NotFound(staticHandler().ServeHTTP)
 	return r
 }
 
