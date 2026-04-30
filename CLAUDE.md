@@ -117,7 +117,7 @@ go test ./...
 2. ~~Recipes, forking, instance feed, comments~~ ✓
 3. ~~Calculators + reminders / web-push notifications~~ ✓
 4. ~~Backup + export (first-class)~~ ✓
-5. Cider + wine (reuse ~90% of mead flow)
+5. ~~Cider + wine (reuse ~90% of mead flow)~~ ✓
 6. Beer (new flows: mash, boil, IBU)
 7. Kombucha (continuous fermentation model — F1/F2)
 
@@ -188,7 +188,7 @@ These cross-cutting rules apply across all resources:
 
 **COALESCE PATCH** — all PATCH endpoints use `COALESCE(new_value, existing_value)`. Omitted fields are unchanged. Fields cannot be cleared to NULL yet.
 
-**MVP guard** — `brew_type != mead` is rejected at the API surface. Schema supports more types for later phases.
+**Brew-type guard** — only `mead`, `cider`, and `wine` are accepted at the API surface (`allowedBrewTypes` in `internal/server/batches.go`). The `brew_type` ENUM in Postgres also includes `beer` and `kombucha`, but those need flow logic (mash/boil for beer, F1/F2 for kombucha) that ships in Phases 6-7.
 
 **Auth** — all `/api/batches/*`, `/api/notifications/*`, `/api/users/me/*`, `/api/users/me/exports/*`, and `/api/admin/*` require auth. `/api/admin/*` additionally requires `users.is_admin = true` (`requireAdmin` middleware → 403). Recipe/profile reads and `/api/calculators/*` are public. See Auth section for session mechanics.
 
@@ -228,6 +228,8 @@ These cross-cutting rules apply across all resources:
 **Predicted FG** — `OG - (OG-1) * (attenuation/100)`. Returns FG plus the simple-formula ABV; the alternative formula isn't useful here because we're sizing pre-pitch.
 
 **Honey weight** — points-per-gallon-per-pound model with `honey_ppg` defaulting to 35 (typical wildflower). Honey volume displacement is *not* modelled (~2-3% effect, within honey-source variance).
+
+**Sugar weight** — same PPG model as honey-weight with `sugar_ppg` defaulting to 46 (sucrose; dextrose runs ~46 too). Used by cider/wine for chaptalization. Kept separate from `honey-weight` rather than generalizing — honey is honey, and the per-brew-type defaults are different enough that one combined endpoint would obscure the choice.
 
 **Pitch rate** — uses the standard Plato cubic, not the linear `(SG-1)*1000/4` approximation, since the linear form drifts ~5% high by OG 1.100. Returns billion cells, dry-yeast grams (assuming 10×10⁹ viable cells/g), and liquid packs (100×10⁹ cells/pack fresh). `pitch_factor` defaults to 0.75 M cells/mL/°P (ale baseline; mead callers often run at or above this).
 

@@ -97,7 +97,9 @@ func TestRecipe_Create_Validation(t *testing.T) {
 	}{
 		{"empty_name", recipeBody(map[string]any{"name": ""})},
 		{"name_too_long", recipeBody(map[string]any{"name": strings.Repeat("a", 201)})},
-		{"bad_brew_type", recipeBody(map[string]any{"brew_type": "beer"})},
+		{"rejects_beer", recipeBody(map[string]any{"brew_type": "beer"})},
+		{"rejects_kombucha", recipeBody(map[string]any{"brew_type": "kombucha"})},
+		{"rejects_unknown", recipeBody(map[string]any{"brew_type": "moonshine"})},
 		{"bad_visibility", recipeBody(map[string]any{"visibility": "invalid"})},
 		{"ingredient_no_kind", recipeBody(map[string]any{
 			"ingredients": []map[string]any{{"kind": "", "name": "Honey"}},
@@ -111,6 +113,59 @@ func TestRecipe_Create_Validation(t *testing.T) {
 			resp := doJSON(t, srv, http.MethodPost, "/api/recipes", c.body, cookies...)
 			if resp.StatusCode != http.StatusBadRequest {
 				t.Fatalf("%s: got %d, want 400", c.name, resp.StatusCode)
+			}
+		})
+	}
+}
+
+// Phase 5: cider and wine are accepted alongside mead. This test also
+// exercises the new ingredient_kind enum values (juice, sugar) added in
+// migration 0008 — round-tripping confirms the sqlc-generated enum
+// marshalling sees them.
+func TestRecipe_Create_AcceptsCiderAndWine(t *testing.T) {
+	srv, _ := setupAuth(t, config.ModeOpen)
+	resp := doJSON(t, srv, http.MethodPost, "/api/auth/register", map[string]string{
+		"username": "alice", "email": "alice@example.com", "password": "supersecret",
+	})
+	cookies := resp.Cookies()
+
+	cases := []struct {
+		brewType string
+		ings     []map[string]any
+	}{
+		{"cider", []map[string]any{
+			{"kind": "juice", "name": "Apple Juice", "amount": 19, "unit": "L", "sort_order": 0},
+			{"kind": "sugar", "name": "Cane Sugar", "amount": 0.5, "unit": "kg", "sort_order": 1},
+			{"kind": "yeast", "name": "Lalvin 71B", "amount": 5, "unit": "g", "sort_order": 2},
+		}},
+		{"wine", []map[string]any{
+			{"kind": "juice", "name": "Cabernet Must", "amount": 23, "unit": "L", "sort_order": 0},
+			{"kind": "yeast", "name": "Lalvin RC212", "amount": 5, "unit": "g", "sort_order": 1},
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.brewType, func(t *testing.T) {
+			resp := doJSON(t, srv, http.MethodPost, "/api/recipes", map[string]any{
+				"name":        c.brewType + " test",
+				"brew_type":   c.brewType,
+				"visibility":  "public",
+				"ingredients": c.ings,
+			}, cookies...)
+			if resp.StatusCode != http.StatusCreated {
+				t.Fatalf("create %s: got %d", c.brewType, resp.StatusCode)
+			}
+			body := decodeMap(t, resp)
+			if body["brew_type"] != c.brewType {
+				t.Errorf("brew_type round-trip: got %v, want %s", body["brew_type"], c.brewType)
+			}
+			ings, _ := body["ingredients"].([]any)
+			if len(ings) != len(c.ings) {
+				t.Fatalf("ingredient count: got %d, want %d", len(ings), len(c.ings))
+			}
+			// First ingredient kind round-trips through the enum.
+			first, _ := ings[0].(map[string]any)
+			if first["kind"] != "juice" {
+				t.Errorf("first ingredient kind: got %v, want juice", first["kind"])
 			}
 		})
 	}

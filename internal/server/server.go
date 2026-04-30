@@ -148,6 +148,7 @@ func (s *Server) routes() http.Handler {
 			r.Post("/abv", s.handleCalcABV)
 			r.Post("/predicted-fg", s.handleCalcPredictedFG)
 			r.Post("/honey-weight", s.handleCalcHoneyWeight)
+			r.Post("/sugar-weight", s.handleCalcSugarWeight)
 			r.Post("/pitch-rate", s.handleCalcPitchRate)
 		})
 		r.Route("/admin", func(r chi.Router) {

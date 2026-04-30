@@ -109,7 +109,7 @@ components:
           $ref: '#/components/schemas/UUID'
         kind:
           type: string
-          enum: [honey, water, yeast, nutrient, fruit, spice, oak, acid, tannin, other]
+          enum: [honey, water, yeast, nutrient, fruit, spice, oak, acid, tannin, other, juice, sugar]
         name:
           type: string
         amount:
@@ -127,7 +127,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [honey, water, yeast, nutrient, fruit, spice, oak, acid, tannin, other]
+          enum: [honey, water, yeast, nutrient, fruit, spice, oak, acid, tannin, other, juice, sugar]
         name:
           type: string
           maxLength: 200
@@ -956,7 +956,7 @@ paths:
     post:
       tags: [recipes]
       operationId: createRecipe
-      summary: Create a new recipe (mead only in this build)
+      summary: Create a new recipe (mead, cider, or wine only in this build)
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -973,7 +973,7 @@ paths:
                   maxLength: 200
                 brew_type:
                   type: string
-                  enum: [mead]
+                  enum: [mead, cider, wine]
                   default: mead
                 style:
                   type: string
@@ -1677,7 +1677,7 @@ paths:
     post:
       tags: [batches]
       operationId: createBatch
-      summary: Create a batch (mead only in this build)
+      summary: Create a batch (mead, cider, or wine only in this build)
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -1694,7 +1694,7 @@ paths:
                   maxLength: 200
                 brew_type:
                   type: string
-                  enum: [mead]
+                  enum: [mead, cider, wine]
                   default: mead
                 stage:
                   type: string
@@ -3080,6 +3080,53 @@ paths:
                   honey_lb:
                     type: number
                   honey_ppg:
+                    type: number
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/calculators/sugar-weight:
+    post:
+      tags: [calculators]
+      operationId: calcSugarWeight
+      summary: Chaptalization sugar needed to hit a target OG (cider, wine)
+      description: |
+        Same PPG model as honey-weight, with `sugar_ppg` defaulting to 46 (pure sucrose; dextrose runs ~46 as well).
+        Used by cider and wine recipes when boosting an under-strength juice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_og, batch_volume_l]
+              properties:
+                target_og:
+                  type: number
+                  example: 1.080
+                batch_volume_l:
+                  type: number
+                  example: 19
+                sugar_ppg:
+                  type: number
+                  default: 46
+      responses:
+        "200":
+          description: Sugar weight in kg + lb
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sugar_kg, sugar_lb, sugar_ppg]
+                properties:
+                  sugar_kg:
+                    type: number
+                  sugar_lb:
+                    type: number
+                  sugar_ppg:
                     type: number
         "400":
           description: Invalid input

@@ -17,11 +17,24 @@ import (
 )
 
 const (
-	mvpBrewType   = "mead"
-	listLimit     = 100
-	maxBatchName  = 200
-	maxNotesBytes = 10 * 1024
+	defaultBrewType = "mead"
+	listLimit       = 100
+	maxBatchName    = 200
+	maxNotesBytes   = 10 * 1024
 )
+
+// allowedBrewTypes is the API-surface allow-list. The brew_type ENUM in
+// Postgres covers everything (mead/cider/wine/beer/kombucha) so the schema
+// supports later phases without a migration; beer + kombucha need new flow
+// logic (mash/boil for beer, F1/F2 for kombucha) and are gated here until
+// Phases 6-7 ship.
+var allowedBrewTypes = map[string]struct{}{
+	"mead":  {},
+	"cider": {},
+	"wine":  {},
+}
+
+const unsupportedBrewTypeMsg = "brew_type must be one of: mead, cider, wine"
 
 // --- DTOs ------------------------------------------------------------------
 
@@ -166,13 +179,11 @@ func (s *Server) handleCreateBatch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "notes too long"})
 		return
 	}
-	// MVP scope: mead only at the API surface. Schema supports more — we'll
-	// open it up when other brew flows ship.
 	if req.BrewType == "" {
-		req.BrewType = mvpBrewType
+		req.BrewType = defaultBrewType
 	}
-	if req.BrewType != mvpBrewType {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "only mead is supported in this build"})
+	if _, ok := allowedBrewTypes[req.BrewType]; !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": unsupportedBrewTypeMsg})
 		return
 	}
 	if req.Stage == "" {

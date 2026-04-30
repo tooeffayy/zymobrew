@@ -93,6 +93,35 @@ func (s *Server) handleCalcHoneyWeight(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, honeyWeightResponse{HoneyKG: kg, HoneyLB: lb, HoneyPPG: ppg})
 }
 
+type sugarWeightRequest struct {
+	TargetOG     float64 `json:"target_og"`
+	BatchVolumeL float64 `json:"batch_volume_l"`
+	SugarPPG     float64 `json:"sugar_ppg,omitempty"`
+}
+
+type sugarWeightResponse struct {
+	SugarKG  float64 `json:"sugar_kg"`
+	SugarLB  float64 `json:"sugar_lb"`
+	SugarPPG float64 `json:"sugar_ppg"`
+}
+
+func (s *Server) handleCalcSugarWeight(w http.ResponseWriter, r *http.Request) {
+	var req sugarWeightRequest
+	if !decodeCalcRequest(w, r, &req) {
+		return
+	}
+	ppg := req.SugarPPG
+	if ppg <= 0 {
+		ppg = calc.SugarPPGDefault
+	}
+	kg, lb, err := calc.SugarWeight(req.TargetOG, req.BatchVolumeL, ppg)
+	if err != nil {
+		writeCalcError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sugarWeightResponse{SugarKG: kg, SugarLB: lb, SugarPPG: ppg})
+}
+
 type pitchRateRequest struct {
 	OG           float64 `json:"og"`
 	BatchVolumeL float64 `json:"batch_volume_l"`

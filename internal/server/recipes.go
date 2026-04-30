@@ -363,10 +363,10 @@ func (s *Server) handleCreateRecipe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.BrewType == "" {
-		req.BrewType = mvpBrewType
+		req.BrewType = defaultBrewType
 	}
-	if req.BrewType != mvpBrewType {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "only mead is supported in this build"})
+	if _, ok := allowedBrewTypes[req.BrewType]; !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": unsupportedBrewTypeMsg})
 		return
 	}
 	if req.Visibility == "" {

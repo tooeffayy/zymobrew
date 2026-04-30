@@ -155,6 +155,41 @@ func TestHoneyWeight_RejectsBadInputs(t *testing.T) {
 	}
 }
 
+func TestSugarWeight(t *testing.T) {
+	// 19L at OG 1.080 with 46 PPG sucrose. Hand-check:
+	// gravityPoints=80; volumeGal = 19 * 0.26417 = 5.0193; lb = (80*5.0193)/46 = 8.7292.
+	kg, lb, err := SugarWeight(1.080, 19, 46)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !approxEq(lb, 8.729, 0.01) {
+		t.Errorf("lb got %.4f, want ~8.729", lb)
+	}
+	if !approxEq(kg, 3.959, 0.01) {
+		t.Errorf("kg got %.4f, want ~3.959", kg)
+	}
+}
+
+func TestSugarWeight_DefaultPPG(t *testing.T) {
+	a, _, _ := SugarWeight(1.080, 19, 0)
+	b, _, _ := SugarWeight(1.080, 19, SugarPPGDefault)
+	if a != b {
+		t.Errorf("ppg=0 should fall back to default: got %v vs %v", a, b)
+	}
+}
+
+func TestSugarWeight_RejectsBadInputs(t *testing.T) {
+	if _, _, err := SugarWeight(1.0, 19, 46); err == nil {
+		t.Error("expected error for og at 1.0")
+	}
+	if _, _, err := SugarWeight(1.080, 0, 46); err == nil {
+		t.Error("expected error for zero volume")
+	}
+	if _, _, err := SugarWeight(1.500, 19, 46); err == nil {
+		t.Error("expected error for og out of range")
+	}
+}
+
 func TestPitchRate(t *testing.T) {
 	cellsB, dryG, liquid, err := PitchRate(1.100, 19, 0.75)
 	if err != nil {

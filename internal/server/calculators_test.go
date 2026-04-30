@@ -160,6 +160,43 @@ func TestCalcHoneyWeight(t *testing.T) {
 	}
 }
 
+func TestCalcSugarWeight(t *testing.T) {
+	srv := newCalcServer()
+	resp, body := postJSON(t, srv, "/api/calculators/sugar-weight", map[string]any{
+		"target_og": 1.080, "batch_volume_l": 19,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d, body %s", resp.StatusCode, body)
+	}
+	var got struct {
+		SugarKG  float64 `json:"sugar_kg"`
+		SugarLB  float64 `json:"sugar_lb"`
+		SugarPPG float64 `json:"sugar_ppg"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.SugarPPG != 46 {
+		t.Errorf("default ppg = %.2f, want 46", got.SugarPPG)
+	}
+	if math.Abs(got.SugarLB-8.729) > 0.01 {
+		t.Errorf("lb %.4f, want ~8.729", got.SugarLB)
+	}
+	if math.Abs(got.SugarKG-3.959) > 0.01 {
+		t.Errorf("kg %.4f, want ~3.959", got.SugarKG)
+	}
+}
+
+func TestCalcSugarWeight_BadInput(t *testing.T) {
+	srv := newCalcServer()
+	resp, _ := postJSON(t, srv, "/api/calculators/sugar-weight", map[string]any{
+		"target_og": 1.0, "batch_volume_l": 19,
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status %d, want 400", resp.StatusCode)
+	}
+}
+
 func TestCalcPitchRate(t *testing.T) {
 	srv := newCalcServer()
 	resp, body := postJSON(t, srv, "/api/calculators/pitch-rate", map[string]any{

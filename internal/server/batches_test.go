@@ -163,15 +163,42 @@ func TestBatches_OwnershipIsolation(t *testing.T) {
 	}
 }
 
-func TestBatches_RejectsNonMead(t *testing.T) {
+// Phase 5 opens cider + wine; beer (Phase 6) and kombucha (Phase 7) stay
+// rejected at the API surface because they need flow logic that isn't built
+// yet (mash/boil for beer, F1/F2 for kombucha).
+func TestBatches_RejectsUnsupportedBrewTypes(t *testing.T) {
 	srv, _ := setupAuth(t, config.ModeOpen)
 	cookies := registerHelper(t, srv, "alice")
-	resp := doJSON(t, srv, http.MethodPost, "/api/batches", map[string]any{
-		"name":      "Beer #1",
-		"brew_type": "beer",
-	}, cookies...)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("got %d, want 400", resp.StatusCode)
+	for _, bt := range []string{"beer", "kombucha"} {
+		t.Run(bt, func(t *testing.T) {
+			resp := doJSON(t, srv, http.MethodPost, "/api/batches", map[string]any{
+				"name":      "x",
+				"brew_type": bt,
+			}, cookies...)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("got %d, want 400", resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestBatches_AcceptsCiderAndWine(t *testing.T) {
+	srv, _ := setupAuth(t, config.ModeOpen)
+	cookies := registerHelper(t, srv, "alice")
+	for _, bt := range []string{"cider", "wine"} {
+		t.Run(bt, func(t *testing.T) {
+			resp := doJSON(t, srv, http.MethodPost, "/api/batches", map[string]any{
+				"name":      bt + " batch",
+				"brew_type": bt,
+			}, cookies...)
+			if resp.StatusCode != http.StatusCreated {
+				t.Fatalf("got %d, want 201", resp.StatusCode)
+			}
+			created := decodeMap(t, resp)
+			if created["brew_type"] != bt {
+				t.Errorf("brew_type round-trip: got %v, want %s", created["brew_type"], bt)
+			}
+		})
 	}
 }
 

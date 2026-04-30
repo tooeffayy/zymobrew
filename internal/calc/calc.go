@@ -23,6 +23,10 @@ const (
 	// of typical wildflower honey. Real values vary 33–38 by floral
 	// source; 35 is the community-accepted midpoint.
 	HoneyPPGDefault = 35.0
+	// SugarPPGDefault is the PPG of pure cane sugar (sucrose). Dextrose
+	// runs ~46 as well; honey-PPG for cider/wine isn't a useful default
+	// because those brewers chaptalize with sucrose far more than honey.
+	SugarPPGDefault = 46.0
 	// PitchFactorDefault is the pitch rate in million cells / mL / °P.
 	// 0.75 matches the ale baseline; mead is often pitched at this rate
 	// or higher because honey is nutrient-poor — callers can override.
@@ -122,6 +126,32 @@ func HoneyWeight(targetOG, batchVolumeL, honeyPPG float64) (kg, lb float64, err 
 	gravityPoints := (targetOG - 1.0) * 1000.0
 	volumeGal := batchVolumeL * gallonsPerLiter
 	lb = (gravityPoints * volumeGal) / honeyPPG
+	kg = lb * kgPerPound
+	return kg, lb, nil
+}
+
+// SugarWeight returns the chaptalization sugar (cane / dextrose / etc.)
+// to add to hit target_og for the given batch volume. Same PPG model as
+// HoneyWeight but with a sucrose-tuned default; cider and wine recipes
+// use this when boosting an under-strength juice.
+//
+// sugarPPG <= 0 falls back to SugarPPGDefault.
+func SugarWeight(targetOG, batchVolumeL, sugarPPG float64) (kg, lb float64, err error) {
+	if err := validateGravity(targetOG, "target_og"); err != nil {
+		return 0, 0, err
+	}
+	if targetOG <= 1.0 {
+		return 0, 0, errInvalid("target_og must be greater than 1.0")
+	}
+	if batchVolumeL <= 0 {
+		return 0, 0, errInvalid("batch_volume_l must be positive")
+	}
+	if sugarPPG <= 0 {
+		sugarPPG = SugarPPGDefault
+	}
+	gravityPoints := (targetOG - 1.0) * 1000.0
+	volumeGal := batchVolumeL * gallonsPerLiter
+	lb = (gravityPoints * volumeGal) / sugarPPG
 	kg = lb * kgPerPound
 	return kg, lb, nil
 }
