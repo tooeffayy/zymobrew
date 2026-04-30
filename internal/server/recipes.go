@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -491,13 +492,14 @@ func (s *Server) handleGetRecipe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListRecipes(w http.ResponseWriter, r *http.Request) {
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	if offset < 0 {
-		offset = 0
+	p, ok := parseListPagination(w, r)
+	if !ok {
+		return
 	}
 	rows, err := s.queries.ListPublicRecipes(r.Context(), queries.ListPublicRecipesParams{
-		Limit:  listLimit,
-		Offset: int32(offset),
+		CursorTs: p.CursorTs,
+		CursorID: p.CursorID,
+		LimitN:   p.Limit,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
@@ -507,19 +509,24 @@ func (s *Server) handleListRecipes(w http.ResponseWriter, r *http.Request) {
 	for _, r := range rows {
 		views = append(views, toRecipeListItem(r))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"recipes": views})
+	next := nextCursor(len(rows), p.Limit, func() (time.Time, uuid.UUID) {
+		last := rows[len(rows)-1]
+		return last.UpdatedAt.Time, last.ID
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"recipes": views, "next_cursor": nullableCursor(next)})
 }
 
 func (s *Server) handleListMyRecipes(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	if offset < 0 {
-		offset = 0
+	p, ok := parseListPagination(w, r)
+	if !ok {
+		return
 	}
 	rows, err := s.queries.ListRecipesForAuthor(r.Context(), queries.ListRecipesForAuthorParams{
 		AuthorID: user.ID,
-		Limit:    listLimit,
-		Offset:   int32(offset),
+		CursorTs: p.CursorTs,
+		CursorID: p.CursorID,
+		LimitN:   p.Limit,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
@@ -529,7 +536,11 @@ func (s *Server) handleListMyRecipes(w http.ResponseWriter, r *http.Request) {
 	for _, r := range rows {
 		views = append(views, toRecipeListItem(r))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"recipes": views})
+	next := nextCursor(len(rows), p.Limit, func() (time.Time, uuid.UUID) {
+		last := rows[len(rows)-1]
+		return last.UpdatedAt.Time, last.ID
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"recipes": views, "next_cursor": nullableCursor(next)})
 }
 
 func (s *Server) handleUpdateRecipe(w http.ResponseWriter, r *http.Request) {
@@ -942,14 +953,15 @@ func (s *Server) handleListComments(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	if offset < 0 {
-		offset = 0
+	p, ok := parseListPagination(w, r)
+	if !ok {
+		return
 	}
 	rows, err := s.queries.ListRecipeComments(r.Context(), queries.ListRecipeCommentsParams{
 		RecipeID: id,
-		Limit:    listLimit,
-		Offset:   int32(offset),
+		CursorTs: p.CursorTs,
+		CursorID: p.CursorID,
+		LimitN:   p.Limit,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "fetch failed"})
@@ -966,7 +978,11 @@ func (s *Server) handleListComments(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:      row.CreatedAt.Time.Format("2006-01-02T15:04:05Z"),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"comments": views})
+	next := nextCursor(len(rows), p.Limit, func() (time.Time, uuid.UUID) {
+		last := rows[len(rows)-1]
+		return last.CreatedAt.Time, last.ID
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"comments": views, "next_cursor": nullableCursor(next)})
 }
 
 func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {

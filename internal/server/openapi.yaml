@@ -45,6 +45,28 @@ components:
       type: http
       scheme: bearer
 
+  parameters:
+    CursorParam:
+      name: cursor
+      in: query
+      description: |
+        Opaque pagination cursor returned as `next_cursor` from a prior page.
+        Omit (or pass empty) to fetch the first page. Format is intentionally
+        not part of the API contract — clients should treat the value as opaque.
+      required: false
+      schema:
+        type: string
+    LimitParam:
+      name: limit
+      in: query
+      description: Page size (1–100). Defaults to 50.
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+
   schemas:
     Error:
       type: object
@@ -936,23 +958,24 @@ paths:
       operationId: listRecipes
       summary: Public recipe feed (visibility=public, newest first)
       parameters:
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
       responses:
         "200":
-          description: Recipe list (max 100 per page)
+          description: Recipe page. `next_cursor` is null when there are no more pages.
           content:
             application/json:
               schema:
                 type: object
+                required: [recipes, next_cursor]
                 properties:
                   recipes:
                     type: array
                     items:
                       $ref: '#/components/schemas/RecipeListItem'
+                  next_cursor:
+                    type: string
+                    nullable: true
     post:
       tags: [recipes]
       operationId: createRecipe
@@ -1030,23 +1053,24 @@ paths:
         - cookieAuth: []
         - bearerAuth: []
       parameters:
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
       responses:
         "200":
-          description: Recipe list
+          description: Recipe page. `next_cursor` is null when there are no more pages.
           content:
             application/json:
               schema:
                 type: object
+                required: [recipes, next_cursor]
                 properties:
                   recipes:
                     type: array
                     items:
                       $ref: '#/components/schemas/RecipeListItem'
+                  next_cursor:
+                    type: string
+                    nullable: true
         "401":
           description: Not authenticated
           content:
@@ -1295,30 +1319,31 @@ paths:
     get:
       tags: [recipes]
       operationId: listComments
-      summary: List comments on a recipe
+      summary: List comments on a recipe (oldest first)
       parameters:
         - name: id
           in: path
           required: true
           schema:
             $ref: '#/components/schemas/UUID'
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
       responses:
         "200":
-          description: Comment list
+          description: Comment page. `next_cursor` is null when there are no more pages.
           content:
             application/json:
               schema:
                 type: object
+                required: [comments, next_cursor]
                 properties:
                   comments:
                     type: array
                     items:
                       $ref: '#/components/schemas/Comment'
+                  next_cursor:
+                    type: string
+                    nullable: true
         "404":
           description: Not found or not visible
           content:
@@ -1743,28 +1768,29 @@ paths:
     get:
       tags: [batches]
       operationId: listBatches
-      summary: List batches for the authenticated user
+      summary: List batches for the authenticated user (newest first by start date)
       security:
         - cookieAuth: []
         - bearerAuth: []
       parameters:
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
       responses:
         "200":
-          description: Batch list (max 100 per page)
+          description: Batch page. `next_cursor` is null when there are no more pages.
           content:
             application/json:
               schema:
                 type: object
+                required: [batches, next_cursor]
                 properties:
                   batches:
                     type: array
                     items:
                       $ref: '#/components/schemas/Batch'
+                  next_cursor:
+                    type: string
+                    nullable: true
         "401":
           description: Not authenticated
           content:
@@ -2390,31 +2416,29 @@ paths:
     get:
       tags: [notifications]
       operationId: listNotifications
-      summary: In-app notification inbox
+      summary: In-app notification inbox (newest first)
       security:
         - cookieAuth: []
         - bearerAuth: []
       parameters:
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-            maximum: 100
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
       responses:
         "200":
-          description: Notifications (newest first)
+          description: Notification page. `next_cursor` is null when there are no more pages.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Notification'
+                type: object
+                required: [notifications, next_cursor]
+                properties:
+                  notifications:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+                  next_cursor:
+                    type: string
+                    nullable: true
         "401":
           description: Not authenticated
           content:

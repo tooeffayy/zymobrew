@@ -32,16 +32,29 @@ DELETE FROM recipes WHERE id = $1 AND author_id = $2;
 SELECT * FROM recipes WHERE id = $1;
 
 -- name: ListPublicRecipes :many
+-- Keyset pagination: (updated_at, id) DESC. Pass cursor_ts/cursor_id as
+-- the last row's values to fetch the next page; both NULL = first page.
+-- The IS NULL guard short-circuits the row comparison (Postgres returns
+-- NULL when any element of a row comparison is NULL, so we can't rely on
+-- the comparison alone for the first page).
 SELECT * FROM recipes
 WHERE visibility = 'public'
-ORDER BY updated_at DESC
-LIMIT $1 OFFSET $2;
+  AND (
+    sqlc.narg('cursor_ts')::timestamptz IS NULL
+    OR (updated_at, id) < (sqlc.narg('cursor_ts')::timestamptz, sqlc.narg('cursor_id')::uuid)
+  )
+ORDER BY updated_at DESC, id DESC
+LIMIT sqlc.arg('limit_n');
 
 -- name: ListRecipesForAuthor :many
 SELECT * FROM recipes
-WHERE author_id = $1
-ORDER BY updated_at DESC
-LIMIT $2 OFFSET $3;
+WHERE author_id = sqlc.arg('author_id')
+  AND (
+    sqlc.narg('cursor_ts')::timestamptz IS NULL
+    OR (updated_at, id) < (sqlc.narg('cursor_ts')::timestamptz, sqlc.narg('cursor_id')::uuid)
+  )
+ORDER BY updated_at DESC, id DESC
+LIMIT sqlc.arg('limit_n');
 
 -- name: ListAllRecipesForAuthor :many
 SELECT * FROM recipes WHERE author_id = $1 ORDER BY created_at ASC;
@@ -90,14 +103,20 @@ VALUES ($1, $2, $3)
 RETURNING *;
 
 -- name: ListRecipeComments :many
+-- Comments paginate ASC (oldest first) so a thread reads top-to-bottom;
+-- inverted comparison vs the DESC lists above.
 SELECT
   rc.id, rc.recipe_id, rc.author_id, rc.body, rc.created_at,
   u.username AS author_username
 FROM recipe_comments rc
 JOIN users u ON u.id = rc.author_id
-WHERE rc.recipe_id = $1
-ORDER BY rc.created_at ASC
-LIMIT $2 OFFSET $3;
+WHERE rc.recipe_id = sqlc.arg('recipe_id')
+  AND (
+    sqlc.narg('cursor_ts')::timestamptz IS NULL
+    OR (rc.created_at, rc.id) > (sqlc.narg('cursor_ts')::timestamptz, sqlc.narg('cursor_id')::uuid)
+  )
+ORDER BY rc.created_at ASC, rc.id ASC
+LIMIT sqlc.arg('limit_n');
 
 -- name: DeleteRecipeComment :execrows
 DELETE FROM recipe_comments WHERE id = $1 AND author_id = $2;

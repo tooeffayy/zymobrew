@@ -90,18 +90,28 @@ func (q *Queries) GetNotificationPrefs(ctx context.Context, userID uuid.UUID) (N
 const listNotifications = `-- name: ListNotifications :many
 SELECT id, user_id, reminder_id, kind, title, body, url_path, read_at, created_at FROM notifications
 WHERE user_id = $1
-ORDER BY created_at DESC
-LIMIT $2 OFFSET $3
+  AND (
+    $2::timestamptz IS NULL
+    OR (created_at, id) < ($2::timestamptz, $3::uuid)
+  )
+ORDER BY created_at DESC, id DESC
+LIMIT $4
 `
 
 type ListNotificationsParams struct {
-	UserID uuid.UUID `json:"user_id"`
-	Limit  int32     `json:"limit"`
-	Offset int32     `json:"offset"`
+	UserID   uuid.UUID          `json:"user_id"`
+	CursorTs pgtype.Timestamptz `json:"cursor_ts"`
+	CursorID uuid.NullUUID      `json:"cursor_id"`
+	LimitN   int32              `json:"limit_n"`
 }
 
 func (q *Queries) ListNotifications(ctx context.Context, arg ListNotificationsParams) ([]Notification, error) {
-	rows, err := q.db.Query(ctx, listNotifications, arg.UserID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listNotifications,
+		arg.UserID,
+		arg.CursorTs,
+		arg.CursorID,
+		arg.LimitN,
+	)
 	if err != nil {
 		return nil, err
 	}

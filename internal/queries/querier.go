@@ -95,6 +95,10 @@ type Querier interface {
 	ListAllRecipesForAuthor(ctx context.Context, authorID uuid.UUID) ([]Recipe, error)
 	ListBatchEventsForBatch(ctx context.Context, batchID uuid.UUID) ([]BatchEvent, error)
 	ListBatchReminders(ctx context.Context, arg ListBatchRemindersParams) ([]Reminder, error)
+	// Sort key is COALESCE(started_at, created_at) — pre-pitch batches sort
+	// by when the planning row was created, post-pitch by when fermentation
+	// actually began. The cursor stores the COALESCE result, not the raw
+	// columns, so the same expression appears on both sides.
 	ListBatchesForUser(ctx context.Context, arg ListBatchesForUserParams) ([]Batch, error)
 	// =============================================================================
 	// Social data for export
@@ -102,9 +106,16 @@ type Querier interface {
 	ListFollowsByUser(ctx context.Context, followerID uuid.UUID) ([]Follow, error)
 	ListLikesByUser(ctx context.Context, userID uuid.UUID) ([]RecipeLike, error)
 	ListNotifications(ctx context.Context, arg ListNotificationsParams) ([]Notification, error)
+	// Keyset pagination: (updated_at, id) DESC. Pass cursor_ts/cursor_id as
+	// the last row's values to fetch the next page; both NULL = first page.
+	// The IS NULL guard short-circuits the row comparison (Postgres returns
+	// NULL when any element of a row comparison is NULL, so we can't rely on
+	// the comparison alone for the first page).
 	ListPublicRecipes(ctx context.Context, arg ListPublicRecipesParams) ([]Recipe, error)
 	ListPushDevicesForUser(ctx context.Context, userID uuid.UUID) ([]PushDevice, error)
 	ListReadingsForBatch(ctx context.Context, batchID uuid.UUID) ([]Reading, error)
+	// Comments paginate ASC (oldest first) so a thread reads top-to-bottom;
+	// inverted comparison vs the DESC lists above.
 	ListRecipeComments(ctx context.Context, arg ListRecipeCommentsParams) ([]ListRecipeCommentsRow, error)
 	ListRecipeCommentsByUser(ctx context.Context, authorID uuid.UUID) ([]RecipeComment, error)
 	ListRecipeIngredients(ctx context.Context, recipeID uuid.UUID) ([]RecipeIngredient, error)

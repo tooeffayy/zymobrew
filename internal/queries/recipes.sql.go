@@ -451,17 +451,27 @@ func (q *Queries) ListAllRecipesForAuthor(ctx context.Context, authorID uuid.UUI
 const listPublicRecipes = `-- name: ListPublicRecipes :many
 SELECT id, author_id, parent_id, parent_revision_id, current_revision_id, revision_count, fork_count, brew_type, style, name, description, target_og, target_fg, target_abv, batch_size_l, visibility, created_at, updated_at FROM recipes
 WHERE visibility = 'public'
-ORDER BY updated_at DESC
-LIMIT $1 OFFSET $2
+  AND (
+    $1::timestamptz IS NULL
+    OR (updated_at, id) < ($1::timestamptz, $2::uuid)
+  )
+ORDER BY updated_at DESC, id DESC
+LIMIT $3
 `
 
 type ListPublicRecipesParams struct {
-	Limit  int32 `json:"limit"`
-	Offset int32 `json:"offset"`
+	CursorTs pgtype.Timestamptz `json:"cursor_ts"`
+	CursorID uuid.NullUUID      `json:"cursor_id"`
+	LimitN   int32              `json:"limit_n"`
 }
 
+// Keyset pagination: (updated_at, id) DESC. Pass cursor_ts/cursor_id as
+// the last row's values to fetch the next page; both NULL = first page.
+// The IS NULL guard short-circuits the row comparison (Postgres returns
+// NULL when any element of a row comparison is NULL, so we can't rely on
+// the comparison alone for the first page).
 func (q *Queries) ListPublicRecipes(ctx context.Context, arg ListPublicRecipesParams) ([]Recipe, error) {
-	rows, err := q.db.Query(ctx, listPublicRecipes, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listPublicRecipes, arg.CursorTs, arg.CursorID, arg.LimitN)
 	if err != nil {
 		return nil, err
 	}
@@ -506,14 +516,19 @@ SELECT
 FROM recipe_comments rc
 JOIN users u ON u.id = rc.author_id
 WHERE rc.recipe_id = $1
-ORDER BY rc.created_at ASC
-LIMIT $2 OFFSET $3
+  AND (
+    $2::timestamptz IS NULL
+    OR (rc.created_at, rc.id) > ($2::timestamptz, $3::uuid)
+  )
+ORDER BY rc.created_at ASC, rc.id ASC
+LIMIT $4
 `
 
 type ListRecipeCommentsParams struct {
-	RecipeID uuid.UUID `json:"recipe_id"`
-	Limit    int32     `json:"limit"`
-	Offset   int32     `json:"offset"`
+	RecipeID uuid.UUID          `json:"recipe_id"`
+	CursorTs pgtype.Timestamptz `json:"cursor_ts"`
+	CursorID uuid.NullUUID      `json:"cursor_id"`
+	LimitN   int32              `json:"limit_n"`
 }
 
 type ListRecipeCommentsRow struct {
@@ -525,8 +540,15 @@ type ListRecipeCommentsRow struct {
 	AuthorUsername string             `json:"author_username"`
 }
 
+// Comments paginate ASC (oldest first) so a thread reads top-to-bottom;
+// inverted comparison vs the DESC lists above.
 func (q *Queries) ListRecipeComments(ctx context.Context, arg ListRecipeCommentsParams) ([]ListRecipeCommentsRow, error) {
-	rows, err := q.db.Query(ctx, listRecipeComments, arg.RecipeID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listRecipeComments,
+		arg.RecipeID,
+		arg.CursorTs,
+		arg.CursorID,
+		arg.LimitN,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -631,18 +653,28 @@ func (q *Queries) ListRecipeRevisions(ctx context.Context, recipeID uuid.UUID) (
 const listRecipesForAuthor = `-- name: ListRecipesForAuthor :many
 SELECT id, author_id, parent_id, parent_revision_id, current_revision_id, revision_count, fork_count, brew_type, style, name, description, target_og, target_fg, target_abv, batch_size_l, visibility, created_at, updated_at FROM recipes
 WHERE author_id = $1
-ORDER BY updated_at DESC
-LIMIT $2 OFFSET $3
+  AND (
+    $2::timestamptz IS NULL
+    OR (updated_at, id) < ($2::timestamptz, $3::uuid)
+  )
+ORDER BY updated_at DESC, id DESC
+LIMIT $4
 `
 
 type ListRecipesForAuthorParams struct {
-	AuthorID uuid.UUID `json:"author_id"`
-	Limit    int32     `json:"limit"`
-	Offset   int32     `json:"offset"`
+	AuthorID uuid.UUID          `json:"author_id"`
+	CursorTs pgtype.Timestamptz `json:"cursor_ts"`
+	CursorID uuid.NullUUID      `json:"cursor_id"`
+	LimitN   int32              `json:"limit_n"`
 }
 
 func (q *Queries) ListRecipesForAuthor(ctx context.Context, arg ListRecipesForAuthorParams) ([]Recipe, error) {
-	rows, err := q.db.Query(ctx, listRecipesForAuthor, arg.AuthorID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listRecipesForAuthor,
+		arg.AuthorID,
+		arg.CursorTs,
+		arg.CursorID,
+		arg.LimitN,
+	)
 	if err != nil {
 		return nil, err
 	}

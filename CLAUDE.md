@@ -33,6 +33,7 @@ cmd/zymo/             entry point (serve | migrate | selftest | vapid-keys | rep
 internal/account      anonymization tx (sessions/push/notifs/exports wiped, recipes/batches retained)
 internal/auth         argon2id password hashing + session token primitives
 internal/calc         pure brewing math (ABV, predicted FG, honey weight, pitch rate)
+internal/cursor       opaque keyset-pagination cursor encoding (base64-url JSON)
 internal/config       env-based config loader
 internal/db           pgx pool + database/sql open helpers
 internal/jobs         River client + workers (background jobs, periodic schedules)
@@ -192,6 +193,8 @@ These cross-cutting rules apply across all resources:
 
 **Auth** — all `/api/batches/*`, `/api/notifications/*`, `/api/users/me/*`, `/api/users/me/exports/*`, and `/api/admin/*` require auth. `/api/admin/*` additionally requires `users.is_admin = true` (`requireAdmin` middleware → 403). Recipe/profile reads and `/api/calculators/*` are public. See Auth section for session mechanics.
 
+**Cursor pagination** — list endpoints (`/api/recipes`, `/api/recipes/mine`, `/api/recipes/{id}/comments`, `/api/batches`, `/api/notifications`) use opaque keyset cursors via `?cursor=&limit=` (default 50, max 100). Responses are `{<plural>: [...], next_cursor: string|null}`. Helpers: `internal/cursor` encodes `(timestamp, uuid)` as base64-url JSON; `internal/server/pagination.go` parses query params and produces `next_cursor`. SQL queries use `WHERE (sort_key, id) < (cursor_ts, cursor_id) OR cursor_ts IS NULL` with the IS-NULL guard required because Postgres row comparisons return NULL when any side is NULL. Other lists (readings, events, exports, admin backups, reminders) are naturally bounded or deferred — see "Known deferred gaps".
+
 ### Recipes
 
 **Revision semantics** — every PATCH creates an immutable revision row. `revision_count` auto-increments via `SetRecipeRevision`. Revision numbers are per-recipe integers starting at 1. `current_revision_id` is the O(1) HEAD pointer.
@@ -248,7 +251,6 @@ These cross-cutting rules apply across all resources:
 ### Known deferred gaps
 
 - **`custom_event` anchor** materialization — needs event title/kind selector.
-- **No pagination cursor** — all lists use limit/offset; add cursor when feeds grow large.
 - **Unbounded readings/events** — no pagination; add cursor when device adapters (Tilt/RAPT) land.
 - **`source` is free text** — constrain to known set when device adapters ship.
 

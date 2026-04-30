@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -19,7 +18,6 @@ import (
 const (
 	maxReminderTitle = 200
 	maxReminderDesc  = 2 * 1024
-	maxNotifPerPage  = 100
 )
 
 // --- view types -----------------------------------------------------------
@@ -338,29 +336,16 @@ func (s *Server) handleDeleteReminder(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListNotifications(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 
-	limit := int32(20)
-	offset := int32(0)
-	if v := r.URL.Query().Get("limit"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > maxNotifPerPage {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid limit"})
-			return
-		}
-		limit = int32(n)
-	}
-	if v := r.URL.Query().Get("offset"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid offset"})
-			return
-		}
-		offset = int32(n)
+	p, ok := parseListPagination(w, r)
+	if !ok {
+		return
 	}
 
 	notifs, err := s.queries.ListNotifications(r.Context(), queries.ListNotificationsParams{
-		UserID: user.ID,
-		Limit:  limit,
-		Offset: offset,
+		UserID:   user.ID,
+		CursorTs: p.CursorTs,
+		CursorID: p.CursorID,
+		LimitN:   p.Limit,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
@@ -371,7 +356,11 @@ func (s *Server) handleListNotifications(w http.ResponseWriter, r *http.Request)
 	for _, n := range notifs {
 		views = append(views, toNotificationView(n))
 	}
-	writeJSON(w, http.StatusOK, views)
+	next := nextCursor(len(notifs), p.Limit, func() (time.Time, uuid.UUID) {
+		last := notifs[len(notifs)-1]
+		return last.CreatedAt.Time, last.ID
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"notifications": views, "next_cursor": nullableCursor(next)})
 }
 
 func (s *Server) handleMarkNotificationRead(w http.ResponseWriter, r *http.Request) {

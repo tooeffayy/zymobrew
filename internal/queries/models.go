@@ -168,6 +168,8 @@ const (
 	IngredientKindAcid     IngredientKind = "acid"
 	IngredientKindTannin   IngredientKind = "tannin"
 	IngredientKindOther    IngredientKind = "other"
+	IngredientKindJuice    IngredientKind = "juice"
+	IngredientKindSugar    IngredientKind = "sugar"
 )
 
 func (e *IngredientKind) Scan(src interface{}) error {

@@ -18,7 +18,6 @@ import (
 
 const (
 	defaultBrewType = "mead"
-	listLimit       = 100
 	maxBatchName    = 200
 	maxNotesBytes   = 10 * 1024
 )
@@ -249,17 +248,16 @@ func (s *Server) handleCreateBatch(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListBatches(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	const maxOffset = 1_000_000
-	if offset < 0 || offset > maxOffset {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "offset out of range"})
+	p, ok := parseListPagination(w, r)
+	if !ok {
 		return
 	}
 
 	rows, err := s.queries.ListBatchesForUser(r.Context(), queries.ListBatchesForUserParams{
 		BrewerID: user.ID,
-		Limit:    listLimit,
-		Offset:   int32(offset),
+		CursorTs: p.CursorTs,
+		CursorID: p.CursorID,
+		LimitN:   p.Limit,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
@@ -269,7 +267,17 @@ func (s *Server) handleListBatches(w http.ResponseWriter, r *http.Request) {
 	for _, b := range rows {
 		views = append(views, toBatchView(b))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"batches": views})
+	next := nextCursor(len(rows), p.Limit, func() (time.Time, uuid.UUID) {
+		last := rows[len(rows)-1]
+		// Sort key is COALESCE(started_at, created_at) — pick whichever
+		// the SQL did, so the cursor matches the row comparison.
+		ts := last.CreatedAt.Time
+		if last.StartedAt.Valid {
+			ts = last.StartedAt.Time
+		}
+		return ts, last.ID
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"batches": views, "next_cursor": nullableCursor(next)})
 }
 
 func (s *Server) handleGetBatch(w http.ResponseWriter, r *http.Request) {

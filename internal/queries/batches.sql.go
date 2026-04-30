@@ -150,18 +150,32 @@ func (q *Queries) ListAllBatchesForUser(ctx context.Context, brewerID uuid.UUID)
 const listBatchesForUser = `-- name: ListBatchesForUser :many
 SELECT id, brewer_id, recipe_id, recipe_revision_id, name, brew_type, stage, started_at, bottled_at, visibility, notes, created_at, updated_at FROM batches
 WHERE brewer_id = $1
-ORDER BY COALESCE(started_at, created_at) DESC
-LIMIT $2 OFFSET $3
+  AND (
+    $2::timestamptz IS NULL
+    OR (COALESCE(started_at, created_at), id) < ($2::timestamptz, $3::uuid)
+  )
+ORDER BY COALESCE(started_at, created_at) DESC, id DESC
+LIMIT $4
 `
 
 type ListBatchesForUserParams struct {
-	BrewerID uuid.UUID `json:"brewer_id"`
-	Limit    int32     `json:"limit"`
-	Offset   int32     `json:"offset"`
+	BrewerID uuid.UUID          `json:"brewer_id"`
+	CursorTs pgtype.Timestamptz `json:"cursor_ts"`
+	CursorID uuid.NullUUID      `json:"cursor_id"`
+	LimitN   int32              `json:"limit_n"`
 }
 
+// Sort key is COALESCE(started_at, created_at) — pre-pitch batches sort
+// by when the planning row was created, post-pitch by when fermentation
+// actually began. The cursor stores the COALESCE result, not the raw
+// columns, so the same expression appears on both sides.
 func (q *Queries) ListBatchesForUser(ctx context.Context, arg ListBatchesForUserParams) ([]Batch, error) {
-	rows, err := q.db.Query(ctx, listBatchesForUser, arg.BrewerID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listBatchesForUser,
+		arg.BrewerID,
+		arg.CursorTs,
+		arg.CursorID,
+		arg.LimitN,
+	)
 	if err != nil {
 		return nil, err
 	}

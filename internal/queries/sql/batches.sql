@@ -8,10 +8,18 @@ SELECT * FROM batches
 WHERE id = $1 AND brewer_id = $2;
 
 -- name: ListBatchesForUser :many
+-- Sort key is COALESCE(started_at, created_at) — pre-pitch batches sort
+-- by when the planning row was created, post-pitch by when fermentation
+-- actually began. The cursor stores the COALESCE result, not the raw
+-- columns, so the same expression appears on both sides.
 SELECT * FROM batches
-WHERE brewer_id = $1
-ORDER BY COALESCE(started_at, created_at) DESC
-LIMIT $2 OFFSET $3;
+WHERE brewer_id = sqlc.arg('brewer_id')
+  AND (
+    sqlc.narg('cursor_ts')::timestamptz IS NULL
+    OR (COALESCE(started_at, created_at), id) < (sqlc.narg('cursor_ts')::timestamptz, sqlc.narg('cursor_id')::uuid)
+  )
+ORDER BY COALESCE(started_at, created_at) DESC, id DESC
+LIMIT sqlc.arg('limit_n');
 
 -- name: UpdateBatch :one
 UPDATE batches SET

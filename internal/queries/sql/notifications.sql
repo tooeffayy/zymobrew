@@ -5,9 +5,13 @@ RETURNING *;
 
 -- name: ListNotifications :many
 SELECT * FROM notifications
-WHERE user_id = $1
-ORDER BY created_at DESC
-LIMIT $2 OFFSET $3;
+WHERE user_id = sqlc.arg('user_id')
+  AND (
+    sqlc.narg('cursor_ts')::timestamptz IS NULL
+    OR (created_at, id) < (sqlc.narg('cursor_ts')::timestamptz, sqlc.narg('cursor_id')::uuid)
+  )
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit_n');
 
 -- name: MarkNotificationRead :execrows
 UPDATE notifications SET read_at = now()
