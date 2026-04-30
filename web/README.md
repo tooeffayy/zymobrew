@@ -3,6 +3,11 @@
 React + Vite + TypeScript SPA. Compiled output is embedded into the Go
 binary via `//go:embed all:dist` (see `web/embed.go`).
 
+Toolchain is [Bun](https://bun.sh) — drop-in for npm with faster installs
+and a single-binary install (`brew install oven-sh/bun/bun`). Vite, tsc,
+and the React deps themselves are unchanged; Bun just runs the same
+package.json scripts.
+
 ## Dev loop
 
 Two terminals:
@@ -15,8 +20,8 @@ go run ./cmd/zymo serve   # listens on :8080
 
 # Terminal 2: the SPA dev server
 cd web
-npm install               # first time only
-npm run dev               # listens on :5173
+bun install               # first time only
+bun run dev               # listens on :5173
 ```
 
 Open `http://localhost:5173`. Vite proxies `/api/*`, `/healthz`,
@@ -28,19 +33,19 @@ browser's perspective.
 
 ```sh
 cd web
-npm install
-npm run build      # writes ./dist/
+bun install
+bun run build      # writes ./dist/
 cd ..
 go build ./cmd/zymo
 ```
 
 `go build` will then embed the freshly-built `web/dist/` into the binary.
 
-If you skip the npm step and run `go build` directly, the binary still
+If you skip the bun step and run `go build` directly, the binary still
 compiles — but every non-API request returns a "frontend not built"
 placeholder explaining the missing step. This keeps `go build` working
 on a fresh `git clone` without forcing every Go contributor to install
-Node.
+the JS toolchain.
 
 ## Layout
 

@@ -20,7 +20,7 @@ A self-hostable fermentation tracking app. Name from *zymurgy*, the science of f
 - `River` — Postgres-native background jobs. **No Redis dependency.**
 - Local accounts default; OIDC/OAuth optional via env config
 
-**Frontend**: React + Vite + TypeScript SPA in `web/`, compiled to static files and embedded into the Go binary via `//go:embed all:dist` (see `web/embed.go`). Plain CSS, no UI framework. Cookie auth (same-origin SPA, no tokens stored in JS). Mobile is deferred — when it lands, we'll either wrap the SPA as a PWA or build a native shell separately. (The original CLAUDE.md said Expo/RN Web; pivoted pre-1.0 because no UI had shipped and mobile wasn't on the near-term roadmap.)
+**Frontend**: React + Vite + TypeScript SPA in `web/`, compiled to static files and embedded into the Go binary via `//go:embed all:dist` (see `web/embed.go`). Bun is the JS toolchain (`bun install`, `bun run build`) — drop-in for npm with a single-binary install. Plain CSS, no UI framework. Cookie auth (same-origin SPA, no tokens stored in JS). Mobile is deferred — when it lands, we'll either wrap the SPA as a PWA or build a native shell separately. (The original CLAUDE.md said Expo/RN Web; pivoted pre-1.0 because no UI had shipped and mobile wasn't on the near-term roadmap.)
 
 **Database**: Postgres 14+. Uses CITEXT, ENUMs, JSONB + GIN, partial indexes, recursive CTEs, `tsvector`.
 
