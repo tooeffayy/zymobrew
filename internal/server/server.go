@@ -144,6 +144,12 @@ func (s *Server) routes() http.Handler {
 			r.Get("/{id}", s.handleGetExport)
 			r.Get("/{id}/download", s.handleDownloadExport)
 		})
+		r.Route("/calculators", func(r chi.Router) {
+			r.Post("/abv", s.handleCalcABV)
+			r.Post("/predicted-fg", s.handleCalcPredictedFG)
+			r.Post("/honey-weight", s.handleCalcHoneyWeight)
+			r.Post("/pitch-rate", s.handleCalcPitchRate)
+		})
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(s.requireAuth)
 			r.Use(s.requireAdmin)

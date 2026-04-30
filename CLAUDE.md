@@ -32,6 +32,7 @@ A self-hostable fermentation tracking app. Name from *zymurgy*, the science of f
 cmd/zymo/             entry point (serve | migrate | selftest | vapid-keys | reprocess-deletions | version)
 internal/account      anonymization tx (sessions/push/notifs/exports wiped, recipes/batches retained)
 internal/auth         argon2id password hashing + session token primitives
+internal/calc         pure brewing math (ABV, predicted FG, honey weight, pitch rate)
 internal/config       env-based config loader
 internal/db           pgx pool + database/sql open helpers
 internal/jobs         River client + workers (background jobs, periodic schedules)
@@ -39,7 +40,7 @@ internal/migrate      goose runner + River migrator (uses embedded migrations)
 internal/queries      sqlc generated type-safe code (Go only)
 internal/queries/sql  sqlc query source files (*.sql)
 internal/ratelimit    in-memory token-bucket limiter (per-IP, per-identifier)
-internal/server       chi HTTP router — /healthz, /readyz, /docs, /api/openapi.yaml, /api/auth/*, /api/users/*, /api/recipes/*, /api/batches/*, /api/notifications/*, /api/push/*, /api/users/me/exports/*, /api/admin/backups/*
+internal/server       chi HTTP router — /healthz, /readyz, /docs, /api/openapi.yaml, /api/auth/*, /api/users/*, /api/recipes/*, /api/batches/*, /api/notifications/*, /api/push/*, /api/users/me/exports/*, /api/admin/backups/*, /api/calculators/*
 internal/selftest     runtime smoke tests for `zymo selftest`
 internal/storage      Store interface + local + S3 backends (Put/Get/Delete/PresignGet)
 internal/testutil     shared DB test setup
@@ -114,7 +115,7 @@ go test ./...
 
 1. ~~Auth (local), profile, mead batch CRUD with readings + chart~~ ✓
 2. ~~Recipes, forking, instance feed, comments~~ ✓
-3. ~~Calculators + reminders / web-push notifications~~ ✓ (calculators deferred; reminders + web-push done)
+3. ~~Calculators + reminders / web-push notifications~~ ✓
 4. ~~Backup + export (first-class)~~ ✓
 5. Cider + wine (reuse ~90% of mead flow)
 6. Beer (new flows: mash, boil, IBU)
@@ -189,7 +190,7 @@ These cross-cutting rules apply across all resources:
 
 **MVP guard** — `brew_type != mead` is rejected at the API surface. Schema supports more types for later phases.
 
-**Auth** — all `/api/batches/*`, `/api/notifications/*`, `/api/users/me/*`, `/api/users/me/exports/*`, and `/api/admin/*` require auth. `/api/admin/*` additionally requires `users.is_admin = true` (`requireAdmin` middleware → 403). Recipe/profile reads are public. See Auth section for session mechanics.
+**Auth** — all `/api/batches/*`, `/api/notifications/*`, `/api/users/me/*`, `/api/users/me/exports/*`, and `/api/admin/*` require auth. `/api/admin/*` additionally requires `users.is_admin = true` (`requireAdmin` middleware → 403). Recipe/profile reads and `/api/calculators/*` are public. See Auth section for session mechanics.
 
 ### Recipes
 
@@ -218,6 +219,20 @@ These cross-cutting rules apply across all resources:
 
 **Batch–recipe linkage** — `recipe_id` pins to `current_revision_id` at batch creation. Private recipes reject linking by non-owners. Cannot be changed after creation.
 
+### Calculators
+
+**Pure functions, public endpoints.** Live in `internal/calc` (no DB, no I/O); HTTP handlers in `internal/server/calculators.go`. No auth — useful before login and on instance landing pages.
+
+**ABV** — defaults to the alternative `((76.08*(OG-FG)/(1.775-OG)) * (FG/0.794))` formula because the simple `(OG-FG)*131.25` drifts low above OG ~1.070 and mead routinely lives above that. `formula: "simple"` opt-in is exposed for callers who want to match other tools.
+
+**Predicted FG** — `OG - (OG-1) * (attenuation/100)`. Returns FG plus the simple-formula ABV; the alternative formula isn't useful here because we're sizing pre-pitch.
+
+**Honey weight** — points-per-gallon-per-pound model with `honey_ppg` defaulting to 35 (typical wildflower). Honey volume displacement is *not* modelled (~2-3% effect, within honey-source variance).
+
+**Pitch rate** — uses the standard Plato cubic, not the linear `(SG-1)*1000/4` approximation, since the linear form drifts ~5% high by OG 1.100. Returns billion cells, dry-yeast grams (assuming 10×10⁹ viable cells/g), and liquid packs (100×10⁹ cells/pack fresh). `pitch_factor` defaults to 0.75 M cells/mL/°P (ale baseline; mead callers often run at or above this).
+
+**Validation** — gravity inputs clamped to 0.990–1.200; FG must be < OG; NaN/Inf rejected. Errors map to 400 via `errors.Is(err, calc.ErrInvalidInput)`.
+
 ### Notifications + Push
 
 **In-app notifications always created** regardless of quiet hours or push config.
@@ -230,7 +245,6 @@ These cross-cutting rules apply across all resources:
 
 ### Known deferred gaps
 
-- **Calculators** — ABV, OG→FG, honey weight, pitch rate. Deferred from Phase 3.
 - **`custom_event` anchor** materialization — needs event title/kind selector.
 - **No pagination cursor** — all lists use limit/offset; add cursor when feeds grow large.
 - **Unbounded readings/events** — no pagination; add cursor when device adapters (Tilt/RAPT) land.

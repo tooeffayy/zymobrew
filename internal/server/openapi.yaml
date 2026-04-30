@@ -32,6 +32,8 @@ tags:
     description: User data export
   - name: admin
     description: Admin-only database backups
+  - name: calculators
+    description: Stateless brewing calculators (ABV, predicted FG, honey weight, pitch rate)
 
 components:
   securitySchemes:
@@ -2934,6 +2936,207 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: Backup not yet complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # --- Calculators -------------------------------------------------------------
+
+  /api/calculators/abv:
+    post:
+      tags: [calculators]
+      operationId: calcABV
+      summary: Compute alcohol by volume from OG and FG
+      description: |
+        Two formulas are supported:
+        - `simple`: `(OG - FG) * 131.25`. Accurate through about OG 1.070, drifts low at higher gravities.
+        - `alternative` (default): `((76.08*(OG-FG)/(1.775-OG)) * (FG/0.794))`. Recommended for mead and other high-gravity worts.
+
+        FG must be strictly less than OG. Gravities outside `0.990..1.200` are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [og, fg]
+              properties:
+                og:
+                  type: number
+                  example: 1.100
+                fg:
+                  type: number
+                  example: 1.020
+                formula:
+                  type: string
+                  enum: [simple, alternative]
+                  default: alternative
+      responses:
+        "200":
+          description: ABV computed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [abv_percent, formula]
+                properties:
+                  abv_percent:
+                    type: number
+                  formula:
+                    type: string
+                    enum: [simple, alternative]
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/calculators/predicted-fg:
+    post:
+      tags: [calculators]
+      operationId: calcPredictedFG
+      summary: Predict FG (and resulting ABV) from OG + apparent attenuation
+      description: |
+        `FG = OG - (OG - 1) * (attenuation_percent / 100)`.
+
+        ABV is reported with the simple `(OG-FG)*131.25` formula since the user is
+        already in pre-pitch sizing territory; precision against measured ABV
+        only matters once a real FG is in hand.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [og, attenuation_percent]
+              properties:
+                og:
+                  type: number
+                  example: 1.100
+                attenuation_percent:
+                  type: number
+                  minimum: 0
+                  maximum: 100
+                  example: 75
+      responses:
+        "200":
+          description: FG + ABV
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [fg, abv_percent]
+                properties:
+                  fg:
+                    type: number
+                  abv_percent:
+                    type: number
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/calculators/honey-weight:
+    post:
+      tags: [calculators]
+      operationId: calcHoneyWeight
+      summary: Honey needed to hit a target OG for a given batch volume
+      description: |
+        Uses the points-per-gallon-per-pound model: `weight_lb = ((target_og - 1) * 1000 * volume_gal) / honey_ppg`.
+        `honey_ppg` defaults to 35 (typical wildflower honey) when omitted or non-positive.
+        Volume displacement from the honey itself is not modelled (~2-3% effect, within honey-source variance).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_og, batch_volume_l]
+              properties:
+                target_og:
+                  type: number
+                  example: 1.100
+                batch_volume_l:
+                  type: number
+                  example: 19
+                honey_ppg:
+                  type: number
+                  default: 35
+      responses:
+        "200":
+          description: Honey weight in kg + lb
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [honey_kg, honey_lb, honey_ppg]
+                properties:
+                  honey_kg:
+                    type: number
+                  honey_lb:
+                    type: number
+                  honey_ppg:
+                    type: number
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/calculators/pitch-rate:
+    post:
+      tags: [calculators]
+      operationId: calcPitchRate
+      summary: Yeast cells, dry-yeast grams, and liquid packs needed for a healthy pitch
+      description: |
+        Cells = `pitch_factor` (million cells/mL/°P) × volume_mL × °P. °P is computed from the
+        standard Plato cubic, not the linear approximation, since mead routinely sits at OG 1.10+
+        where the linear form drifts ~5% high.
+
+        Defaults: `pitch_factor` = 0.75 (ale baseline; mead is often pitched here or above because
+        honey is nutrient-poor). Dry yeast assumed at 10×10⁹ viable cells per gram; liquid packs at
+        100×10⁹ cells per fresh pack — older packs degrade and callers should derate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [og, batch_volume_l]
+              properties:
+                og:
+                  type: number
+                  example: 1.100
+                batch_volume_l:
+                  type: number
+                  example: 19
+                pitch_factor:
+                  type: number
+                  default: 0.75
+      responses:
+        "200":
+          description: Cells + matching dry / liquid yeast quantities
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cells_billion, dry_yeast_grams, liquid_packs, pitch_factor]
+                properties:
+                  cells_billion:
+                    type: number
+                  dry_yeast_grams:
+                    type: number
+                  liquid_packs:
+                    type: number
+                  pitch_factor:
+                    type: number
+        "400":
+          description: Invalid input
           content:
             application/json:
               schema:
