@@ -3,7 +3,7 @@
 -- =============================================================================
 
 -- name: CreateUserExport :one
-INSERT INTO user_exports (user_id, status) VALUES ($1, 'pending') RETURNING *;
+INSERT INTO user_exports (user_id, status, format) VALUES ($1, 'pending', $2) RETURNING *;
 
 -- name: GetUserExport :one
 SELECT * FROM user_exports WHERE id = $1 AND user_id = $2;
@@ -29,7 +29,7 @@ RETURNING *;
 -- name: CompleteUserExport :one
 UPDATE user_exports
 SET status = 'complete', file_path = $2, size_bytes = $3, sha256 = $4,
-    completed_at = now(), expires_at = now() + interval '7 days'
+    completed_at = now(), expires_at = now() + interval '1 hour'
 WHERE id = $1
 RETURNING *;
 
@@ -40,6 +40,16 @@ WHERE id = $1;
 -- name: ExpireUserExports :many
 UPDATE user_exports SET status = 'expired'
 WHERE expires_at < now() AND status = 'complete'
+RETURNING file_path;
+
+-- ExpireUserExportByID flips one completed export to expired, race-safe.
+-- Only the row that was actually 'complete' returns a row; concurrent
+-- downloaders that lose the race get pgx.ErrNoRows and skip the disk delete.
+-- file_path is left on the row as historical reference; the source of truth
+-- for "file is gone" is status='expired'.
+-- name: ExpireUserExportByID :one
+UPDATE user_exports SET status = 'expired'
+WHERE id = $1 AND user_id = $2 AND status = 'complete'
 RETURNING file_path;
 
 -- name: ListUserExportFilePathsForUser :many

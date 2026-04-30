@@ -1,14 +1,18 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"zymobrew/internal/jobs"
 	"zymobrew/internal/queries"
 )
 
@@ -29,6 +33,26 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 func (s *Server) handleTriggerExport(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 
+	// Empty body is the common case — JS clients posting JSON, curl with no
+	// `-d`, etc. We treat it as "default zip" rather than 400ing.
+	var req struct {
+		Format string `json:"format"`
+	}
+	if r.ContentLength != 0 && r.Body != nil {
+		dec := json.NewDecoder(r.Body)
+		if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
+			return
+		}
+	}
+	if req.Format == "" {
+		req.Format = jobs.ExportFormatZip
+	}
+	if !jobs.IsValidExportFormat(req.Format) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "format must be one of: zip, tar.gz, zstd"})
+		return
+	}
+
 	// Reject if there is already an active export for this user.
 	_, err := s.queries.GetPendingUserExport(r.Context(), user.ID)
 	if err == nil {
@@ -40,7 +64,10 @@ func (s *Server) handleTriggerExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	export, err := s.queries.CreateUserExport(r.Context(), user.ID)
+	export, err := s.queries.CreateUserExport(r.Context(), queries.CreateUserExportParams{
+		UserID: user.ID,
+		Format: req.Format,
+	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
@@ -81,6 +108,16 @@ func (s *Server) handleGetExport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, exportView(export))
 }
 
+// handleDownloadExport streams the user's export archive directly from the
+// local export store. After a successful stream, the row is flipped to
+// 'expired' and the file is deleted — exports are single-use, with the
+// per-row TTL acting as a safety net for the never-downloaded case.
+//
+// The DB flip happens before the disk delete so a crash between the two only
+// orphans bytes on disk (harmless), never leaves a row pointing at a missing
+// file. ExpireUserExportByID's WHERE clause requires status='complete', so
+// concurrent downloaders all stream successfully but only one wins the flip
+// and performs the delete.
 func (s *Server) handleDownloadExport(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 	id, err := parseUUIDParam(r, "id")
@@ -101,13 +138,58 @@ func (s *Server) handleDownloadExport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": fmt.Sprintf("export status is %s", export.Status)})
 		return
 	}
-	s.serveStorageFile(w, r, export.FilePath.String, fmt.Sprintf("zymo-export-%s.zip", id), "application/zip", textOrEmpty(export.Sha256))
+
+	rc, size, err := s.exportStore.Get(r.Context(), export.FilePath.String)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+	defer rc.Close()
+
+	ext := jobs.FormatExtension(export.Format)
+	if sha := textOrEmpty(export.Sha256); sha != "" {
+		w.Header().Set("X-Content-SHA256", sha)
+	}
+	w.Header().Set("Content-Type", jobs.FormatContentType(export.Format))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="zymo-export-%s.%s"`, id, ext))
+	if size > 0 {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
+	}
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.Copy(w, rc); err != nil {
+		// io.Copy error → we know the client didn't receive everything; leave
+		// the row alone so they can retry. The reverse (nil error → client
+		// got the bytes) isn't strictly true under kernel-side write
+		// buffering on small archives, so the post-stream cleanup below is
+		// best-effort. The per-row TTL is the backstop for that case.
+		return
+	}
+
+	// Successful stream — race-safely retire the export. Use a fresh ctx so
+	// a client closing the connection right after the last byte doesn't
+	// cancel the cleanup writes.
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	deletedPath, err := s.queries.ExpireUserExportByID(cleanupCtx, queries.ExpireUserExportByIDParams{ID: id, UserID: user.ID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Lost the race — another concurrent download already retired this export.
+		return
+	}
+	if err != nil {
+		slog.Error("expire user export after download", "export_id", id, "err", err)
+		return
+	}
+	if deletedPath.Valid && deletedPath.String != "" {
+		if err := s.exportStore.Delete(cleanupCtx, deletedPath.String); err != nil {
+			slog.Error("delete user export blob after download", "export_id", id, "path", deletedPath.String, "err", err)
+		}
+	}
 }
 
 // --- Admin backups ---
 
 func (s *Server) handleTriggerAdminBackup(w http.ResponseWriter, r *http.Request) {
-	backup, err := s.queries.CreateAdminBackup(r.Context(), s.store.Backend())
+	backup, err := s.queries.CreateAdminBackup(r.Context(), s.backupStore.Backend())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
@@ -168,17 +250,22 @@ func (s *Server) handleDownloadAdminBackup(w http.ResponseWriter, r *http.Reques
 	s.serveStorageFile(w, r, backup.FilePath.String, fmt.Sprintf("zymo-backup-%s.dump", id), "application/octet-stream", textOrEmpty(backup.Sha256))
 }
 
-// serveStorageFile either redirects to a presigned URL (S3) or streams the
-// file directly (local backend). When sha256 is non-empty it's surfaced as
-// X-Content-SHA256 on the response, useful for `curl | sha256sum -c -`
-// integrity checks. On the S3 redirect path the header rides on the 302;
-// the actual S3 response won't carry it, so clients verifying after a
-// redirect should rely on the JSON view's `sha256` field instead.
+// serveStorageFile is the admin-backup download path. It either redirects
+// to a presigned URL (S3 backend) or streams the file directly (local
+// backend). When sha256 is non-empty it's surfaced as X-Content-SHA256 on
+// the response, useful for `curl | sha256sum -c -` integrity checks. On the
+// S3 redirect path the header rides on the 302; the actual S3 response
+// won't carry it, so clients verifying after a redirect should rely on the
+// JSON view's `sha256` field instead.
+//
+// User-export downloads do NOT route through here — they always stream from
+// the local-only export store and clean up after themselves. See
+// handleDownloadExport.
 func (s *Server) serveStorageFile(w http.ResponseWriter, r *http.Request, key, filename, contentType, sha256 string) {
 	if sha256 != "" {
 		w.Header().Set("X-Content-SHA256", sha256)
 	}
-	presigned, err := s.store.PresignGet(r.Context(), key, 15*time.Minute)
+	presigned, err := s.backupStore.PresignGet(r.Context(), key, 15*time.Minute)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
@@ -187,7 +274,7 @@ func (s *Server) serveStorageFile(w http.ResponseWriter, r *http.Request, key, f
 		http.Redirect(w, r, presigned, http.StatusFound)
 		return
 	}
-	rc, size, err := s.store.Get(r.Context(), key)
+	rc, size, err := s.backupStore.Get(r.Context(), key)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
@@ -209,6 +296,7 @@ func exportView(e queries.UserExport) map[string]any {
 	v := map[string]any{
 		"id":         e.ID,
 		"status":     e.Status,
+		"format":     e.Format,
 		"created_at": e.CreatedAt.Time,
 	}
 	if e.SizeBytes.Valid {

@@ -47,7 +47,7 @@ type Querier interface {
 	// =============================================================================
 	// User exports
 	// =============================================================================
-	CreateUserExport(ctx context.Context, userID uuid.UUID) (UserExport, error)
+	CreateUserExport(ctx context.Context, arg CreateUserExportParams) (UserExport, error)
 	CreateUserWithPassword(ctx context.Context, arg CreateUserWithPasswordParams) (User, error)
 	DeleteBatch(ctx context.Context, arg DeleteBatchParams) (int64, error)
 	DeleteExpiredAdminBackups(ctx context.Context, dollar_1 int32) ([]pgtype.Text, error)
@@ -63,6 +63,12 @@ type Querier interface {
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
 	DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error
 	DeleteUserExportsForUser(ctx context.Context, userID uuid.UUID) error
+	// ExpireUserExportByID flips one completed export to expired, race-safe.
+	// Only the row that was actually 'complete' returns a row; concurrent
+	// downloaders that lose the race get pgx.ErrNoRows and skip the disk delete.
+	// file_path is left on the row as historical reference; the source of truth
+	// for "file is gone" is status='expired'.
+	ExpireUserExportByID(ctx context.Context, arg ExpireUserExportByIDParams) (pgtype.Text, error)
 	ExpireUserExports(ctx context.Context) ([]pgtype.Text, error)
 	FailAdminBackup(ctx context.Context, arg FailAdminBackupParams) error
 	FailUserExport(ctx context.Context, arg FailUserExportParams) error

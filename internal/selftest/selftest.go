@@ -72,12 +72,28 @@ func Run(ctx context.Context, cfg config.Config, out io.Writer) error {
 	}
 	add(check{"roundtrip", true, ""})
 
-	backend, err := storageProbe(ctx, cfg)
+	primaryCfg := cfg.PrimaryStorage()
+	backend, err := storageProbe(ctx, primaryCfg, "selftest/primary-")
 	if err != nil {
 		add(check{"storage", false, err.Error()})
 		return fmt.Errorf("selftest failed")
 	}
 	add(check{"storage", true, "backend=" + backend})
+
+	// Probe the backup store too, but only if it actually differs from the
+	// primary — when BACKUP_* is unset everything falls back to STORAGE_* and
+	// re-probing the same backend just costs extra round-trips. Catches the
+	// "operator set BACKUP_S3_BUCKET=other but forgot the access key" case
+	// before the next backup tick (up to 24h later).
+	backupCfg := cfg.BackupStorage()
+	if backupCfg != primaryCfg {
+		backupBackend, err := storageProbe(ctx, backupCfg, "selftest/backup-")
+		if err != nil {
+			add(check{"backup-storage", false, err.Error()})
+			return fmt.Errorf("selftest failed")
+		}
+		add(check{"backup-storage", true, "backend=" + backupBackend})
+	}
 
 	return nil
 }
@@ -188,11 +204,13 @@ func report(out io.Writer, checks []check) {
 	}
 }
 
-// storageProbe verifies that the configured storage backend is reachable and
+// storageProbe verifies that the given storage backend is reachable and
 // writable: it writes a small probe object, reads it back to confirm the
-// content round-trips correctly, then deletes it.
-func storageProbe(ctx context.Context, cfg config.Config) (backend string, err error) {
-	store, err := storage.New(cfg)
+// content round-trips correctly, then deletes it. keyPrefix scopes the
+// probe key so primary + backup probes don't collide when both point at
+// the same bucket.
+func storageProbe(ctx context.Context, bc storage.BackendConfig, keyPrefix string) (backend string, err error) {
+	store, err := storage.New(bc)
 	if err != nil {
 		return "", fmt.Errorf("init: %w", err)
 	}
@@ -201,7 +219,7 @@ func storageProbe(ctx context.Context, cfg config.Config) (backend string, err e
 	if err != nil {
 		return "", fmt.Errorf("rand: %w", err)
 	}
-	key := "selftest/probe-" + suffix + ".txt"
+	key := keyPrefix + "probe-" + suffix + ".txt"
 	const payload = "zymo selftest storage probe"
 
 	if err := store.Put(ctx, key, strings.NewReader(payload), int64(len(payload))); err != nil {

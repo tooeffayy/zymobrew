@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"zymobrew/internal/storage"
 )
 
 type InstanceMode string
@@ -26,14 +28,30 @@ type Config struct {
 	VAPIDPrivateKey string
 	VAPIDSubject    string
 
-	// Storage
-	StorageBackend    string // "local" | "s3"
-	StorageLocalPath  string
-	S3Endpoint        string
-	S3Region          string
-	S3Bucket          string
-	S3AccessKey       string
-	S3SecretKey       string
+	// Primary storage — used for user-export archives. The local backend
+	// roots files under StorageLocalPath; user exports specifically live
+	// under the `tmp/exports/` subtree to convey their ephemeral lifecycle.
+	StorageBackend   string // "local" | "s3"
+	StorageLocalPath string
+	S3Endpoint       string
+	S3Region         string
+	S3Bucket         string
+	S3AccessKey      string
+	S3SecretKey      string
+
+	// Admin-backup storage — defined separately so backups can target a
+	// different backend / location (e.g. off-site S3 while user exports
+	// stay on local NAS). Each field falls back to the corresponding
+	// STORAGE_/S3_ counterpart when the BACKUP_/BACKUP_S3_ env var is unset,
+	// so the default deployment still has both pipelines on one backend.
+	BackupBackend     string // "local" | "s3"
+	BackupLocalPath   string
+	BackupS3Endpoint  string
+	BackupS3Region    string
+	BackupS3Bucket    string
+	BackupS3AccessKey string
+	BackupS3SecretKey string
+
 	BackupRetentionDays int
 
 	// TrustedProxies is the set of CIDRs whose X-Forwarded-For header values
@@ -53,13 +71,23 @@ func Load() (Config, error) {
 		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:    getenv("VAPID_SUBJECT", "mailto:admin@localhost"),
 
-		StorageBackend:      getenv("STORAGE_BACKEND", "local"),
-		StorageLocalPath:    getenv("STORAGE_LOCAL_PATH", "./data"),
-		S3Endpoint:          os.Getenv("S3_ENDPOINT"),
-		S3Region:            getenv("S3_REGION", "us-east-1"),
-		S3Bucket:            os.Getenv("S3_BUCKET"),
-		S3AccessKey:         os.Getenv("S3_ACCESS_KEY"),
-		S3SecretKey:         os.Getenv("S3_SECRET_KEY"),
+		StorageBackend:   getenv("STORAGE_BACKEND", "local"),
+		StorageLocalPath: getenv("STORAGE_LOCAL_PATH", "./data"),
+		S3Endpoint:       os.Getenv("S3_ENDPOINT"),
+		S3Region:         getenv("S3_REGION", "us-east-1"),
+		S3Bucket:         os.Getenv("S3_BUCKET"),
+		S3AccessKey:      os.Getenv("S3_ACCESS_KEY"),
+		S3SecretKey:      os.Getenv("S3_SECRET_KEY"),
+
+		// BACKUP_* falls back to the matching STORAGE_/S3_ env if unset.
+		BackupBackend:     os.Getenv("BACKUP_BACKEND"),
+		BackupLocalPath:   os.Getenv("BACKUP_LOCAL_PATH"),
+		BackupS3Endpoint:  os.Getenv("BACKUP_S3_ENDPOINT"),
+		BackupS3Region:    os.Getenv("BACKUP_S3_REGION"),
+		BackupS3Bucket:    os.Getenv("BACKUP_S3_BUCKET"),
+		BackupS3AccessKey: os.Getenv("BACKUP_S3_ACCESS_KEY"),
+		BackupS3SecretKey: os.Getenv("BACKUP_S3_SECRET_KEY"),
+
 		BackupRetentionDays: getenvInt("BACKUP_RETENTION_DAYS", 30),
 	}
 	if cfg.DatabaseURL == "" {
@@ -76,6 +104,43 @@ func Load() (Config, error) {
 		return cfg, fmt.Errorf("invalid INSTANCE_MODE %q (want single_user|closed|open)", cfg.InstanceMode)
 	}
 	return cfg, nil
+}
+
+// PrimaryStorage returns the BackendConfig for the primary store (user
+// exports + general application data).
+func (c Config) PrimaryStorage() storage.BackendConfig {
+	return storage.BackendConfig{
+		Backend:     c.StorageBackend,
+		LocalPath:   c.StorageLocalPath,
+		S3Endpoint:  c.S3Endpoint,
+		S3Region:    c.S3Region,
+		S3Bucket:    c.S3Bucket,
+		S3AccessKey: c.S3AccessKey,
+		S3SecretKey: c.S3SecretKey,
+	}
+}
+
+// BackupStorage returns the BackendConfig for the admin-backup store. Each
+// field falls back to the primary store's counterpart when its BACKUP_* env
+// var is unset, so a deployment that doesn't configure BACKUP_* keeps both
+// pipelines on a single backend.
+func (c Config) BackupStorage() storage.BackendConfig {
+	return storage.BackendConfig{
+		Backend:     coalesce(c.BackupBackend, c.StorageBackend),
+		LocalPath:   coalesce(c.BackupLocalPath, c.StorageLocalPath),
+		S3Endpoint:  coalesce(c.BackupS3Endpoint, c.S3Endpoint),
+		S3Region:    coalesce(c.BackupS3Region, c.S3Region),
+		S3Bucket:    coalesce(c.BackupS3Bucket, c.S3Bucket),
+		S3AccessKey: coalesce(c.BackupS3AccessKey, c.S3AccessKey),
+		S3SecretKey: coalesce(c.BackupS3SecretKey, c.S3SecretKey),
+	}
+}
+
+func coalesce(primary, fallback string) string {
+	if primary != "" {
+		return primary
+	}
+	return fallback
 }
 
 func getenv(key, def string) string {

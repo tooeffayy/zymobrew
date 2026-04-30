@@ -207,7 +207,7 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := account.Anonymize(r.Context(), s.pool, s.queries, s.store, user.ID); err != nil {
+	if err := account.Anonymize(r.Context(), s.pool, s.queries, s.exportStore, user.ID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
 		return
 	}

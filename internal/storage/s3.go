@@ -9,8 +9,6 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-
-	"zymobrew/internal/config"
 )
 
 type s3Store struct {
@@ -18,11 +16,11 @@ type s3Store struct {
 	bucket string
 }
 
-func newS3(cfg config.Config) (*s3Store, error) {
-	if cfg.S3Bucket == "" {
-		return nil, fmt.Errorf("storage: S3_BUCKET is required when STORAGE_BACKEND=s3")
+func newS3(bc BackendConfig) (*s3Store, error) {
+	if bc.S3Bucket == "" {
+		return nil, fmt.Errorf("storage: S3 bucket is required when backend=s3")
 	}
-	endpoint := cfg.S3Endpoint
+	endpoint := bc.S3Endpoint
 	if endpoint == "" {
 		endpoint = "s3.amazonaws.com"
 	}
@@ -31,19 +29,19 @@ func newS3(cfg config.Config) (*s3Store, error) {
 		endpoint = u.Host
 	}
 	useSSL := true
-	if u, err := url.Parse(cfg.S3Endpoint); err == nil && u.Scheme == "http" {
+	if u, err := url.Parse(bc.S3Endpoint); err == nil && u.Scheme == "http" {
 		useSSL = false
 	}
 
 	client, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.S3AccessKey, cfg.S3SecretKey, ""),
+		Creds:  credentials.NewStaticV4(bc.S3AccessKey, bc.S3SecretKey, ""),
 		Secure: useSSL,
-		Region: cfg.S3Region,
+		Region: bc.S3Region,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("storage: s3 client: %w", err)
 	}
-	return &s3Store{client: client, bucket: cfg.S3Bucket}, nil
+	return &s3Store{client: client, bucket: bc.S3Bucket}, nil
 }
 
 func (s *s3Store) Backend() string { return "s3" }

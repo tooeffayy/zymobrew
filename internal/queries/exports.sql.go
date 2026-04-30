@@ -61,7 +61,7 @@ WHERE id IN (
   LIMIT 5
   FOR UPDATE SKIP LOCKED
 )
-RETURNING id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256
+RETURNING id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256, format
 `
 
 func (q *Queries) ClaimPendingUserExports(ctx context.Context) ([]UserExport, error) {
@@ -84,6 +84,7 @@ func (q *Queries) ClaimPendingUserExports(ctx context.Context) ([]UserExport, er
 			&i.CompletedAt,
 			&i.ExpiresAt,
 			&i.Sha256,
+			&i.Format,
 		); err != nil {
 			return nil, err
 		}
@@ -134,9 +135,9 @@ func (q *Queries) CompleteAdminBackup(ctx context.Context, arg CompleteAdminBack
 const completeUserExport = `-- name: CompleteUserExport :one
 UPDATE user_exports
 SET status = 'complete', file_path = $2, size_bytes = $3, sha256 = $4,
-    completed_at = now(), expires_at = now() + interval '7 days'
+    completed_at = now(), expires_at = now() + interval '1 hour'
 WHERE id = $1
-RETURNING id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256
+RETURNING id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256, format
 `
 
 type CompleteUserExportParams struct {
@@ -165,6 +166,7 @@ func (q *Queries) CompleteUserExport(ctx context.Context, arg CompleteUserExport
 		&i.CompletedAt,
 		&i.ExpiresAt,
 		&i.Sha256,
+		&i.Format,
 	)
 	return i, err
 }
@@ -196,14 +198,19 @@ func (q *Queries) CreateAdminBackup(ctx context.Context, storageBackend string) 
 
 const createUserExport = `-- name: CreateUserExport :one
 
-INSERT INTO user_exports (user_id, status) VALUES ($1, 'pending') RETURNING id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256
+INSERT INTO user_exports (user_id, status, format) VALUES ($1, 'pending', $2) RETURNING id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256, format
 `
+
+type CreateUserExportParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	Format string    `json:"format"`
+}
 
 // =============================================================================
 // User exports
 // =============================================================================
-func (q *Queries) CreateUserExport(ctx context.Context, userID uuid.UUID) (UserExport, error) {
-	row := q.db.QueryRow(ctx, createUserExport, userID)
+func (q *Queries) CreateUserExport(ctx context.Context, arg CreateUserExportParams) (UserExport, error) {
+	row := q.db.QueryRow(ctx, createUserExport, arg.UserID, arg.Format)
 	var i UserExport
 	err := row.Scan(
 		&i.ID,
@@ -216,6 +223,7 @@ func (q *Queries) CreateUserExport(ctx context.Context, userID uuid.UUID) (UserE
 		&i.CompletedAt,
 		&i.ExpiresAt,
 		&i.Sha256,
+		&i.Format,
 	)
 	return i, err
 }
@@ -254,6 +262,29 @@ DELETE FROM user_exports WHERE user_id = $1
 func (q *Queries) DeleteUserExportsForUser(ctx context.Context, userID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, deleteUserExportsForUser, userID)
 	return err
+}
+
+const expireUserExportByID = `-- name: ExpireUserExportByID :one
+UPDATE user_exports SET status = 'expired'
+WHERE id = $1 AND user_id = $2 AND status = 'complete'
+RETURNING file_path
+`
+
+type ExpireUserExportByIDParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+// ExpireUserExportByID flips one completed export to expired, race-safe.
+// Only the row that was actually 'complete' returns a row; concurrent
+// downloaders that lose the race get pgx.ErrNoRows and skip the disk delete.
+// file_path is left on the row as historical reference; the source of truth
+// for "file is gone" is status='expired'.
+func (q *Queries) ExpireUserExportByID(ctx context.Context, arg ExpireUserExportByIDParams) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, expireUserExportByID, arg.ID, arg.UserID)
+	var file_path pgtype.Text
+	err := row.Scan(&file_path)
+	return file_path, err
 }
 
 const expireUserExports = `-- name: ExpireUserExports :many
@@ -334,7 +365,7 @@ func (q *Queries) GetAdminBackup(ctx context.Context, id uuid.UUID) (AdminBackup
 }
 
 const getPendingUserExport = `-- name: GetPendingUserExport :one
-SELECT id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256 FROM user_exports
+SELECT id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256, format FROM user_exports
 WHERE user_id = $1 AND status IN ('pending', 'running')
 LIMIT 1
 `
@@ -353,12 +384,13 @@ func (q *Queries) GetPendingUserExport(ctx context.Context, userID uuid.UUID) (U
 		&i.CompletedAt,
 		&i.ExpiresAt,
 		&i.Sha256,
+		&i.Format,
 	)
 	return i, err
 }
 
 const getUserExport = `-- name: GetUserExport :one
-SELECT id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256 FROM user_exports WHERE id = $1 AND user_id = $2
+SELECT id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256, format FROM user_exports WHERE id = $1 AND user_id = $2
 `
 
 type GetUserExportParams struct {
@@ -380,6 +412,7 @@ func (q *Queries) GetUserExport(ctx context.Context, arg GetUserExportParams) (U
 		&i.CompletedAt,
 		&i.ExpiresAt,
 		&i.Sha256,
+		&i.Format,
 	)
 	return i, err
 }
@@ -526,7 +559,7 @@ func (q *Queries) ListUserExportFilePathsForUser(ctx context.Context, userID uui
 }
 
 const listUserExports = `-- name: ListUserExports :many
-SELECT id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256 FROM user_exports WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20
+SELECT id, user_id, status, file_path, size_bytes, error, created_at, completed_at, expires_at, sha256, format FROM user_exports WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20
 `
 
 func (q *Queries) ListUserExports(ctx context.Context, userID uuid.UUID) ([]UserExport, error) {
@@ -549,6 +582,7 @@ func (q *Queries) ListUserExports(ctx context.Context, userID uuid.UUID) ([]User
 			&i.CompletedAt,
 			&i.ExpiresAt,
 			&i.Sha256,
+			&i.Format,
 		); err != nil {
 			return nil, err
 		}

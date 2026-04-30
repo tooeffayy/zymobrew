@@ -79,13 +79,20 @@ go run ./cmd/zymo serve
 | `VAPID_PUBLIC_KEY`  | *(optional)*          | VAPID public key for web-push (generate with `zymo vapid-keys`) |
 | `VAPID_PRIVATE_KEY` | *(optional)*          | VAPID private key for web-push |
 | `VAPID_SUBJECT`     | `mailto:admin@localhost` | VAPID contact (mailto: or https:) |
-| `STORAGE_BACKEND`     | `local`               | `local` \| `s3` — used for user exports and admin backups |
-| `STORAGE_LOCAL_PATH`  | `./data`              | Filesystem root for the local backend |
-| `S3_ENDPOINT`         | *(optional)*          | S3-compatible endpoint URL (e.g. MinIO). Empty for AWS S3. |
-| `S3_REGION`           | `us-east-1`           | S3 region |
-| `S3_BUCKET`           | *(required if s3)*    | S3 bucket name |
-| `S3_ACCESS_KEY`       | *(required if s3)*    | S3 access key |
-| `S3_SECRET_KEY`       | *(required if s3)*    | S3 secret key |
+| `STORAGE_BACKEND`     | `local`               | `local` \| `s3` — primary storage backend. Holds user-export archives under the `tmp/exports/` key prefix. |
+| `STORAGE_LOCAL_PATH`  | `./data`              | Filesystem root for the primary local backend. |
+| `S3_ENDPOINT`         | *(optional)*          | Primary S3-compatible endpoint URL (e.g. MinIO). Empty for AWS S3. |
+| `S3_REGION`           | `us-east-1`           | Primary S3 region |
+| `S3_BUCKET`           | *(required if s3)*    | Primary S3 bucket name |
+| `S3_ACCESS_KEY`       | *(required if s3)*    | Primary S3 access key |
+| `S3_SECRET_KEY`       | *(required if s3)*    | Primary S3 secret key |
+| `BACKUP_BACKEND`      | *(falls back to `STORAGE_BACKEND`)* | `local` \| `s3` — admin-backup backend. Set when backups should target a different location than the primary store (e.g. off-site S3 while exports stay on local NAS). |
+| `BACKUP_LOCAL_PATH`   | *(falls back to `STORAGE_LOCAL_PATH`)* | Filesystem root for the backup local backend, when `BACKUP_BACKEND=local`. |
+| `BACKUP_S3_ENDPOINT`  | *(falls back to `S3_ENDPOINT`)*    | Backup S3 endpoint. |
+| `BACKUP_S3_REGION`    | *(falls back to `S3_REGION`)*      | Backup S3 region. |
+| `BACKUP_S3_BUCKET`    | *(falls back to `S3_BUCKET`)*      | Backup S3 bucket name. |
+| `BACKUP_S3_ACCESS_KEY`| *(falls back to `S3_ACCESS_KEY`)*  | Backup S3 access key. |
+| `BACKUP_S3_SECRET_KEY`| *(falls back to `S3_SECRET_KEY`)*  | Backup S3 secret key. |
 | `BACKUP_RETENTION_DAYS` | `30`                | Hard-delete admin backups (rows + blobs) after N days |
 | `TRUSTED_PROXIES`     | *(empty)*             | Comma-separated CIDRs (e.g. `10.0.0.0/8,127.0.0.1`) whose `X-Forwarded-For` we honor. Empty = ignore XFF entirely. See Auth → Real IP resolution. |
 
@@ -231,25 +238,32 @@ These cross-cutting rules apply across all resources:
 
 ### Backups + Exports
 
-**Two surfaces, one storage backend.** User exports (`/api/users/me/exports/*`) ship a per-user ZIP of their data. Admin backups (`/api/admin/backups/*`) capture a full-database `pg_dump`. Both write through `internal/storage` (`local` or `s3`); both follow the reminder-dispatcher pattern — HTTP handler creates a `pending` row, periodic River worker claims it with `FOR UPDATE SKIP LOCKED` and processes inline.
+**Two surfaces, two stores.** User exports (`/api/users/me/exports/*`) ship a per-user archive and live in the **primary** store (`STORAGE_*`) under the `tmp/exports/` key prefix. Admin backups (`/api/admin/backups/*`) capture a full-database `pg_dump` and live in a separately configurable **backup** store (`BACKUP_*`, falling back to `STORAGE_*` when unset). Both follow the reminder-dispatcher pattern — HTTP handler creates a `pending` row, periodic River worker claims it with `FOR UPDATE SKIP LOCKED` and processes inline. The split is wired in `cmd/zymo/main.go` (`openStores`); `server.New` and `jobs.New` take both stores explicitly. `storage.BackendConfig` collapses the per-store env knobs; `config.Config.PrimaryStorage()` and `config.Config.BackupStorage()` build the two configs.
 
-**User export ZIP layout** — `manifest.json` (schema version + export timestamp), `profile.json`, `recipes.json` (recipes + ingredients + revisions), `batches.json` (batches + readings + events + tasting notes), `social.json` (follows + likes + comments). ZIP is built into a temp file first so the size is known before `Put`.
+**Why split.** Backups are operator-facing and benefit from cold/remote storage independent of where the app's user-facing data lives — e.g. user exports on local NAS, backups off-site to S3. The `BACKUP_*` knobs each fall back to their `STORAGE_*` counterpart so a deployment that doesn't configure them keeps both pipelines on one backend (today's behavior).
 
-**Admin backup pipeline** — `pg_dump --format=custom` is streamed straight into `store.Put(..., size=-1)` via `io.Pipe`; size is counted as bytes flow through. **Credentials never appear in `ps` output** — connection params for postgres:// URLs are passed via `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`/`PGSSLMODE`, not as command-line flags. Key-value DSNs fall back to `--dbname=...` (credentials *would* be visible on that path; tighten if we ever support that DSN form in production).
+**User export layout** — `manifest.json` (schema version + export timestamp + format), `profile.json`, `recipes.json` (recipes + ingredients + revisions), `batches.json` (batches + readings + events + tasting notes), `social.json` (follows + likes + comments). Built into a temp file first so the size is known before `Put`.
 
-**Download path** — `serveStorageFile` calls `store.PresignGet(key, 15m)`. S3 returns a signed URL → `302` redirect to the client. Local backend returns `""` → server streams the file directly with a `Content-Disposition: attachment` header. Local pre-export: only one in-progress export per user (`GetPendingUserExport` → `409 Conflict`).
+**Export format selection** — POST body takes `{"format": "zip"|"tar.gz"|"zstd"}`; defaults to `zip` when omitted. Stored on `user_exports.format` so the download handler can pick the right `Content-Type` and filename extension. Container types abstracted behind `archiveWriter` (`internal/jobs/archive.go`); tar variants buffer each entry to a `bytes.Buffer` because tar requires the entry size up front. Close order matters: tar trailer flushes before the outer compressor's footer — otherwise the archive truncates silently. `TestUserExportDispatchWorker_Formats` decompresses each format end-to-end to catch this.
+
+**Admin backup pipeline** — `pg_dump --format=custom` is streamed straight into `backupStore.Put(..., size=-1)` via `io.Pipe`; size is counted as bytes flow through. **Credentials never appear in `ps` output** — connection params for postgres:// URLs are passed via `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`/`PGSSLMODE`, not as command-line flags. Key-value DSNs fall back to `--dbname=...` (credentials *would* be visible on that path; tighten if we ever support that DSN form in production).
+
+**Download paths** —
+- *User exports*: always streamed inline by `handleDownloadExport` (no presign branch even when the primary store is S3 — keeping the bytes on the app's path is what makes single-use cleanup reliable). **Single-use**: after a successful `io.Copy`, the row is flipped via `ExpireUserExportByID` (`UPDATE … WHERE status='complete' RETURNING file_path`, race-safe — concurrent downloaders all stream successfully but only the winner deletes the blob), then `exportStore.Delete` removes the object. DB flip happens before object delete so a crash between the two only orphans bytes (harmless), never leaves a row pointing at a missing file. Cleanup runs on a fresh `context.Background()` with a 5s timeout so a client closing right after the last byte doesn't cancel the writes. Mid-stream `io.Copy` error → row left alone, client can retry until the TTL.
+- *Admin backups*: routed through `serveStorageFile`, which presigns for S3 (`302` redirect, 15m TTL) or streams for local.
+
+Local pre-export guard: only one in-progress export per user (`GetPendingUserExport` → `409 Conflict`).
 
 **Retention model**
-- User exports: dispatcher runs `ExpireUserExports` each tick (`status = expired` for completed rows past `expires_at`); blobs deleted via `store.Delete`. Rows retained for audit.
+- User exports: 1-hour TTL (`expires_at = now() + interval '1 hour'`). Primary cleanup path is post-download (above); the dispatcher's `ExpireUserExports` is a safety net that flips never-downloaded rows to `expired` and deletes their blobs. Rows retained for audit.
 - Admin backups: dispatcher runs `DeleteExpiredAdminBackups($BACKUP_RETENTION_DAYS)` each tick — rows *and* blobs hard-deleted (no audit need; `pg_dump` is the source of truth).
 
-**Account-deletion interaction** — `internal/account.Anonymize` deletes the user's `user_exports` rows and corresponding blobs as part of the wipe; admin backups are unaffected (instance-level, not per-user).
+**Account-deletion interaction** — `internal/account.Anonymize(... exportStore ...)` deletes the user's `user_exports` rows and corresponding blobs from the export store as part of the wipe; admin backups are unaffected (instance-level, not per-user).
 
-**Integrity** — both blob types carry a SHA-256 hash, computed inline during upload via `io.TeeReader` (no extra pass). Stored as lowercase hex in `user_exports.sha256` / `admin_backups.sha256`, exposed in the JSON view, and surfaced as `X-Content-SHA256` on the download response (rides on the `302` for S3-presigned downloads — clients verifying after a redirect should rely on the JSON view's `sha256` field instead, since the upstream S3 response won't carry the header).
+**Integrity** — both blob types carry a SHA-256 hash, computed inline during upload via `io.TeeReader` (no extra pass). Stored as lowercase hex in `user_exports.sha256` / `admin_backups.sha256`, exposed in the JSON view, and surfaced as `X-Content-SHA256` on the download response. For admin-backup S3 downloads the header rides on the `302`; the actual S3 response won't carry it, so clients verifying after a redirect should rely on the JSON view's `sha256` field instead. User-export downloads always stream, so the header is always present.
 
 #### Known deferred gaps
 
-- **ZIP-only export format** — tar.gz / zstd pencilled in for next session.
 - **Backup encryption at rest** — currently relies on backend-level encryption (S3 SSE, disk crypto). Add app-level GPG when running on untrusted storage.
 - **No restore CLI** — backups are restored manually with `pg_restore`. `zymo reprocess-deletions` covers the deletion-after-restore corner.
 
@@ -261,7 +275,7 @@ River runs in-process. Queue state in `river_*` tables. `migrate.Up` runs goose 
 |---|---|---|
 | `expired_sessions_gc` | every hour, `RunOnStart: true` | `DELETE FROM sessions WHERE expires_at < now()` |
 | `reminder_dispatcher` | every minute | Atomically claims due reminders (`FOR UPDATE SKIP LOCKED`), creates in-app `notifications` rows |
-| `user_export_dispatcher` | every minute | Claims pending `user_exports` (`FOR UPDATE SKIP LOCKED`), builds ZIP, uploads, marks complete. Also expires + deletes blobs of past-`expires_at` exports. |
+| `user_export_dispatcher` | every minute | Claims pending `user_exports` (`FOR UPDATE SKIP LOCKED`), builds the archive (zip / tar.gz / zstd per row), writes to the primary store under `tmp/exports/`, marks complete. Also expires + deletes blobs of past-`expires_at` exports as a safety net (primary cleanup is post-download in `handleDownloadExport`). |
 | `admin_backup_dispatcher` | every minute | Claims pending `admin_backups` (`FOR UPDATE SKIP LOCKED`), streams `pg_dump --format=custom` into storage. Also hard-deletes rows + blobs past `BACKUP_RETENTION_DAYS`. |
 | `admin_backup_scheduler` | every 24h | Inserts a pending `admin_backups` row; the dispatcher picks it up within a minute. |
 

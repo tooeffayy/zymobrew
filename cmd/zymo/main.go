@@ -92,12 +92,12 @@ func serve(ctx context.Context, cfg config.Config) error {
 	}
 	defer pool.Close()
 
-	store, err := storage.New(cfg)
+	exportStore, backupStore, err := openStores(cfg)
 	if err != nil {
 		return fmt.Errorf("storage: %w", err)
 	}
 
-	jobsClient, err := jobs.New(pool, cfg, store)
+	jobsClient, err := jobs.New(pool, cfg, exportStore, backupStore)
 	if err != nil {
 		return fmt.Errorf("jobs init: %w", err)
 	}
@@ -112,7 +112,7 @@ func serve(ctx context.Context, cfg config.Config) error {
 		_ = jobsClient.Stop(stopCtx)
 	}()
 
-	srv := server.New(pool, cfg, store)
+	srv := server.New(pool, cfg, exportStore, backupStore)
 	log.Printf("zymo listening on %s (mode=%s)", cfg.ListenAddr, cfg.InstanceMode)
 	return srv.Run(ctx, cfg.ListenAddr)
 }
@@ -136,7 +136,7 @@ func reprocessDeletions(ctx context.Context, cfg config.Config) error {
 	}
 	defer pool.Close()
 
-	store, err := storage.New(cfg)
+	exportStore, _, err := openStores(cfg)
 	if err != nil {
 		return fmt.Errorf("storage: %w", err)
 	}
@@ -153,7 +153,7 @@ func reprocessDeletions(ctx context.Context, cfg config.Config) error {
 
 	failures := 0
 	for _, row := range pending {
-		if err := account.Anonymize(ctx, pool, q, store, row.UserID); err != nil {
+		if err := account.Anonymize(ctx, pool, q, exportStore, row.UserID); err != nil {
 			fmt.Fprintf(os.Stderr, "user %s: %v\n", row.UserID, err)
 			failures++
 			continue
@@ -164,4 +164,23 @@ func reprocessDeletions(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("%d of %d deletions failed", failures, len(pending))
 	}
 	return nil
+}
+
+// openStores constructs the two storage backends used at runtime:
+//
+//   - exportStore: the primary storage backend (governed by STORAGE_*).
+//     User exports live under the `tmp/exports/` key prefix to convey their
+//     ephemeral lifecycle (deleted on download or after the per-row TTL).
+//   - backupStore: the admin-backup backend (governed by BACKUP_*, falling
+//     back to STORAGE_* when unset). Holds pg_dump archives.
+func openStores(cfg config.Config) (storage.Store, storage.Store, error) {
+	exportStore, err := storage.New(cfg.PrimaryStorage())
+	if err != nil {
+		return nil, nil, fmt.Errorf("primary store: %w", err)
+	}
+	backupStore, err := storage.New(cfg.BackupStorage())
+	if err != nil {
+		return nil, nil, fmt.Errorf("backup store: %w", err)
+	}
+	return exportStore, backupStore, nil
 }

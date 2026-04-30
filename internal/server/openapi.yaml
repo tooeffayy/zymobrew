@@ -489,13 +489,17 @@ components:
 
     Export:
       type: object
-      required: [id, status, created_at]
+      required: [id, status, format, created_at]
       properties:
         id:
           $ref: '#/components/schemas/UUID'
         status:
           type: string
           enum: [pending, running, complete, failed, expired]
+        format:
+          type: string
+          enum: [zip, tar.gz, zstd]
+          description: Archive format chosen at creation time.
         size_bytes:
           type: integer
         sha256:
@@ -509,6 +513,15 @@ components:
           type: string
         created_at:
           $ref: '#/components/schemas/DateTime'
+
+    ExportRequest:
+      type: object
+      properties:
+        format:
+          type: string
+          enum: [zip, tar.gz, zstd]
+          default: zip
+          description: Archive format. Defaults to `zip` if omitted.
 
     AdminBackup:
       type: object
@@ -2642,6 +2655,12 @@ paths:
       security:
         - cookieAuth: []
         - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportRequest'
       responses:
         "202":
           description: Export queued
@@ -2649,6 +2668,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Export'
+        "400":
+          description: Invalid format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Not authenticated
           content:
@@ -2722,7 +2747,7 @@ paths:
     get:
       tags: [exports]
       operationId: downloadExport
-      summary: Download completed export ZIP. Streams directly or redirects to presigned URL.
+      summary: Download completed export. Single-use — the archive is deleted after a successful download and the row flips to `expired`. Container varies with the export's `format`.
       security:
         - cookieAuth: []
         - bearerAuth: []
@@ -2734,14 +2759,20 @@ paths:
             $ref: '#/components/schemas/UUID'
       responses:
         "200":
-          description: ZIP archive
+          description: Archive (zip / tar.gz / zstd) streamed directly from the local export store.
           content:
             application/zip:
               schema:
                 type: string
                 format: binary
-        "302":
-          description: Redirect to presigned storage URL (S3 backend)
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+            application/zstd:
+              schema:
+                type: string
+                format: binary
         "401":
           description: Not authenticated
           content:
@@ -2755,7 +2786,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         "409":
-          description: Export not yet complete
+          description: Export not yet complete, or already downloaded / expired
           content:
             application/json:
               schema:

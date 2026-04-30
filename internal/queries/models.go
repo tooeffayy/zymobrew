@@ -687,6 +687,7 @@ type UserExport struct {
 	CompletedAt pgtype.Timestamptz `json:"completed_at"`
 	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
 	Sha256      pgtype.Text        `json:"sha256"`
+	Format      string             `json:"format"`
 }
 
 type UserImport struct {

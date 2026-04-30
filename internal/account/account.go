@@ -21,7 +21,10 @@ import (
 // transaction, then best-effort cleans up export blobs from storage. Safe
 // to call against an already-anonymized user — `AnonymizeUser` is
 // idempotent and the satellite deletes are no-ops on empty rows.
-func Anonymize(ctx context.Context, pool *pgxpool.Pool, q *queries.Queries, store storage.Store, userID uuid.UUID) error {
+//
+// exportStore is the local-only user-export store; admin backups are
+// instance-level and untouched by per-user anonymization.
+func Anonymize(ctx context.Context, pool *pgxpool.Pool, q *queries.Queries, exportStore storage.Store, userID uuid.UUID) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
@@ -62,7 +65,7 @@ func Anonymize(ctx context.Context, pool *pgxpool.Pool, q *queries.Queries, stor
 		if !p.Valid || p.String == "" {
 			continue
 		}
-		if err := store.Delete(ctx, p.String); err != nil {
+		if err := exportStore.Delete(ctx, p.String); err != nil {
 			slog.Error("delete export file on anonymize", "path", p.String, "user_id", userID, "err", err)
 		}
 	}

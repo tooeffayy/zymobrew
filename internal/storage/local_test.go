@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"zymobrew/internal/storage"
-	"zymobrew/internal/config"
 )
 
 // TestLocalStore_Roundtrip verifies that the local backend can put, get, and
@@ -15,9 +14,9 @@ import (
 // same sequence the selftest storage probe runs against the configured backend.
 func TestLocalStore_Roundtrip(t *testing.T) {
 	dir := t.TempDir()
-	store, err := storage.New(config.Config{
-		StorageBackend:   "local",
-		StorageLocalPath: dir,
+	store, err := storage.New(storage.BackendConfig{
+		Backend:   "local",
+		LocalPath: dir,
 	})
 	if err != nil {
 		t.Fatalf("storage.New: %v", err)
@@ -81,9 +80,9 @@ func TestLocalStore_Roundtrip(t *testing.T) {
 // the necessary subdirectories automatically.
 func TestLocalStore_NestedKeys(t *testing.T) {
 	dir := t.TempDir()
-	store, err := storage.New(config.Config{
-		StorageBackend:   "local",
-		StorageLocalPath: dir,
+	store, err := storage.New(storage.BackendConfig{
+		Backend:   "local",
+		LocalPath: dir,
 	})
 	if err != nil {
 		t.Fatal(err)

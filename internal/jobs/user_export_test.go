@@ -1,14 +1,18 @@
 package jobs
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"strings"
 	"testing"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/riverqueue/river"
 
 	"zymobrew/internal/queries"
@@ -40,7 +44,7 @@ func TestUserExportDispatchWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	export, err := q.CreateUserExport(ctx, user.ID)
+	export, err := q.CreateUserExport(ctx, queries.CreateUserExportParams{UserID: user.ID, Format: ExportFormatZip})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,6 +112,131 @@ func TestUserExportDispatchWorker(t *testing.T) {
 	}
 }
 
+// TestUserExportDispatchWorker_Formats covers tar.gz and zstd in addition to
+// zip. Each format is decompressed end-to-end and the full set of expected
+// entries is asserted — this is what catches a broken Close order, where the
+// outer compressor is closed before the inner tar trailer is flushed and
+// later entries silently disappear.
+func TestUserExportDispatchWorker_Formats(t *testing.T) {
+	expected := []string{"manifest.json", "profile.json", "recipes.json", "batches.json", "social.json"}
+
+	cases := []struct {
+		format   string
+		ext      string
+		readArch func(t *testing.T, raw []byte) map[string]bool
+	}{
+		{
+			format: ExportFormatTarGz,
+			ext:    "tar.gz",
+			readArch: func(t *testing.T, raw []byte) map[string]bool {
+				gr, err := gzip.NewReader(bytes.NewReader(raw))
+				if err != nil {
+					t.Fatalf("gzip reader: %v", err)
+				}
+				defer gr.Close()
+				return readTarEntries(t, gr)
+			},
+		},
+		{
+			format: ExportFormatZstd,
+			ext:    "tar.zst",
+			readArch: func(t *testing.T, raw []byte) map[string]bool {
+				zr, err := zstd.NewReader(bytes.NewReader(raw))
+				if err != nil {
+					t.Fatalf("zstd reader: %v", err)
+				}
+				defer zr.Close()
+				return readTarEntries(t, zr)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.format, func(t *testing.T) {
+			ctx := context.Background()
+			pool := testutil.Pool(t, ctx)
+			store := testutil.NewMemStore()
+
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+
+			q := queries.New(pool).WithTx(tx)
+			user, err := q.CreateUser(ctx, queries.CreateUserParams{
+				Username: "fmt_test_" + strings.ReplaceAll(tc.format, ".", "_"),
+				Email:    "fmt_" + strings.ReplaceAll(tc.format, ".", "_") + "@example.com",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			export, err := q.CreateUserExport(ctx, queries.CreateUserExportParams{
+				UserID: user.ID,
+				Format: tc.format,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			worker := &userExportDispatchWorker{queries: q, store: store}
+			if err := worker.Work(ctx, &river.Job[UserExportDispatchArgs]{}); err != nil {
+				t.Fatalf("Work: %v", err)
+			}
+
+			updated, err := q.GetUserExport(ctx, queries.GetUserExportParams{ID: export.ID, UserID: user.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if updated.Status != queries.JobStatusComplete {
+				t.Fatalf("status = %s, want complete (error: %s)", updated.Status, updated.Error.String)
+			}
+			if !strings.HasSuffix(updated.FilePath.String, "."+tc.ext) {
+				t.Errorf("storage key %q missing %s extension", updated.FilePath.String, tc.ext)
+			}
+
+			rc, _, err := store.Get(ctx, updated.FilePath.String)
+			if err != nil {
+				t.Fatalf("store.Get: %v", err)
+			}
+			defer rc.Close()
+			raw, err := io.ReadAll(rc)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			sum := sha256.Sum256(raw)
+			if got := hex.EncodeToString(sum[:]); got != updated.Sha256.String {
+				t.Fatalf("sha256 mismatch:\n  stored: %s\n  bytes:  %s", updated.Sha256.String, got)
+			}
+
+			found := tc.readArch(t, raw)
+			for _, want := range expected {
+				if !found[want] {
+					t.Errorf("%s archive missing %s; got %v", tc.format, want, found)
+				}
+			}
+		})
+	}
+}
+
+func readTarEntries(t *testing.T, r io.Reader) map[string]bool {
+	t.Helper()
+	tr := tar.NewReader(r)
+	found := map[string]bool{}
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("tar next: %v", err)
+		}
+		found[hdr.Name] = true
+	}
+	return found
+}
+
 // TestUserExportDispatchWorker_FailOnMissingUser verifies the export is
 // marked failed (not just silently dropped) when the user row is gone.
 func TestUserExportDispatchWorker_FailOnMissingUser(t *testing.T) {
@@ -130,7 +259,7 @@ func TestUserExportDispatchWorker_FailOnMissingUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	export, err := q.CreateUserExport(ctx, user.ID)
+	export, err := q.CreateUserExport(ctx, queries.CreateUserExportParams{UserID: user.ID, Format: ExportFormatZip})
 	if err != nil {
 		t.Fatal(err)
 	}

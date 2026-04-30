@@ -26,7 +26,7 @@ func setupAuth(t *testing.T, mode config.InstanceMode) (*server.Server, *pgxpool
 	if _, err := pool.Exec(ctx, "TRUNCATE users, sessions CASCADE"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
-	return server.New(pool, config.Config{InstanceMode: mode}, nil), pool
+	return server.New(pool, config.Config{InstanceMode: mode}, nil, nil), pool
 }
 
 func doJSON(t *testing.T, srv *server.Server, method, path string, body any, cookies ...*http.Cookie) *http.Response {

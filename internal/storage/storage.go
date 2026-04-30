@@ -1,6 +1,8 @@
 // Package storage provides a backend-agnostic file store used for user
-// exports and admin backups. The local backend is always available; the S3
-// backend is opt-in via STORAGE_BACKEND=s3.
+// exports and admin backups. Two stores are wired at runtime — the primary
+// store (governed by STORAGE_*) holds user-export archives; a separately
+// configurable backup store (governed by BACKUP_*, falling back to STORAGE_*
+// when unset) holds admin pg_dumps.
 package storage
 
 import (
@@ -8,8 +10,6 @@ import (
 	"fmt"
 	"io"
 	"time"
-
-	"zymobrew/internal/config"
 )
 
 // Store is the interface all backends implement.
@@ -33,14 +33,28 @@ type Store interface {
 	Backend() string
 }
 
-// New returns a Store configured from cfg.
-func New(cfg config.Config) (Store, error) {
-	switch cfg.StorageBackend {
+// BackendConfig collapses the env-var fields needed to construct a single
+// Store. The primary and backup stores each consume one of these — see
+// config.Config.PrimaryBackend / BackupBackend. Decoupling storage from the
+// full Config lets the same constructor build either pipeline's backend.
+type BackendConfig struct {
+	Backend     string // "local" | "s3"
+	LocalPath   string
+	S3Endpoint  string
+	S3Region    string
+	S3Bucket    string
+	S3AccessKey string
+	S3SecretKey string
+}
+
+// New returns a Store configured from bc.
+func New(bc BackendConfig) (Store, error) {
+	switch bc.Backend {
 	case "local", "":
-		return newLocal(cfg.StorageLocalPath)
+		return NewLocal(bc.LocalPath)
 	case "s3":
-		return newS3(cfg)
+		return newS3(bc)
 	default:
-		return nil, fmt.Errorf("unknown STORAGE_BACKEND %q (want local|s3)", cfg.StorageBackend)
+		return nil, fmt.Errorf("unknown storage backend %q (want local|s3)", bc.Backend)
 	}
 }

@@ -15,7 +15,7 @@ import (
 // registered (METHOD, path) pair appears in openapi.yaml. Fails when a new
 // route is added without updating the spec.
 func TestOpenAPICoversAllRoutes(t *testing.T) {
-	s := New(nil, config.Config{InstanceMode: config.ModeOpen}, nil)
+	s := New(nil, config.Config{InstanceMode: config.ModeOpen}, nil, nil)
 	router, ok := s.handler.(chi.Routes)
 	if !ok {
 		t.Fatal("handler does not implement chi.Routes")

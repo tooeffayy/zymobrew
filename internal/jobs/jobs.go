@@ -31,7 +31,10 @@ type Client struct {
 // New constructs a River client with all workers registered and the
 // canonical periodic schedule applied. It does not start any workers — call
 // Start.
-func New(pool *pgxpool.Pool, cfg config.Config, store storage.Store) (*Client, error) {
+//
+// exportStore is the local-only user-export store; backupStore is the
+// configurable admin-backup store (local or S3).
+func New(pool *pgxpool.Pool, cfg config.Config, exportStore, backupStore storage.Store) (*Client, error) {
 	q := queries.New(pool)
 
 	workers := river.NewWorkers()
@@ -42,11 +45,11 @@ func New(pool *pgxpool.Pool, cfg config.Config, store storage.Store) (*Client, e
 		vapidPriv:    cfg.VAPIDPrivateKey,
 		vapidSubject: cfg.VAPIDSubject,
 	})
-	river.AddWorker(workers, &userExportDispatchWorker{queries: q, store: store})
-	river.AddWorker(workers, &adminBackupScheduleWorker{queries: q, store: store})
+	river.AddWorker(workers, &userExportDispatchWorker{queries: q, store: exportStore})
+	river.AddWorker(workers, &adminBackupScheduleWorker{queries: q, store: backupStore})
 	river.AddWorker(workers, &adminBackupDispatchWorker{
 		queries:       q,
-		store:         store,
+		store:         backupStore,
 		dbURL:         cfg.DatabaseURL,
 		retentionDays: cfg.BackupRetentionDays,
 	})

@@ -13,7 +13,11 @@ type localStore struct {
 	root string
 }
 
-func newLocal(root string) (*localStore, error) {
+// NewLocal returns a Store backed by the local filesystem rooted at the
+// given path. Used directly by the user-export pipeline (which is local-only
+// regardless of STORAGE_BACKEND); the configurable backup pipeline goes
+// through New() instead.
+func NewLocal(root string) (Store, error) {
 	if err := os.MkdirAll(root, 0o750); err != nil {
 		return nil, fmt.Errorf("storage: create local root %q: %w", root, err)
 	}

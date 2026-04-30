@@ -23,8 +23,13 @@ type Server struct {
 	pool    *pgxpool.Pool
 	cfg     config.Config
 	queries *queries.Queries
-	store   storage.Store
-	handler http.Handler
+	// exportStore is local-only and holds short-lived user-export archives
+	// served directly by the app (deleted on download or after the TTL).
+	// backupStore is the configurable storage backend used for admin
+	// pg_dump backups; may be local or S3.
+	exportStore storage.Store
+	backupStore storage.Store
+	handler     http.Handler
 
 	// Auth-path rate limiters. authIP gates /api/auth/{register,login} per
 	// client IP; loginUser additionally gates /api/auth/login per identifier
@@ -33,14 +38,15 @@ type Server struct {
 	loginUser *ratelimit.Limiter
 }
 
-func New(pool *pgxpool.Pool, cfg config.Config, store storage.Store) *Server {
+func New(pool *pgxpool.Pool, cfg config.Config, exportStore, backupStore storage.Store) *Server {
 	s := &Server{
-		pool:      pool,
-		cfg:       cfg,
-		queries:   queries.New(pool),
-		store:     store,
-		authIP:    ratelimit.New(rate.Every(2*time.Second), 10, 30*time.Minute),
-		loginUser: ratelimit.New(rate.Every(12*time.Second), 5, 30*time.Minute),
+		pool:        pool,
+		cfg:         cfg,
+		queries:     queries.New(pool),
+		exportStore: exportStore,
+		backupStore: backupStore,
+		authIP:      ratelimit.New(rate.Every(2*time.Second), 10, 30*time.Minute),
+		loginUser:   ratelimit.New(rate.Every(12*time.Second), 5, 30*time.Minute),
 	}
 	s.handler = s.routes()
 	return s

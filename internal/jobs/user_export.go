@@ -1,7 +1,7 @@
 package jobs
 
 import (
-	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -54,9 +54,13 @@ func (w *userExportDispatchWorker) Work(ctx context.Context, _ *river.Job[UserEx
 
 func (w *userExportDispatchWorker) processExport(ctx context.Context, row queries.UserExport) error {
 	userID := row.UserID
+	format := row.Format
+	if format == "" {
+		format = ExportFormatZip
+	}
 
-	// Build the ZIP into a temp file so we know the size before uploading.
-	tmp, err := os.CreateTemp("", "zymo-export-*.zip")
+	// Build the archive into a temp file so we know the size before uploading.
+	tmp, err := os.CreateTemp("", "zymo-export-*."+FormatExtension(format))
 	if err != nil {
 		return fmt.Errorf("create temp: %w", err)
 	}
@@ -65,8 +69,8 @@ func (w *userExportDispatchWorker) processExport(ctx context.Context, row querie
 		os.Remove(tmp.Name())
 	}()
 
-	if err := w.buildZIP(ctx, tmp, userID); err != nil {
-		return fmt.Errorf("build zip: %w", err)
+	if err := w.buildArchive(ctx, tmp, userID, format); err != nil {
+		return fmt.Errorf("build archive: %w", err)
 	}
 
 	size, err := tmp.Seek(0, io.SeekCurrent)
@@ -80,7 +84,10 @@ func (w *userExportDispatchWorker) processExport(ctx context.Context, row querie
 	hasher := sha256.New()
 	teed := io.TeeReader(tmp, hasher)
 
-	key := fmt.Sprintf("exports/users/%s/%s.zip", userID, row.ID)
+	// User exports live under the primary store's `tmp/exports/` subtree so
+	// their ephemeral lifecycle is visible from the storage layout — the
+	// admin-backup pipeline never writes here (it has its own backend).
+	key := fmt.Sprintf("tmp/exports/%s/%s.%s", userID, row.ID, FormatExtension(format))
 	if err := w.store.Put(ctx, key, teed, size); err != nil {
 		return fmt.Errorf("store put: %w", err)
 	}
@@ -95,9 +102,11 @@ func (w *userExportDispatchWorker) processExport(ctx context.Context, row querie
 	return err
 }
 
-func (w *userExportDispatchWorker) buildZIP(ctx context.Context, out io.Writer, userID uuid.UUID) error {
-	zw := zip.NewWriter(out)
-	defer zw.Close()
+func (w *userExportDispatchWorker) buildArchive(ctx context.Context, out io.Writer, userID uuid.UUID, format string) error {
+	aw, err := newArchiveWriter(format, out)
+	if err != nil {
+		return err
+	}
 
 	user, err := w.queries.GetUserByID(ctx, userID)
 	if err != nil {
@@ -105,23 +114,22 @@ func (w *userExportDispatchWorker) buildZIP(ctx context.Context, out io.Writer, 
 	}
 
 	writeEntry := func(name string, v any) error {
-		f, err := zw.Create(name)
-		if err != nil {
+		var buf bytes.Buffer
+		if err := json.NewEncoder(&buf).Encode(v); err != nil {
 			return err
 		}
-		return json.NewEncoder(f).Encode(v)
+		return aw.AddEntry(name, buf.Bytes())
 	}
 
-	// manifest.json
 	if err := writeEntry("manifest.json", map[string]any{
 		"schema_version": 1,
 		"exported_at":    time.Now().UTC().Format(time.RFC3339),
 		"username":       user.Username,
+		"format":         format,
 	}); err != nil {
 		return err
 	}
 
-	// profile.json
 	if err := writeEntry("profile.json", map[string]any{
 		"id":           user.ID,
 		"username":     user.Username,
@@ -133,22 +141,17 @@ func (w *userExportDispatchWorker) buildZIP(ctx context.Context, out io.Writer, 
 		return err
 	}
 
-	// recipes.json
-	if err := w.writeRecipes(ctx, zw, userID); err != nil {
+	if err := w.writeRecipes(ctx, writeEntry, userID); err != nil {
+		return err
+	}
+	if err := w.writeBatches(ctx, writeEntry, userID); err != nil {
+		return err
+	}
+	if err := w.writeSocial(ctx, writeEntry, userID); err != nil {
 		return err
 	}
 
-	// batches.json
-	if err := w.writeBatches(ctx, zw, userID); err != nil {
-		return err
-	}
-
-	// social.json
-	if err := w.writeSocial(ctx, zw, userID); err != nil {
-		return err
-	}
-
-	return nil
+	return aw.Close()
 }
 
 func (w *userExportDispatchWorker) pruneExpiredExports(ctx context.Context) {
@@ -167,7 +170,9 @@ func (w *userExportDispatchWorker) pruneExpiredExports(ctx context.Context) {
 	}
 }
 
-func (w *userExportDispatchWorker) writeRecipes(ctx context.Context, zw *zip.Writer, userID uuid.UUID) error {
+type entryWriter func(name string, v any) error
+
+func (w *userExportDispatchWorker) writeRecipes(ctx context.Context, write entryWriter, userID uuid.UUID) error {
 	recipes, err := w.queries.ListAllRecipesForAuthor(ctx, userID)
 	if err != nil {
 		return err
@@ -183,22 +188,18 @@ func (w *userExportDispatchWorker) writeRecipes(ctx context.Context, zw *zip.Wri
 		revs, _ := w.queries.ListRecipeRevisions(ctx, r.ID)
 		out = append(out, recipeExport{Recipe: r, Ingredients: ings, Revisions: revs})
 	}
-	f, err := zw.Create("recipes.json")
-	if err != nil {
-		return err
-	}
-	return json.NewEncoder(f).Encode(out)
+	return write("recipes.json", out)
 }
 
-func (w *userExportDispatchWorker) writeBatches(ctx context.Context, zw *zip.Writer, userID uuid.UUID) error {
+func (w *userExportDispatchWorker) writeBatches(ctx context.Context, write entryWriter, userID uuid.UUID) error {
 	batches, err := w.queries.ListAllBatchesForUser(ctx, userID)
 	if err != nil {
 		return err
 	}
 	type batchExport struct {
 		queries.Batch
-		Readings     []queries.Reading   `json:"readings"`
-		Events       []queries.BatchEvent `json:"events"`
+		Readings     []queries.Reading     `json:"readings"`
+		Events       []queries.BatchEvent  `json:"events"`
 		TastingNotes []queries.TastingNote `json:"tasting_notes"`
 	}
 	out := make([]batchExport, 0, len(batches))
@@ -208,23 +209,15 @@ func (w *userExportDispatchWorker) writeBatches(ctx context.Context, zw *zip.Wri
 		notes, _ := w.queries.ListTastingNotesForBatch(ctx, b.ID)
 		out = append(out, batchExport{Batch: b, Readings: readings, Events: events, TastingNotes: notes})
 	}
-	f, err := zw.Create("batches.json")
-	if err != nil {
-		return err
-	}
-	return json.NewEncoder(f).Encode(out)
+	return write("batches.json", out)
 }
 
-func (w *userExportDispatchWorker) writeSocial(ctx context.Context, zw *zip.Writer, userID uuid.UUID) error {
+func (w *userExportDispatchWorker) writeSocial(ctx context.Context, write entryWriter, userID uuid.UUID) error {
 	follows, _ := w.queries.ListFollowsByUser(ctx, userID)
 	likes, _ := w.queries.ListLikesByUser(ctx, userID)
 	comments, _ := w.queries.ListRecipeCommentsByUser(ctx, userID)
 
-	f, err := zw.Create("social.json")
-	if err != nil {
-		return err
-	}
-	return json.NewEncoder(f).Encode(map[string]any{
+	return write("social.json", map[string]any{
 		"follows":  follows,
 		"likes":    likes,
 		"comments": comments,
