@@ -8,10 +8,11 @@ FROM oven/bun:1-alpine AS web
 WORKDIR /web
 
 # Copy the manifest first so the (slow) install step caches as long as
-# package.json hasn't changed. bun.lockb* is a glob: BuildKit accepts
+# package.json hasn't changed. The lockfile glob covers Bun's modern
+# text-based bun.lock and the older binary bun.lockb; BuildKit accepts
 # zero matches, so a fresh checkout without a committed lockfile still
-# builds — it just regenerates the lockfile in the install layer.
-COPY web/package.json web/bun.lockb* ./
+# builds (the install layer regenerates one).
+COPY web/package.json web/bun.lock* web/bun.lockb* ./
 RUN bun install --no-progress
 
 # Now the rest of the SPA source. Layer cache invalidates only when
