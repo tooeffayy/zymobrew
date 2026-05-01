@@ -198,6 +198,42 @@ export interface BatchEventPage {
   events: BatchEvent[];
 }
 
+// Mirrors readingView in internal/server/batches.go. At least one of
+// gravity / temperature_c / ph is required at the API surface.
+export interface Reading {
+  id: string;
+  batch_id: string;
+  taken_at: string;
+  gravity?: number;
+  temperature_c?: number;
+  ph?: number;
+  notes?: string;
+  source: string;
+}
+
+export interface ReadingPage {
+  readings: Reading[];
+}
+
+// Mirrors tastingNoteView in internal/server/batches.go. Server enforces
+// rating ∈ [1,5] and that at least one field is set.
+export interface TastingNote {
+  id: string;
+  batch_id: string;
+  author_id: string;
+  tasted_at: string;
+  rating?: number;
+  aroma?: string;
+  flavor?: string;
+  mouthfeel?: string;
+  finish?: string;
+  notes?: string;
+}
+
+export interface TastingNotePage {
+  tasting_notes: TastingNote[];
+}
+
 // Mirrors queries.ReminderStatus. `cancelled` is reachable via DELETE
 // but reminders in that state come back filtered out of the active
 // list, so the UI doesn't render them — kept here for completeness.

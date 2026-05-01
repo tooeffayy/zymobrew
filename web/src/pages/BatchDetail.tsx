@@ -7,7 +7,11 @@ import {
   BatchEvent,
   BatchEventPage,
   EventKind,
+  Reading,
+  ReadingPage,
   Reminder,
+  TastingNote,
+  TastingNotePage,
   api,
 } from "../api";
 
@@ -31,6 +35,8 @@ export function BatchDetail() {
   const [batch, setBatch] = useState<Batch | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [events, setEvents] = useState<BatchEvent[]>([]);
+  const [readings, setReadings] = useState<Reading[]>([]);
+  const [tastingNotes, setTastingNotes] = useState<TastingNote[]>([]);
   const [loadError, setLoadError] = useState<{ status: number; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -40,14 +46,18 @@ export function BatchDetail() {
 
   const refetch = useCallback(async () => {
     try {
-      const [b, rems, evs] = await Promise.all([
+      const [b, rems, evs, rds, tns] = await Promise.all([
         api.get<Batch>(`/api/batches/${encodeURIComponent(id)}`),
         api.get<Reminder[]>(`/api/batches/${encodeURIComponent(id)}/reminders`),
         api.get<BatchEventPage>(`/api/batches/${encodeURIComponent(id)}/events`),
+        api.get<ReadingPage>(`/api/batches/${encodeURIComponent(id)}/readings`),
+        api.get<TastingNotePage>(`/api/batches/${encodeURIComponent(id)}/tasting-notes`),
       ]);
       setBatch(b);
       setReminders(rems);
       setEvents(evs.events);
+      setReadings(rds.readings);
+      setTastingNotes(tns.tasting_notes);
       setLoadError(null);
     } catch (e: unknown) {
       if (e instanceof ApiError) {
@@ -150,6 +160,18 @@ export function BatchDetail() {
       <EventsSection
         batchID={batch.id}
         events={events}
+        refetch={refetch}
+      />
+
+      <ReadingsSection
+        batchID={batch.id}
+        readings={readings}
+        refetch={refetch}
+      />
+
+      <TastingNotesSection
+        batchID={batch.id}
+        notes={tastingNotes}
         refetch={refetch}
       />
     </div>
@@ -387,6 +409,379 @@ function LogEventForm({
   );
 }
 
+// --- Readings ------------------------------------------------------------
+
+// Readings are a secondary surface — collapsed by default. The "what
+// should I do next" timeline (reminders + events) leads the page; this
+// is for brewers who want to log gravity/temp/pH alongside.
+function ReadingsSection({
+  batchID, readings, refetch,
+}: {
+  batchID: string;
+  readings: Reading[];
+  refetch: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(readings.length > 0);
+
+  // Server returns ascending (chronological); the table renders newest
+  // first so a freshly logged reading appears at the top.
+  const sorted = [...readings].sort(
+    (a, b) => +new Date(b.taken_at) - +new Date(a.taken_at),
+  );
+
+  return (
+    <section className="recipe-section readings-section">
+      <button
+        type="button"
+        className="link-button section-toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <h2>Readings <span className="muted">({readings.length})</span></h2>
+        <span className="section-toggle-chevron">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <>
+          <LogReadingForm batchID={batchID} onLogged={refetch} />
+          {sorted.length === 0 ? (
+            <p className="muted">No readings yet — log gravity, temperature, or pH above.</p>
+          ) : (
+            <table className="readings-table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Gravity</th>
+                  <th>Temp °C</th>
+                  <th>pH</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((r) => (
+                  <tr key={r.id}>
+                    <td className="reading-when">{fmtDateTime(r.taken_at)}</td>
+                    <td className="reading-num">{fmtGravity(r.gravity)}</td>
+                    <td className="reading-num">{fmtNum(r.temperature_c, 1)}</td>
+                    <td className="reading-num">{fmtNum(r.ph, 2)}</td>
+                    <td>{r.notes ?? ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function LogReadingForm({
+  batchID, onLogged,
+}: {
+  batchID: string;
+  onLogged: () => Promise<void>;
+}) {
+  const [takenAt, setTakenAt] = useState(toLocalInput(new Date()));
+  const [gravity, setGravity] = useState("");
+  const [temp, setTemp] = useState("");
+  const [ph, setPh] = useState("");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Mirrors the server-side guard (handleCreateReading) — at least one
+  // measurement is required. Cheap to enforce here so the submit button
+  // can stay disabled until something's filled in.
+  const hasAny =
+    gravity.trim() !== "" || temp.trim() !== "" || ph.trim() !== "";
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    try {
+      const body: Record<string, unknown> = {};
+      const iso = fromLocalInput(takenAt);
+      if (iso) body.taken_at = iso;
+      const g = parseNum(gravity);
+      const t = parseNum(temp);
+      const p = parseNum(ph);
+      if (g !== null) body.gravity = g;
+      if (t !== null) body.temperature_c = t;
+      if (p !== null) body.ph = p;
+      if (notes.trim()) body.notes = notes.trim();
+      await api.post(`/api/batches/${encodeURIComponent(batchID)}/readings`, body);
+      setGravity("");
+      setTemp("");
+      setPh("");
+      setNotes("");
+      setTakenAt(toLocalInput(new Date()));
+      await onLogged();
+    } catch (e2: unknown) {
+      setErr(e2 instanceof ApiError ? e2.message : "log failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={onSubmit} className="log-reading-form">
+      <div className="log-reading-row">
+        <input
+          type="datetime-local"
+          value={takenAt}
+          onChange={(e) => setTakenAt(e.target.value)}
+          aria-label="When"
+        />
+        <input
+          type="number"
+          step="0.001"
+          min="0.99"
+          max="1.2"
+          inputMode="decimal"
+          value={gravity}
+          onChange={(e) => setGravity(e.target.value)}
+          placeholder="Gravity"
+          aria-label="Gravity"
+        />
+        <input
+          type="number"
+          step="0.1"
+          inputMode="decimal"
+          value={temp}
+          onChange={(e) => setTemp(e.target.value)}
+          placeholder="Temp °C"
+          aria-label="Temperature in Celsius"
+        />
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          max="14"
+          inputMode="decimal"
+          value={ph}
+          onChange={(e) => setPh(e.target.value)}
+          placeholder="pH"
+          aria-label="pH"
+        />
+        <button type="submit" disabled={busy || !hasAny}>
+          {busy ? "Logging…" : "Log reading"}
+        </button>
+      </div>
+      <input
+        type="text"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Notes (optional)"
+        maxLength={1024}
+        aria-label="Notes"
+      />
+      {err && <p className="error">{err}</p>}
+    </form>
+  );
+}
+
+// --- Tasting notes -------------------------------------------------------
+
+function TastingNotesSection({
+  batchID, notes, refetch,
+}: {
+  batchID: string;
+  notes: TastingNote[];
+  refetch: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(notes.length > 0);
+
+  // Server returns newest first. Keep that order — most-recent tastings
+  // are what brewers reach for as the brew matures.
+  return (
+    <section className="recipe-section tasting-section">
+      <button
+        type="button"
+        className="link-button section-toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <h2>Tasting notes <span className="muted">({notes.length})</span></h2>
+        <span className="section-toggle-chevron">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <>
+          <LogTastingNoteForm batchID={batchID} onLogged={refetch} />
+          {notes.length === 0 ? (
+            <p className="muted">No tastings yet — add one as the batch matures.</p>
+          ) : (
+            <ul className="tasting-list">
+              {notes.map((n) => (
+                <li key={n.id} className="tasting-row">
+                  <div className="tasting-header">
+                    <span className="muted tasting-when">{fmtDateTime(n.tasted_at)}</span>
+                    {typeof n.rating === "number" && (
+                      <span className="tasting-rating" aria-label={`Rating ${n.rating} of 5`}>
+                        {"★".repeat(n.rating)}
+                        <span className="tasting-rating-empty">{"★".repeat(5 - n.rating)}</span>
+                      </span>
+                    )}
+                  </div>
+                  <dl className="tasting-fields">
+                    {n.aroma     && (<><dt>Aroma</dt><dd>{n.aroma}</dd></>)}
+                    {n.flavor    && (<><dt>Flavor</dt><dd>{n.flavor}</dd></>)}
+                    {n.mouthfeel && (<><dt>Mouthfeel</dt><dd>{n.mouthfeel}</dd></>)}
+                    {n.finish    && (<><dt>Finish</dt><dd>{n.finish}</dd></>)}
+                    {n.notes     && (<><dt>Notes</dt><dd>{n.notes}</dd></>)}
+                  </dl>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function LogTastingNoteForm({
+  batchID, onLogged,
+}: {
+  batchID: string;
+  onLogged: () => Promise<void>;
+}) {
+  const [tastedAt, setTastedAt] = useState(toLocalInput(new Date()));
+  const [rating, setRating] = useState<number | null>(null);
+  const [aroma, setAroma] = useState("");
+  const [flavor, setFlavor] = useState("");
+  const [mouthfeel, setMouthfeel] = useState("");
+  const [finish, setFinish] = useState("");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Server requires at least one field; mirror the guard so the button
+  // stays disabled until there's something to submit.
+  const hasAny =
+    rating !== null ||
+    aroma.trim() !== "" || flavor.trim() !== "" ||
+    mouthfeel.trim() !== "" || finish.trim() !== "" ||
+    notes.trim() !== "";
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    try {
+      const body: Record<string, unknown> = {};
+      const iso = fromLocalInput(tastedAt);
+      if (iso) body.tasted_at = iso;
+      if (rating !== null) body.rating = rating;
+      if (aroma.trim())     body.aroma = aroma.trim();
+      if (flavor.trim())    body.flavor = flavor.trim();
+      if (mouthfeel.trim()) body.mouthfeel = mouthfeel.trim();
+      if (finish.trim())    body.finish = finish.trim();
+      if (notes.trim())     body.notes = notes.trim();
+      await api.post(`/api/batches/${encodeURIComponent(batchID)}/tasting-notes`, body);
+      setRating(null);
+      setAroma("");
+      setFlavor("");
+      setMouthfeel("");
+      setFinish("");
+      setNotes("");
+      setTastedAt(toLocalInput(new Date()));
+      await onLogged();
+    } catch (e2: unknown) {
+      setErr(e2 instanceof ApiError ? e2.message : "save failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={onSubmit} className="log-tasting-form">
+      <div className="log-tasting-head">
+        <input
+          type="datetime-local"
+          value={tastedAt}
+          onChange={(e) => setTastedAt(e.target.value)}
+          aria-label="When tasted"
+        />
+        <RatingInput value={rating} onChange={setRating} />
+      </div>
+
+      <div className="log-tasting-grid">
+        <label className="field">
+          <span>Aroma</span>
+          <input type="text" value={aroma} onChange={(e) => setAroma(e.target.value)} maxLength={1024} />
+        </label>
+        <label className="field">
+          <span>Flavor</span>
+          <input type="text" value={flavor} onChange={(e) => setFlavor(e.target.value)} maxLength={1024} />
+        </label>
+        <label className="field">
+          <span>Mouthfeel</span>
+          <input type="text" value={mouthfeel} onChange={(e) => setMouthfeel(e.target.value)} maxLength={1024} />
+        </label>
+        <label className="field">
+          <span>Finish</span>
+          <input type="text" value={finish} onChange={(e) => setFinish(e.target.value)} maxLength={1024} />
+        </label>
+      </div>
+
+      <label className="field">
+        <span>Notes</span>
+        <textarea
+          rows={2}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          maxLength={4096}
+          placeholder="Anything else worth remembering."
+        />
+      </label>
+
+      {err && <p className="error">{err}</p>}
+
+      <div className="form-actions">
+        <button type="submit" disabled={busy || !hasAny}>
+          {busy ? "Saving…" : "Save tasting note"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function RatingInput({
+  value, onChange,
+}: {
+  value: number | null;
+  onChange: (v: number | null) => void;
+}) {
+  return (
+    <div className="rating-input" role="radiogroup" aria-label="Rating">
+      {[1, 2, 3, 4, 5].map((n) => {
+        const active = value !== null && n <= value;
+        return (
+          <button
+            key={n}
+            type="button"
+            role="radio"
+            aria-checked={value === n}
+            aria-label={`${n} star${n === 1 ? "" : "s"}`}
+            // Click-on-active toggles off so a rating can be cleared
+            // without an explicit "no rating" button.
+            onClick={() => onChange(value === n ? null : n)}
+            className={`rating-star${active ? " rating-star-active" : ""}`}
+          >
+            ★
+          </button>
+        );
+      })}
+      {value !== null && (
+        <button type="button" className="link-button rating-clear" onClick={() => onChange(null)}>
+          clear
+        </button>
+      )}
+    </div>
+  );
+}
+
 // --- helpers -------------------------------------------------------------
 
 function fmtDate(iso: string): string {
@@ -435,4 +830,36 @@ function fromLocalInput(local: string): string | null {
   if (!local) return null;
   const d = new Date(local);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function fmtDateTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+// Gravity is conventionally written to 3 decimals (1.085, 0.998).
+function fmtGravity(n: number | undefined): string {
+  if (n === undefined || n === null || Number.isNaN(n)) return "";
+  return n.toFixed(3);
+}
+
+function fmtNum(n: number | undefined, places: number): string {
+  if (n === undefined || n === null || Number.isNaN(n)) return "";
+  return n.toFixed(places);
+}
+
+function parseNum(s: string): number | null {
+  const t = s.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
 }
