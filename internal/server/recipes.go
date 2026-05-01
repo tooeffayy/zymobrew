@@ -234,7 +234,7 @@ type ingredientInput struct {
 	Name      string          `json:"name"`
 	Amount    *float64        `json:"amount,omitempty"`
 	Unit      string          `json:"unit,omitempty"`
-	SortOrder int             `json:"sort_order"`
+	SortOrder int32           `json:"sort_order"`
 	Details   json.RawMessage `json:"details,omitempty"`
 }
 
@@ -330,7 +330,7 @@ func (s *Server) insertIngredients(ctx context.Context, qtx *queries.Queries, re
 			Name:      ing.Name,
 			Amount:    floatToNumeric(ing.Amount),
 			Unit:      optText(ing.Unit),
-			SortOrder: int32(ing.SortOrder),
+			SortOrder: ing.SortOrder,
 			Details:   details,
 		})
 		if err != nil {
@@ -841,7 +841,7 @@ func (s *Server) handleForkRecipe(w http.ResponseWriter, r *http.Request) {
 			Name:      ing.Name,
 			Amount:    numericPtr(ing.Amount),
 			Unit:      textOrEmpty(ing.Unit),
-			SortOrder: int(ing.SortOrder),
+			SortOrder: ing.SortOrder,
 			Details:   json.RawMessage(ing.Details),
 		})
 	}

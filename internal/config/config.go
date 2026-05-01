@@ -103,6 +103,12 @@ func Load() (Config, error) {
 	default:
 		return cfg, fmt.Errorf("invalid INSTANCE_MODE %q (want single_user|closed|open)", cfg.InstanceMode)
 	}
+	// Bounded so the int32 cast in DeleteExpiredAdminBackups can't wrap; a
+	// negative cutoff would push the deletion threshold into the future and
+	// wipe every admin backup on the next dispatcher tick.
+	if cfg.BackupRetentionDays < 1 || cfg.BackupRetentionDays > 36500 {
+		return cfg, fmt.Errorf("invalid BACKUP_RETENTION_DAYS %d (want 1..36500)", cfg.BackupRetentionDays)
+	}
 	return cfg, nil
 }
 
