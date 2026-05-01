@@ -897,7 +897,7 @@ func (s *Server) handleGetRevision(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
 		return
 	}
-	revNum, err := strconv.Atoi(chi.URLParam(r, "rev"))
+	revNum, err := strconv.ParseInt(chi.URLParam(r, "rev"), 10, 32)
 	if err != nil || revNum < 1 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid revision number"})
 		return
