@@ -118,3 +118,56 @@ tasks:
       - web:build
     cmds:
       - go build -o bin/zymo ./cmd/zymo
+
+  docker:build:
+    desc: Build the production zymo Docker image (alpine + postgresql-client)
+    cmds:
+      - docker build -t zymo:dev .
+
+  docker:smoke:
+    # Full image smoke: binary boots, pg_dump on PATH, runs as nonroot, TLS
+    # roots present, then `zymo selftest` against the dev postgres exercises
+    # connect/ping/migrations/schema/CRUD-roundtrip + storage probe end to end.
+    # STORAGE_LOCAL_PATH points at /tmp/zymo-storage so the probe can write
+    # without needing a volume mount.
+    desc: Full image smoke (binary, pg_dump, nonroot, TLS roots, selftest vs dev DB)
+    deps:
+      - docker:build
+      - db:up
+    cmds:
+      - 'echo "==> binary version"'
+      - docker run --rm zymo:dev version
+      - 'echo "==> pg_dump on PATH"'
+      - docker run --rm --entrypoint pg_dump zymo:dev --version
+      - 'echo "==> runs as nonroot (uid:gid 65532)"'
+      - docker run --rm --entrypoint id zymo:dev
+      - 'echo "==> ca-certificates bundle present"'
+      - docker run --rm --entrypoint sh zymo:dev -c 'test -s /etc/ssl/certs/ca-certificates.crt && echo ok'
+      - 'echo "==> selftest against dev postgres"'
+      - docker run --rm
+          --add-host=host.docker.internal:host-gateway
+          -e DATABASE_URL=postgres://zymo:zymo@host.docker.internal:5433/zymo?sslmode=disable
+          -e STORAGE_LOCAL_PATH=/tmp/zymo-storage
+          zymo:dev selftest
+
+  docker:run:
+    # host.docker.internal works on Docker Desktop (Mac/Win) out of the box and
+    # via --add-host=...:host-gateway on Linux; pointed at the dev compose
+    # postgres on its host-side port 5433.
+    desc: Run the built image against the local dev postgres
+    deps:
+      - docker:build
+      - db:up
+    cmds:
+      - docker run --rm -it
+          --name zymo-dev
+          --add-host=host.docker.internal:host-gateway
+          -e DATABASE_URL=postgres://zymo:zymo@host.docker.internal:5433/zymo?sslmode=disable
+          -e LISTEN_ADDR=:8080
+          -p 8080:8080
+          zymo:dev
+
+  docker:clean:
+    desc: Remove the local zymo:dev image
+    cmds:
+      - docker rmi zymo:dev || true
