@@ -1,0 +1,113 @@
+version: "3"
+
+env:
+  DATABASE_URL: postgres://zymo:zymo@localhost:5433/zymo?sslmode=disable
+  TEST_DATABASE_URL: postgres://zymo:zymo@localhost:5433/zymo?sslmode=disable
+
+tasks:
+  default:
+    cmds:
+      - task --list
+    silent: true
+
+  db:up:
+    desc: Start the postgres container
+    cmds:
+      - docker compose up -d postgres
+
+  db:down:
+    desc: Stop the postgres container (data preserved)
+    cmds:
+      - docker compose stop postgres
+
+  db:reset:
+    desc: Destroy and recreate the postgres volume
+    prompt: This will wipe all local Postgres data. Continue?
+    cmds:
+      - docker compose down -v postgres
+      - docker compose up -d postgres
+
+  db:psql:
+    desc: Open a psql shell on the dev database
+    interactive: true
+    cmds:
+      - docker compose exec postgres psql -U zymo -d zymo
+
+  migrate:
+    desc: Apply pending migrations
+    deps: [ db:up ]
+    cmds:
+      - go run ./cmd/zymo migrate
+
+  sqlc:
+    desc: Regenerate sqlc query code
+    cmds:
+      - sqlc generate
+    sources:
+      - internal/queries/sql/*.sql
+    generates:
+      - internal/queries/*.go
+
+  serve:
+    desc: Run the API server (auto-migrates)
+    deps: [ db:up ]
+    cmds:
+      - go run ./cmd/zymo serve
+
+  selftest:
+    desc: Run runtime smoke tests against the configured DB
+    deps: [ db:up ]
+    cmds:
+      - go run ./cmd/zymo selftest
+
+  vapid-keys:
+    desc: Print a fresh VAPID keypair
+    cmds:
+      - go run ./cmd/zymo vapid-keys
+
+  version:
+    desc: Print build version
+    cmds:
+      - go run ./cmd/zymo version
+
+  test:
+    desc: Run the Go test suite (uses TEST_DATABASE_URL)
+    deps: [ db:up ]
+    cmds:
+      - go test ./... {{.CLI_ARGS}}
+
+  test:short:
+    desc: Run only tests that don't need the DB
+    cmds:
+      - go test -short ./... {{.CLI_ARGS}}
+
+  web:install:
+    desc: Install web dependencies via Bun
+    dir: web
+    cmds:
+      - bun install
+
+  web:dev:
+    desc: Start the Vite dev server
+    dir: web
+    cmds:
+      - bun run dev
+
+  web:build:
+    desc: Build the web frontend into web/dist
+    dir: web
+    cmds:
+      - bun run build
+    sources:
+      - src/**/*.tsx
+      - src/**/*.ts
+      - src/styles.css
+    generates:
+      - dist/assets/*.js
+      - dist/assets/*.css
+
+  build:
+    desc: Build the full zymo binary with embedded frontend
+    deps: [ web:build ]
+    cmds:
+      - go build -o bin/zymo ./cmd/zymo

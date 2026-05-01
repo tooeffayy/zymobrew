@@ -53,6 +53,18 @@ Migrations are baked into the binary via `//go:embed`.
 
 ## Development
 
+Common workflows are wrapped in `Taskfile.yml` — install [go-task](https://taskfile.dev) (`brew install go-task`) and run `task` to list them. The Taskfile bakes in the docker-compose `DATABASE_URL`/`TEST_DATABASE_URL`, so most things are one command:
+
+```
+task db:up      # start postgres
+task serve      # run the API server (auto-migrates)
+task test       # go test ./... against the dev DB
+task web:dev    # vite dev server in web/
+task build      # web build + embedded Go binary at bin/zymo
+```
+
+Raw equivalents (no Task required):
+
 ```
 docker compose up -d postgres
 export DATABASE_URL=postgres://zymo:zymo@localhost:5433/zymo?sslmode=disable
@@ -68,7 +80,7 @@ go run ./cmd/zymo serve
 | `zymo reprocess-deletions` | Re-anonymize accounts whose deletion was undone by a backup restore. |
 | `zymo version`             | Print build version. |
 
-**Regenerating queries**: edit `internal/queries/sql/*.sql`, then run `$(go env GOPATH)/bin/sqlc generate`. Generated files are committed.
+**Regenerating queries**: edit `internal/queries/sql/*.sql`, then run `task sqlc` (or `$(go env GOPATH)/bin/sqlc generate` directly). Generated files are committed.
 
 **Environment variables**
 
