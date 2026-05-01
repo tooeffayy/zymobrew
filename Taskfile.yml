@@ -42,7 +42,7 @@ tasks:
   sqlc:
     desc: Regenerate sqlc query code
     cmds:
-      - sqlc generate
+      - $(go env GOPATH)/bin/sqlc generate
     sources:
       - internal/queries/sql/*.sql
     generates:
@@ -50,7 +50,9 @@ tasks:
 
   serve:
     desc: Run the API server (auto-migrates)
-    deps: [ db:up ]
+    deps:
+      - sqlc
+      - db:up
     cmds:
       - go run ./cmd/zymo serve
 
@@ -90,12 +92,15 @@ tasks:
   web:dev:
     desc: Start the Vite dev server
     dir: web
+    deps:
+      - web:build
     cmds:
       - bun run dev
 
   web:build:
     desc: Build the web frontend into web/dist
     dir: web
+    watch: true
     cmds:
       - bun run build
     sources:
@@ -108,6 +113,8 @@ tasks:
 
   build:
     desc: Build the full zymo binary with embedded frontend
-    deps: [ web:build ]
+    deps:
+      - sqlc
+      - web:build
     cmds:
       - go build -o bin/zymo ./cmd/zymo
