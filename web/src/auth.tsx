@@ -88,3 +88,26 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (state.status === "anon") return <Navigate to="/login" state={{ from: location }} replace />;
   return <>{children}</>;
 }
+
+// RequireAdmin gates routes on `users.is_admin`. Anon bounces to login,
+// signed-in non-admin gets a 403-style message rather than a redirect —
+// silently shipping them home would hide a misconfigured setup. The
+// server enforces the same gate via requireAdmin middleware; this is UI.
+export function RequireAdmin({ children }: { children: ReactNode }) {
+  const { state } = useAuth();
+  const location = useLocation();
+  if (state.status === "loading") return null;
+  if (state.status === "anon") return <Navigate to="/login" state={{ from: location }} replace />;
+  if (!state.user.is_admin) {
+    return (
+      <div className="page">
+        <h1>Admin only</h1>
+        <p className="muted">
+          This area is restricted to instance administrators. If you should have access, ask the
+          operator to set <code>is_admin = true</code> on your account.
+        </p>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}

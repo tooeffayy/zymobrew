@@ -74,11 +74,37 @@ export const api = {
 
 // Mirrors the AuthResponse / PublicUser shapes in openapi.yaml. Hand-typed
 // for now; if these drift we'll generate from the spec.
+//
+// `is_admin` is omitempty server-side: only present (= true) for admin
+// users. Treat absent as false. It's a UI hint — admin endpoints still
+// gate on requireAdmin server-side.
 export interface PublicUser {
   id: string;
   username: string;
   email: string;
   display_name?: string;
+  is_admin?: boolean;
+}
+
+// Mirrors AdminBackup in openapi.yaml. `pending` and `running` are
+// in-flight states; `complete` is downloadable; `failed` carries `error`;
+// `expired` rows have had their blob deleted by the retention sweep.
+export type AdminBackupStatus =
+  | "pending"
+  | "running"
+  | "complete"
+  | "failed"
+  | "expired";
+
+export interface AdminBackup {
+  id: string;
+  status: AdminBackupStatus;
+  storage_backend: string;
+  size_bytes?: number;
+  sha256?: string;
+  completed_at?: string;
+  error?: string;
+  created_at: string;
 }
 
 // Mirrors PublicProfile in openapi.yaml — what GET /api/users/{username}

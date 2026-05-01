@@ -133,6 +133,10 @@ type publicUserView struct {
 	Username    string `json:"username"`
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name,omitempty"`
+	// IsAdmin is exposed so the SPA can conditionally render admin-only
+	// surfaces (e.g. /admin). The admin endpoints themselves still gate
+	// on requireAdmin server-side; this is a UI hint, not a permission.
+	IsAdmin bool `json:"is_admin,omitempty"`
 }
 
 func toPublicUser(u queries.User) publicUserView {
@@ -140,6 +144,7 @@ func toPublicUser(u queries.User) publicUserView {
 		ID:       u.ID.String(),
 		Username: u.Username,
 		Email:    u.Email,
+		IsAdmin:  u.IsAdmin,
 	}
 	if u.DisplayName.Valid {
 		v.DisplayName = u.DisplayName.String

@@ -2032,6 +2032,123 @@ button.danger:disabled {
   cursor: not-allowed;
 }
 
+/* --- Admin (dashboard) ------------------------------------------------- */
+
+.admin-page { display: grid; gap: 1.5rem; }
+
+.admin-header {
+  display: grid;
+  gap: 0.75rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.admin-header h1 {
+  font-size: clamp(1.75rem, 3.5vw, 2.25rem);
+  font-weight: 700;
+  margin: 0;
+}
+
+.admin-subnav {
+  display: flex;
+  gap: 1.25rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.admin-subnav a {
+  text-decoration: none;
+  color: var(--muted);
+  padding: 0.25rem 0;
+  border-bottom: 2px solid transparent;
+}
+
+.admin-subnav a.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+.admin-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.admin-section-head h2 { margin: 0 0 0.5rem; }
+.admin-section-head .muted { margin: 0; max-width: 36rem; }
+
+.backup-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.backup-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.875rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+.backup-main { display: grid; gap: 0.25rem; min-width: 0; }
+
+.backup-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+
+.backup-when {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
+.backup-store {
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.backup-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.875rem;
+  font-size: 0.8125rem;
+}
+
+.backup-sha { letter-spacing: 0; }
+
+.backup-err { margin: 0.25rem 0 0; font-size: 0.8125rem; }
+
+.backup-status {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: oklch(92% 0.005 70);
+  color: var(--muted);
+}
+
+.backup-status-pending  { background: oklch(94% 0.025 90); color: oklch(45% 0.10 80); }
+.backup-status-running  { background: oklch(94% 0.04 230); color: oklch(45% 0.13 240); }
+.backup-status-complete { background: oklch(94% 0.05 145); color: oklch(40% 0.15 150); }
+.backup-status-failed   { background: var(--error-soft); color: var(--error); }
+.backup-status-expired  { background: oklch(92% 0.005 70); color: var(--muted); }
+
 /* --- Motion respect ---------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {

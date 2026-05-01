@@ -1,9 +1,10 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
-import { AuthProvider, RequireAuth, useAuth } from "./auth";
+import { AuthProvider, RequireAdmin, RequireAuth, useAuth } from "./auth";
 import { AuthLayout } from "./components/AuthLayout";
 import { Layout } from "./components/Layout";
 import { NotificationsProvider } from "./notifications";
+import { AdminBackups } from "./pages/AdminBackups";
 import { BatchCreate } from "./pages/BatchCreate";
 import { BatchDetail } from "./pages/BatchDetail";
 import { BatchEdit } from "./pages/BatchEdit";
@@ -157,6 +158,22 @@ export function App() {
                   <Notifications />
                 </Layout>
               </RequireAuth>
+            }
+          />
+          {/* /admin lands on backups today; future admin sections add their
+              own children. RequireAdmin gates on users.is_admin. */}
+          <Route
+            path="/admin"
+            element={<Navigate to="/admin/backups" replace />}
+          />
+          <Route
+            path="/admin/backups"
+            element={
+              <RequireAdmin>
+                <Layout>
+                  <AdminBackups />
+                </Layout>
+              </RequireAdmin>
             }
           />
           {/* Unknown SPA paths fall back home; the Go static handler

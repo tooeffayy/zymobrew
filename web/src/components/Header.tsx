@@ -42,6 +42,7 @@ export function Header() {
               )}
             </NavLink>
             <Link to="/recipes/new" className="header-cta">+ New recipe</Link>
+            {state.user.is_admin && <NavLink to="/admin">Admin</NavLink>}
             <NavLink to="/me">{state.user.display_name || state.user.username}</NavLink>
             <button type="button" className="link-button" onClick={onLogout}>Sign out</button>
           </>
