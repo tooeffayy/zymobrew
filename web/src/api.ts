@@ -258,6 +258,61 @@ export interface Reminder {
   created_at: string;
 }
 
+// Mirrors queries.ReminderAnchor. `absolute` is valid for ad-hoc batch
+// reminders but rejected on recipe templates (no wall-clock to resolve
+// against), so the recipe-template UI never sends it.
+export type ReminderAnchor =
+  | "absolute"
+  | "batch_start"
+  | "pitch"
+  | "rack"
+  | "bottle"
+  | "custom_event";
+
+// Mirrors reminderTemplateView in internal/server/reminder_templates.go.
+// `offset_minutes` can be negative — "60 min before pitch" is a valid
+// anchor relationship.
+export interface ReminderTemplate {
+  id: string;
+  recipe_id: string;
+  title: string;
+  description?: string;
+  anchor: ReminderAnchor;
+  offset_minutes: number;
+  suggested_event_kind?: EventKind;
+  sort_order: number;
+}
+
+// Mirrors notificationView in internal/server/reminders.go. `kind` is
+// open-ended on the server (currently only "reminder") — kept as string
+// here so adding new kinds doesn't require a frontend change.
+export interface Notification {
+  id: string;
+  reminder_id?: string;
+  kind: string;
+  title: string;
+  body?: string;
+  url_path?: string;
+  read_at?: string;
+  created_at: string;
+}
+
+export interface NotificationPage {
+  notifications: Notification[];
+  next_cursor: string | null;
+}
+
+// Mirrors notificationPrefsView. quiet_hours_* are HH:MM strings in the
+// user's timezone; either both set or neither (server doesn't enforce
+// pairing today, but the UI does).
+export interface NotificationPrefs {
+  push_enabled: boolean;
+  email_enabled: boolean;
+  quiet_hours_start?: string;
+  quiet_hours_end?: string;
+  timezone: string;
+}
+
 // Mirrors the Recipe schema in openapi.yaml. Returned by GET /api/recipes/{id}
 // — ingredients are the live (head-revision) set, not a revision snapshot.
 export interface Recipe {

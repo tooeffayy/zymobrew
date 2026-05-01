@@ -1554,6 +1554,336 @@ select:focus-visible {
 
 .cancel-link:hover { color: var(--fg); }
 
+/* --- Notifications ---------------------------------------------------- */
+
+/* Header link gets a small badge when there are unread notifications. */
+.nav-notifications {
+  position: relative;
+  gap: 0.375rem;
+}
+
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: oklch(99% 0 0);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.notifications-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.notifications-header h1 { margin: 0; }
+
+.notification-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.notification-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+  padding: 0.875rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Unread rows pick up the brand-amber left edge — same visual grammar
+   as the overdue-reminder treatment, scaled down. */
+.notification-unread {
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    var(--shadow-sm);
+}
+
+.notification-main {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.notification-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.notification-title {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.notification-when {
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.notification-body {
+  margin: 0.125rem 0 0;
+  font-size: 0.9375rem;
+  color: var(--fg-soft);
+}
+
+.notification-link {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+}
+
+.notification-actions {
+  display: flex;
+  align-items: flex-start;
+}
+
+.notifications-load-more {
+  display: flex;
+  justify-content: center;
+  margin: 1rem 0 1.5rem;
+}
+
+@media (max-width: 560px) {
+  .notification-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .notification-actions {
+    justify-content: flex-start;
+  }
+}
+
+/* --- Notification preferences ---------------------------------------- */
+
+.prefs-section { margin-top: 2.5rem; }
+
+.prefs-form {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.prefs-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.625rem;
+  align-items: start;
+  cursor: pointer;
+}
+
+.prefs-toggle input[type="checkbox"] {
+  margin-top: 0.25rem;
+}
+
+.prefs-toggle span {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.prefs-toggle small { font-size: 0.8125rem; }
+
+.prefs-quiet {
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 0.875rem 1rem 1rem;
+  margin: 0;
+}
+
+.prefs-quiet legend {
+  padding: 0 0.375rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.prefs-help { margin: 0 0 0.625rem; font-size: 0.8125rem; }
+
+.prefs-quiet-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.prefs-quiet-row .field { margin: 0; }
+
+/* --- Push subscribe (per-browser) ------------------------------------- */
+
+.push-section { margin-top: 2.5rem; }
+
+.push-body { display: grid; gap: 0.5rem; }
+
+.push-status {
+  margin: 0;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.push-status::before {
+  content: "";
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.push-status-on::before  { background: var(--accent); }
+.push-status-off::before { background: var(--muted);  }
+
+.push-body code {
+  font-size: 0.875em;
+  padding: 0.05em 0.3em;
+  background: var(--bg-tint);
+  border-radius: 4px;
+}
+
+/* --- Reminder templates (recipe page) ---------------------------------- */
+
+.template-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.template-section-head h2 { margin: 0; }
+
+.template-help { margin: 0 0 1rem; font-size: 0.875rem; }
+
+.template-empty { margin: 0; }
+
+.template-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.template-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+  padding: 0.875rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+.template-row-editing {
+  display: block;
+  padding: 1rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+}
+
+.template-main { display: grid; gap: 0.25rem; min-width: 0; }
+
+.template-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.template-title { font-weight: 600; color: var(--fg); }
+
+.template-when {
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.template-desc {
+  margin: 0.125rem 0 0;
+  font-size: 0.9375rem;
+  color: var(--fg-soft);
+}
+
+.template-suggest {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+}
+
+.template-suggest code {
+  font-size: 0.875em;
+  padding: 0.05em 0.3em;
+  background: var(--bg-tint);
+  border-radius: 4px;
+}
+
+.template-actions {
+  display: flex;
+  gap: 0.25rem;
+  align-items: flex-start;
+}
+
+.template-delete:hover { color: var(--error); }
+
+@media (max-width: 560px) {
+  .template-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* --- Reminder template form -------------------------------------------- */
+
+.template-form {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+/* "Add" form rendered standalone (outside a row) needs its own surface
+   since .template-row-editing already paints one. */
+.template-section > .template-form { background: var(--surface-2); }
+
+.template-when-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.template-magnitude { width: 5rem; }
+
+.template-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.template-sort { width: 6rem; }
+
+@media (max-width: 560px) {
+  .template-form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* --- Motion respect ---------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {

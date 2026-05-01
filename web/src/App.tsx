@@ -3,12 +3,14 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, RequireAuth, useAuth } from "./auth";
 import { AuthLayout } from "./components/AuthLayout";
 import { Layout } from "./components/Layout";
+import { NotificationsProvider } from "./notifications";
 import { BatchCreate } from "./pages/BatchCreate";
 import { BatchDetail } from "./pages/BatchDetail";
 import { BatchEdit } from "./pages/BatchEdit";
 import { Batches } from "./pages/Batches";
 import { Login } from "./pages/Login";
 import { Me } from "./pages/Me";
+import { Notifications } from "./pages/Notifications";
 import { RecipeCreate } from "./pages/RecipeCreate";
 import { RecipeDetail } from "./pages/RecipeDetail";
 import { RecipeEdit } from "./pages/RecipeEdit";
@@ -28,6 +30,7 @@ export function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <NotificationsProvider>
         <Routes>
           {/* Auth screens render bare — no header, no nav, just the card. */}
           <Route
@@ -137,10 +140,21 @@ export function App() {
               </RequireAuth>
             }
           />
+          <Route
+            path="/notifications"
+            element={
+              <RequireAuth>
+                <Layout>
+                  <Notifications />
+                </Layout>
+              </RequireAuth>
+            }
+          />
           {/* Unknown SPA paths fall back home; the Go static handler
               already serves index.html for any non-/api/* path. */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </NotificationsProvider>
       </AuthProvider>
     </BrowserRouter>
   );

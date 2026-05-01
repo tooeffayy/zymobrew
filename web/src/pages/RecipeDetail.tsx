@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { ApiError, Ingredient, IngredientKind, Recipe, api } from "../api";
 import { useAuth } from "../auth";
+import { ReminderTemplatesSection } from "../components/ReminderTemplatesSection";
 
 // Renders one recipe by id. Public + unlisted are visible to anyone;
 // private returns 404 to non-owners (server enforces this — we just
@@ -164,6 +165,8 @@ export function RecipeDetail() {
           <IngredientList ingredients={recipe.ingredients} />
         )}
       </section>
+
+      <ReminderTemplatesSection recipeID={recipe.id} isOwner={isOwner} />
 
       <footer className="recipe-footer muted">
         Revision {recipe.revision_number} of {recipe.revision_count}
