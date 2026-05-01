@@ -3,6 +3,10 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, RequireAuth, useAuth } from "./auth";
 import { AuthLayout } from "./components/AuthLayout";
 import { Layout } from "./components/Layout";
+import { BatchCreate } from "./pages/BatchCreate";
+import { BatchDetail } from "./pages/BatchDetail";
+import { BatchEdit } from "./pages/BatchEdit";
+import { Batches } from "./pages/Batches";
 import { Login } from "./pages/Login";
 import { Me } from "./pages/Me";
 import { RecipeCreate } from "./pages/RecipeCreate";
@@ -79,6 +83,46 @@ export function App() {
               <RequireAuth>
                 <Layout>
                   <RecipeEdit />
+                </Layout>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/batches"
+            element={
+              <RequireAuth>
+                <Layout>
+                  <Batches />
+                </Layout>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/batches/new"
+            element={
+              <RequireAuth>
+                <Layout>
+                  <BatchCreate />
+                </Layout>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/batches/:id"
+            element={
+              <RequireAuth>
+                <Layout>
+                  <BatchDetail />
+                </Layout>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/batches/:id/edit"
+            element={
+              <RequireAuth>
+                <Layout>
+                  <BatchEdit />
                 </Layout>
               </RequireAuth>
             }

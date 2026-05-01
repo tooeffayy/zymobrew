@@ -29,6 +29,7 @@ export function Header() {
         <NavLink to="/" end>Recipes</NavLink>
         {state.status === "authed" && (
           <>
+            <NavLink to="/batches">Batches</NavLink>
             <Link to="/recipes/new" className="header-cta">+ New recipe</Link>
             <NavLink to="/me">{state.user.display_name || state.user.username}</NavLink>
             <button type="button" className="link-button" onClick={onLogout}>Sign out</button>

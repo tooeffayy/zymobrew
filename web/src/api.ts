@@ -136,6 +136,92 @@ export interface Ingredient {
   details: Record<string, unknown>;
 }
 
+// --- Batch types ----------------------------------------------------------
+
+// Stage enum values come from queries.BatchStage. The schema also has
+// `archived` but we only surface the active lifecycle — archived
+// batches won't appear in the list query today and the edit form
+// doesn't expose it as an option.
+export type BatchStage =
+  | "planning"
+  | "primary"
+  | "secondary"
+  | "aging"
+  | "bottled"
+  | "archived";
+
+// Mirrors batchView in internal/server/batches.go.
+export interface Batch {
+  id: string;
+  name: string;
+  brew_type: BrewType;
+  stage: BatchStage;
+  started_at?: string;
+  bottled_at?: string;
+  visibility: Visibility;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BatchPage {
+  batches: Batch[];
+  next_cursor: string | null;
+}
+
+// Mirrors queries.EventKind. The order here is the order we surface
+// in the kind selector — pitch/rack/bottle on top because they advance
+// reminder anchors.
+export type EventKind =
+  | "pitch"
+  | "rack"
+  | "bottle"
+  | "nutrient_addition"
+  | "degas"
+  | "addition"
+  | "stabilize"
+  | "backsweeten"
+  | "photo"
+  | "note";
+
+export interface BatchEvent {
+  id: string;
+  batch_id: string;
+  occurred_at: string;
+  kind: EventKind;
+  title?: string;
+  description?: string;
+  details: Record<string, unknown>;
+}
+
+export interface BatchEventPage {
+  events: BatchEvent[];
+}
+
+// Mirrors queries.ReminderStatus. `cancelled` is reachable via DELETE
+// but reminders in that state come back filtered out of the active
+// list, so the UI doesn't render them — kept here for completeness.
+export type ReminderStatus =
+  | "scheduled"
+  | "fired"
+  | "snoozed"
+  | "completed"
+  | "dismissed"
+  | "cancelled";
+
+export interface Reminder {
+  id: string;
+  batch_id?: string;
+  title: string;
+  description?: string;
+  fire_at: string;
+  status: ReminderStatus;
+  fired_at?: string;
+  completed_at?: string;
+  suggested_event_kind?: EventKind;
+  created_at: string;
+}
+
 // Mirrors the Recipe schema in openapi.yaml. Returned by GET /api/recipes/{id}
 // — ingredients are the live (head-revision) set, not a revision snapshot.
 export interface Recipe {

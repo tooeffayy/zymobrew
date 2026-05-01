@@ -115,6 +115,12 @@ export function RecipeDetail() {
 
       {isAuthed && (
         <div className="recipe-actions">
+          <Link
+            to={`/batches/new?recipe=${encodeURIComponent(recipe.id)}`}
+            className="action-button action-primary"
+          >
+            Brew this
+          </Link>
           {isOwner && (
             <Link to={`/recipes/${recipe.id}/edit`} className="action-button">
               Edit

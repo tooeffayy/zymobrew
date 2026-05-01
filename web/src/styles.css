@@ -617,6 +617,245 @@ dd {
   border-color: oklch(85% 0.05 25);
 }
 
+/* Primary variant for the high-intent action on a row (Brew this).
+   Accent-filled rather than ghosted so it earns the click. */
+.action-button.action-primary {
+  color: white;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.action-button.action-primary:hover:not(:disabled) {
+  color: white;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* --- Stage badge ------------------------------------------------------ */
+
+/* Distinct from brew-type pills — these read like a state tag, not a
+   category. Scan-order: planning (neutral) → primary/secondary
+   (active warm) → aging (amber) → bottled (cool, "done") → archived
+   (grey). Same letter sizing as the brew-type pill so the two coexist
+   on the meta row without one dominating. */
+.stage {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1875rem 0.5625rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: oklch(94% 0.005 70);
+  color: var(--fg-soft);
+}
+.stage-planning  { background: oklch(94% 0.005  70); color: var(--fg-soft); }
+.stage-primary   { background: oklch(94% 0.05   55); color: oklch(40% 0.13  55); }
+.stage-secondary { background: oklch(94% 0.05   95); color: oklch(40% 0.13  85); }
+.stage-aging     { background: oklch(94% 0.05  120); color: oklch(38% 0.10 130); }
+.stage-bottled   { background: oklch(94% 0.05  200); color: oklch(38% 0.10 210); }
+.stage-archived  { background: oklch(92% 0.005  70); color: var(--muted); }
+
+/* --- Pinned recipe notice (BatchCreate) ------------------------------- */
+
+.pinned-recipe {
+  background: var(--accent-soft);
+  border-color: oklch(86% 0.04 70);
+}
+
+.pinned-recipe-body {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--fg);
+}
+
+/* --- Reminders -------------------------------------------------------- */
+
+.reminder-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.625rem;
+}
+
+.reminder-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+  padding: 0.875rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Overdue rows get a red left edge — strong enough to draw the eye
+   without the whole row going alarming. */
+.reminder-overdue {
+  border-color: oklch(85% 0.05 25);
+  box-shadow:
+    inset 3px 0 0 var(--error),
+    var(--shadow-sm);
+}
+
+.reminder-main {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.reminder-title {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.reminder-when {
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.reminder-overdue .reminder-when {
+  color: var(--error);
+}
+
+.reminder-desc {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--fg-soft);
+}
+
+.reminder-actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* On phone widths the actions stack below the body — the right column
+   would otherwise crowd the title. */
+@media (max-width: 560px) {
+  .reminder-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .reminder-actions {
+    justify-content: flex-start;
+  }
+}
+
+.reminder-done-toggle {
+  margin-top: 1rem;
+}
+
+.reminder-list-done {
+  margin-top: 0.5rem;
+  opacity: 0.7;
+}
+
+.reminder-done {
+  background: var(--bg-tint);
+  box-shadow: none;
+}
+
+/* --- Events journal --------------------------------------------------- */
+
+.log-event-form {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  padding: 1rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.log-event-row {
+  display: grid;
+  grid-template-columns: 10rem 13rem minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.log-event-row select,
+.log-event-row input {
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .log-event-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .log-event-row > input[aria-label="Title"] {
+    grid-column: 1 / -1;
+  }
+  .log-event-row > button {
+    grid-column: 1 / -1;
+  }
+}
+
+.log-event-form textarea {
+  margin: 0;
+}
+
+.event-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.event-row {
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.event-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.8125rem;
+}
+
+.event-kind {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.event-kind-pitch  { background: oklch(94% 0.05  55); color: oklch(40% 0.13 55); }
+.event-kind-rack   { background: oklch(94% 0.05 130); color: oklch(38% 0.10 140); }
+.event-kind-bottle { background: oklch(94% 0.05 200); color: oklch(38% 0.10 210); }
+.event-kind-note   { background: oklch(94% 0.005 70); color: var(--fg-soft); }
+.event-kind-photo  { background: oklch(94% 0.05 350); color: oklch(40% 0.13 350); }
+
+.event-when {
+  font-variant-numeric: tabular-nums;
+}
+
+.event-title {
+  margin-top: 0.25rem;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.event-desc {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--fg-soft);
+}
+
 /* --- Header CTA -------------------------------------------------------- */
 
 .header-cta {
