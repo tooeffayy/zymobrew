@@ -77,3 +77,24 @@ func TestLoadEmptyTrustedProxies(t *testing.T) {
 		t.Fatalf("empty TRUSTED_PROXIES should be nil, got %v", cfg.TrustedProxies)
 	}
 }
+
+func TestLoadRejectsOutOfRangeBackupRetention(t *testing.T) {
+	cases := []struct {
+		name string
+		val  string
+	}{
+		{"zero", "0"},
+		{"negative", "-1"},
+		{"above_int32", "2147483648"},
+		{"above_cap", "36501"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://x@y/z")
+			t.Setenv("BACKUP_RETENTION_DAYS", tc.val)
+			if _, err := config.Load(); err == nil {
+				t.Fatalf("expected error for BACKUP_RETENTION_DAYS=%s", tc.val)
+			}
+		})
+	}
+}
