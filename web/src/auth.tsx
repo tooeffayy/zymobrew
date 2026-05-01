@@ -17,6 +17,13 @@ interface AuthCtx {
   login: (identifier: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  // Update the cached user after a profile PATCH so the header reflects
+  // a changed display name without a full /api/auth/me round-trip.
+  updateUser: (user: PublicUser) => void;
+  // Flip to anon without calling /api/auth/logout — used after account
+  // deletion, where the server has already cleared the cookie and the
+  // session row is gone.
+  setAnon: () => void;
 }
 
 const AuthContext = createContext<AuthCtx | null>(null);
@@ -54,7 +61,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ status: "anon" });
   };
 
-  return <AuthContext.Provider value={{ state, login, register, logout }}>{children}</AuthContext.Provider>;
+  const updateUser = (user: PublicUser) => setState({ status: "authed", user });
+  const setAnon = () => setState({ status: "anon" });
+
+  return (
+    <AuthContext.Provider value={{ state, login, register, logout, updateUser, setAnon }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthCtx {

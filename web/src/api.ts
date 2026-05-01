@@ -65,7 +65,9 @@ export const api = {
   get:    <T>(path: string)                 => request<T>("GET",    path),
   post:   <T>(path: string, body?: unknown) => request<T>("POST",   path, body),
   patch:  <T>(path: string, body?: unknown) => request<T>("PATCH",  path, body),
-  delete: <T>(path: string)                 => request<T>("DELETE", path),
+  // DELETE accepts a body for endpoints that demand confirmation in the
+  // payload (e.g. password-confirmed account deletion).
+  delete: <T>(path: string, body?: unknown) => request<T>("DELETE", path, body),
 };
 
 // --- Resource types -------------------------------------------------------
@@ -77,6 +79,18 @@ export interface PublicUser {
   username: string;
   email: string;
   display_name?: string;
+}
+
+// Mirrors PublicProfile in openapi.yaml — what GET /api/users/{username}
+// and PATCH /api/users/me return. Strictly more than PublicUser (adds
+// bio, avatar_url, created_at) and strictly less (no email).
+export interface PublicProfile {
+  id: string;
+  username: string;
+  display_name?: string;
+  bio?: string;
+  avatar_url?: string;
+  created_at: string;
 }
 
 export interface AuthResponse {
