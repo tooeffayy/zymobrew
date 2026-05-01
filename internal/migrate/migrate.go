@@ -21,7 +21,31 @@ func init() {
 
 // Up applies all pending migrations: app schema first (goose), then the River
 // background-job schema. Both must succeed before the app is ready.
+//
+// A Postgres session advisory lock serializes concurrent callers against the
+// same database — necessary because `go test ./...` runs each package's
+// TestMain in its own process, and goose itself doesn't lock. Without this,
+// two processes can both observe goose_db_version=N and both try to apply
+// N+1, with the loser failing on duplicate-create. The lock is held on a
+// dedicated connection so it doesn't interfere with goose's own connection
+// usage; the loser blocks at pg_advisory_lock until the winner finishes,
+// then runs goose to find everything already applied (idempotent).
 func Up(ctx context.Context, db *sql.DB) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("migrate: acquire lock connection: %w", err)
+	}
+	defer func() {
+		// Release on a background context so a cancelled caller still
+		// unlocks before the connection returns to the pool — otherwise
+		// a future borrower of that backend could inherit the held lock.
+		_, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock(hashtext('zymo-migrate'))")
+		conn.Close()
+	}()
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock(hashtext('zymo-migrate'))"); err != nil {
+		return fmt.Errorf("migrate: acquire advisory lock: %w", err)
+	}
+
 	if err := goose.UpContext(ctx, db, "."); err != nil {
 		return fmt.Errorf("goose: %w", err)
 	}
