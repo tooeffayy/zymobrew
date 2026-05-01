@@ -8,6 +8,7 @@ import { BatchCreate } from "./pages/BatchCreate";
 import { BatchDetail } from "./pages/BatchDetail";
 import { BatchEdit } from "./pages/BatchEdit";
 import { Batches } from "./pages/Batches";
+import { Calculators } from "./pages/Calculators";
 import { Login } from "./pages/Login";
 import { Me } from "./pages/Me";
 import { Notifications } from "./pages/Notifications";
@@ -59,6 +60,14 @@ export function App() {
             element={
               <Layout>
                 <Recipes />
+              </Layout>
+            }
+          />
+          <Route
+            path="/calculators"
+            element={
+              <Layout>
+                <Calculators />
               </Layout>
             }
           />

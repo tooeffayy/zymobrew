@@ -29,6 +29,7 @@ export function Header() {
       <Link to="/" className="brand">Zymo</Link>
       <nav className="site-nav">
         <NavLink to="/" end>Recipes</NavLink>
+        <NavLink to="/calculators">Calculators</NavLink>
         {state.status === "authed" && (
           <>
             <NavLink to="/batches">Batches</NavLink>
