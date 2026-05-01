@@ -116,6 +116,8 @@ func (s *Server) routes() http.Handler {
 				r.Get("/readings", s.handleListReadings)
 				r.Post("/events", s.handleCreateBatchEvent)
 				r.Get("/events", s.handleListBatchEvents)
+				r.Patch("/events/{eventId}", s.handleUpdateBatchEvent)
+				r.Delete("/events/{eventId}", s.handleDeleteBatchEvent)
 				r.Post("/tasting-notes", s.handleCreateTastingNote)
 				r.Get("/tasting-notes", s.handleListTastingNotes)
 				r.Post("/reminders", s.handleCreateReminder)

@@ -647,6 +647,134 @@ func (s *Server) handleListBatchEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"events": views})
 }
 
+// updateEventRequest uses pointer fields so omitted vs explicitly-set
+// can be distinguished — COALESCE in the SQL leaves omitted columns
+// alone. Title/Description set to empty string clears the column
+// (we send an empty pgtype.Text with Valid=true).
+type updateEventRequest struct {
+	OccurredAt  *time.Time       `json:"occurred_at,omitempty"`
+	Kind        *string          `json:"kind,omitempty"`
+	Title       *string          `json:"title,omitempty"`
+	Description *string          `json:"description,omitempty"`
+	Details     *json.RawMessage `json:"details,omitempty"`
+}
+
+func (s *Server) handleUpdateBatchEvent(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	batchID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch id"})
+		return
+	}
+	eventID, err := uuid.Parse(chi.URLParam(r, "eventId"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid event id"})
+		return
+	}
+	batch, err := s.queries.GetBatchForUser(r.Context(), queries.GetBatchForUserParams{
+		ID: batchID, BrewerID: user.ID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+
+	var req updateEventRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+
+	params := queries.UpdateBatchEventParams{
+		ID:      eventID,
+		BatchID: batchID,
+	}
+	if req.OccurredAt != nil {
+		params.OccurredAt = pgtype.Timestamptz{Time: *req.OccurredAt, Valid: true}
+	}
+	if req.Kind != nil {
+		params.Kind = queries.NullEventKind{EventKind: queries.EventKind(*req.Kind), Valid: true}
+	}
+	if req.Title != nil {
+		params.Title = pgtype.Text{String: *req.Title, Valid: true}
+	}
+	if req.Description != nil {
+		params.Description = pgtype.Text{String: *req.Description, Valid: true}
+	}
+	if req.Details != nil {
+		raw := *req.Details
+		if len(raw) > 0 && (!json.Valid(raw) || raw[0] != '{') {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "details must be a JSON object"})
+			return
+		}
+		params.Details = raw
+	}
+
+	event, err := s.queries.UpdateBatchEvent(r.Context(), params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		if isInvalidTextRepresentation(err) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid kind value"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "update failed"})
+		return
+	}
+
+	// If the (possibly updated) kind anchors reminders, re-materialize
+	// against the (possibly updated) occurred_at — same logic as create.
+	// Re-anchor handles the case where the user shifted the time on an
+	// existing pitch/rack/bottle event.
+	anchorForKind := map[queries.EventKind]queries.ReminderAnchor{
+		queries.EventKindPitch:  queries.ReminderAnchorPitch,
+		queries.EventKindRack:   queries.ReminderAnchorRack,
+		queries.EventKindBottle: queries.ReminderAnchorBottle,
+	}
+	if anchor, ok := anchorForKind[event.Kind]; ok && batch.RecipeID.Valid {
+		s.materializeTemplates(r.Context(), batch, anchor, event.OccurredAt.Time)
+	}
+
+	writeJSON(w, http.StatusOK, toEventView(event))
+}
+
+func (s *Server) handleDeleteBatchEvent(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	batchID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch id"})
+		return
+	}
+	eventID, err := uuid.Parse(chi.URLParam(r, "eventId"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid event id"})
+		return
+	}
+	if !s.userOwnsBatch(r.Context(), user.ID, batchID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	n, err := s.queries.DeleteBatchEvent(r.Context(), queries.DeleteBatchEventParams{
+		ID:      eventID,
+		BatchID: batchID,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
+		return
+	}
+	if n == 0 {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // --- tasting note handlers ------------------------------------------------
 
 type createTastingNoteRequest struct {

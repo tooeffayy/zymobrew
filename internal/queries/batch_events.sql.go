@@ -49,6 +49,49 @@ func (q *Queries) CreateBatchEvent(ctx context.Context, arg CreateBatchEventPara
 	return i, err
 }
 
+const deleteBatchEvent = `-- name: DeleteBatchEvent :execrows
+DELETE FROM batch_events
+WHERE id = $1 AND batch_id = $2
+`
+
+type DeleteBatchEventParams struct {
+	ID      uuid.UUID `json:"id"`
+	BatchID uuid.UUID `json:"batch_id"`
+}
+
+func (q *Queries) DeleteBatchEvent(ctx context.Context, arg DeleteBatchEventParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBatchEvent, arg.ID, arg.BatchID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getBatchEvent = `-- name: GetBatchEvent :one
+SELECT id, batch_id, occurred_at, kind, title, description, details FROM batch_events
+WHERE id = $1 AND batch_id = $2
+`
+
+type GetBatchEventParams struct {
+	ID      uuid.UUID `json:"id"`
+	BatchID uuid.UUID `json:"batch_id"`
+}
+
+func (q *Queries) GetBatchEvent(ctx context.Context, arg GetBatchEventParams) (BatchEvent, error) {
+	row := q.db.QueryRow(ctx, getBatchEvent, arg.ID, arg.BatchID)
+	var i BatchEvent
+	err := row.Scan(
+		&i.ID,
+		&i.BatchID,
+		&i.OccurredAt,
+		&i.Kind,
+		&i.Title,
+		&i.Description,
+		&i.Details,
+	)
+	return i, err
+}
+
 const listBatchEventsForBatch = `-- name: ListBatchEventsForBatch :many
 SELECT id, batch_id, occurred_at, kind, title, description, details FROM batch_events
 WHERE batch_id = $1
@@ -81,4 +124,48 @@ func (q *Queries) ListBatchEventsForBatch(ctx context.Context, batchID uuid.UUID
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateBatchEvent = `-- name: UpdateBatchEvent :one
+UPDATE batch_events SET
+  occurred_at = COALESCE($1, occurred_at),
+  kind        = COALESCE($2,        kind),
+  title       = COALESCE($3,       title),
+  description = COALESCE($4, description),
+  details     = COALESCE($5,     details)
+WHERE id = $6 AND batch_id = $7
+RETURNING id, batch_id, occurred_at, kind, title, description, details
+`
+
+type UpdateBatchEventParams struct {
+	OccurredAt  pgtype.Timestamptz `json:"occurred_at"`
+	Kind        NullEventKind      `json:"kind"`
+	Title       pgtype.Text        `json:"title"`
+	Description pgtype.Text        `json:"description"`
+	Details     []byte             `json:"details"`
+	ID          uuid.UUID          `json:"id"`
+	BatchID     uuid.UUID          `json:"batch_id"`
+}
+
+func (q *Queries) UpdateBatchEvent(ctx context.Context, arg UpdateBatchEventParams) (BatchEvent, error) {
+	row := q.db.QueryRow(ctx, updateBatchEvent,
+		arg.OccurredAt,
+		arg.Kind,
+		arg.Title,
+		arg.Description,
+		arg.Details,
+		arg.ID,
+		arg.BatchID,
+	)
+	var i BatchEvent
+	err := row.Scan(
+		&i.ID,
+		&i.BatchID,
+		&i.OccurredAt,
+		&i.Kind,
+		&i.Title,
+		&i.Description,
+		&i.Details,
+	)
+	return i, err
 }

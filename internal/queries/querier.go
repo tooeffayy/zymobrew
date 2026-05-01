@@ -50,6 +50,7 @@ type Querier interface {
 	CreateUserExport(ctx context.Context, arg CreateUserExportParams) (UserExport, error)
 	CreateUserWithPassword(ctx context.Context, arg CreateUserWithPasswordParams) (User, error)
 	DeleteBatch(ctx context.Context, arg DeleteBatchParams) (int64, error)
+	DeleteBatchEvent(ctx context.Context, arg DeleteBatchEventParams) (int64, error)
 	DeleteExpiredAdminBackups(ctx context.Context, dollar_1 int32) ([]pgtype.Text, error)
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteNotificationPrefsForUser(ctx context.Context, userID uuid.UUID) error
@@ -73,6 +74,7 @@ type Querier interface {
 	FailAdminBackup(ctx context.Context, arg FailAdminBackupParams) error
 	FailUserExport(ctx context.Context, arg FailUserExportParams) error
 	GetAdminBackup(ctx context.Context, id uuid.UUID) (AdminBackup, error)
+	GetBatchEvent(ctx context.Context, arg GetBatchEventParams) (BatchEvent, error)
 	GetBatchForUser(ctx context.Context, arg GetBatchForUserParams) (Batch, error)
 	GetNotificationPrefs(ctx context.Context, userID uuid.UUID) (NotificationPref, error)
 	GetPendingUserExport(ctx context.Context, userID uuid.UUID) (UserExport, error)
@@ -143,6 +145,7 @@ type Querier interface {
 	TouchSession(ctx context.Context, id uuid.UUID) error
 	UnlikeRecipe(ctx context.Context, arg UnlikeRecipeParams) error
 	UpdateBatch(ctx context.Context, arg UpdateBatchParams) (Batch, error)
+	UpdateBatchEvent(ctx context.Context, arg UpdateBatchEventParams) (BatchEvent, error)
 	UpdateRecipeMeta(ctx context.Context, arg UpdateRecipeMetaParams) (Recipe, error)
 	UpdateReminder(ctx context.Context, arg UpdateReminderParams) (Reminder, error)
 	UpdateReminderTemplate(ctx context.Context, arg UpdateReminderTemplateParams) (RecipeReminderTemplate, error)

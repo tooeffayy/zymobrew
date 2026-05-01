@@ -2117,6 +2117,101 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/batches/{id}/events/{eventId}:
+    patch:
+      tags: [batches]
+      operationId: updateBatchEvent
+      summary: Update a batch event (COALESCE). Re-materializes reminders if kind is pitch/rack/bottle.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                occurred_at:
+                  $ref: '#/components/schemas/DateTime'
+                kind:
+                  type: string
+                  enum: [pitch, nutrient_addition, degas, rack, addition, stabilize, backsweeten, bottle, photo, note, other]
+                title:
+                  type: string
+                description:
+                  type: string
+                details:
+                  type: object
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchEvent'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Event not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [batches]
+      operationId: deleteBatchEvent
+      summary: Delete a batch event. Reminders previously materialized from a pitch/rack/bottle event are not retracted.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Event not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/batches/{id}/tasting-notes:
     post:
       tags: [batches]

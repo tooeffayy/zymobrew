@@ -110,12 +110,18 @@ func TestEvents_OwnershipIsolation(t *testing.T) {
 	resp := doJSON(t, srv, http.MethodPost, "/api/batches", map[string]any{"name": "Alice Mead"}, aliceCookies...)
 	id, _ := decodeMap(t, resp)["id"].(string)
 
+	// Seed an event Bob will try to touch.
+	resp = doJSON(t, srv, http.MethodPost, "/api/batches/"+id+"/events", map[string]any{"kind": "note"}, aliceCookies...)
+	eventID, _ := decodeMap(t, resp)["id"].(string)
+
 	for _, tc := range []struct {
 		name, method, path string
 		body               any
 	}{
 		{"create", http.MethodPost, "/api/batches/" + id + "/events", map[string]any{"kind": "note"}},
 		{"list", http.MethodGet, "/api/batches/" + id + "/events", nil},
+		{"update", http.MethodPatch, "/api/batches/" + id + "/events/" + eventID, map[string]any{"description": "hi"}},
+		{"delete", http.MethodDelete, "/api/batches/" + id + "/events/" + eventID, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := doJSON(t, srv, tc.method, tc.path, tc.body, bobCookies...)
@@ -123,5 +129,64 @@ func TestEvents_OwnershipIsolation(t *testing.T) {
 				t.Fatalf("got %d, want 404", resp.StatusCode)
 			}
 		})
+	}
+}
+
+func TestEvents_UpdateAndDelete(t *testing.T) {
+	srv, _ := setupAuth(t, config.ModeOpen)
+	cookies := registerHelper(t, srv, "alice")
+
+	resp := doJSON(t, srv, http.MethodPost, "/api/batches", map[string]any{"name": "Spring Mead"}, cookies...)
+	batchID, _ := decodeMap(t, resp)["id"].(string)
+
+	resp = doJSON(t, srv, http.MethodPost, "/api/batches/"+batchID+"/events", map[string]any{
+		"kind":        "note",
+		"description": "first draft",
+	}, cookies...)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create event: got %d", resp.StatusCode)
+	}
+	eventID, _ := decodeMap(t, resp)["id"].(string)
+
+	// PATCH the description and switch the kind. Server should accept both.
+	resp = doJSON(t, srv, http.MethodPatch, "/api/batches/"+batchID+"/events/"+eventID, map[string]any{
+		"kind":        "rack",
+		"description": "racked to secondary",
+	}, cookies...)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch event: got %d", resp.StatusCode)
+	}
+	updated := decodeMap(t, resp)
+	if updated["kind"] != "rack" {
+		t.Fatalf("kind not updated: %+v", updated)
+	}
+	if updated["description"] != "racked to secondary" {
+		t.Fatalf("description not updated: %+v", updated)
+	}
+
+	// PATCH with bogus kind → 400.
+	resp = doJSON(t, srv, http.MethodPatch, "/api/batches/"+batchID+"/events/"+eventID, map[string]any{
+		"kind": "fluffify",
+	}, cookies...)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad kind on update: got %d, want 400", resp.StatusCode)
+	}
+
+	// DELETE → 204, then GET list shows zero events.
+	resp = doJSON(t, srv, http.MethodDelete, "/api/batches/"+batchID+"/events/"+eventID, nil, cookies...)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete event: got %d", resp.StatusCode)
+	}
+	resp = doJSON(t, srv, http.MethodGet, "/api/batches/"+batchID+"/events", nil, cookies...)
+	body := decodeMap(t, resp)
+	events, _ := body["events"].([]any)
+	if len(events) != 0 {
+		t.Fatalf("expected 0 events after delete, got %d", len(events))
+	}
+
+	// Second DELETE on the same id → 404.
+	resp = doJSON(t, srv, http.MethodDelete, "/api/batches/"+batchID+"/events/"+eventID, nil, cookies...)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("delete after delete: got %d, want 404", resp.StatusCode)
 	}
 }
