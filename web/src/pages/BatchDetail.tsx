@@ -14,6 +14,7 @@ import {
   TastingNotePage,
   api,
 } from "../api";
+import { TimeInput } from "../components/TimeInput";
 
 // Order matters: the kinds that advance reminder anchors come first
 // because they're the actions a brewer does most often.
@@ -306,6 +307,10 @@ function EventsSection({
   const sorted = [...events].sort(
     (a, b) => +new Date(b.occurred_at) - +new Date(a.occurred_at),
   );
+  // Single id at a time — opening a different row's edit closes the
+  // previous one. Avoids two open editors fighting over the same data.
+  const [editingID, setEditingID] = useState<string | null>(null);
+
   return (
     <section className="recipe-section">
       <h2>Journal</h2>
@@ -315,18 +320,179 @@ function EventsSection({
       ) : (
         <ul className="event-list">
           {sorted.map((e) => (
-            <li key={e.id} className="event-row">
-              <div className="event-meta">
-                <span className={`event-kind event-kind-${e.kind}`}>{e.kind.replace(/_/g, " ")}</span>
-                <span className="muted event-when">{fmtRelative(e.occurred_at)}</span>
-              </div>
-              {e.title && <div className="event-title">{e.title}</div>}
-              {e.description && <p className="event-desc">{e.description}</p>}
-            </li>
+            <EventRow
+              key={e.id}
+              batchID={batchID}
+              event={e}
+              isEditing={editingID === e.id}
+              onEdit={() => setEditingID(e.id)}
+              onCancel={() => setEditingID(null)}
+              onSaved={async () => {
+                setEditingID(null);
+                await refetch();
+              }}
+              onDeleted={refetch}
+            />
           ))}
         </ul>
       )}
     </section>
+  );
+}
+
+function EventRow({
+  batchID, event, isEditing, onEdit, onCancel, onSaved, onDeleted,
+}: {
+  batchID: string;
+  event: BatchEvent;
+  isEditing: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
+  onSaved: () => Promise<void>;
+  onDeleted: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const onDelete = async () => {
+    if (!window.confirm("Delete this entry?")) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.delete(
+        `/api/batches/${encodeURIComponent(batchID)}/events/${encodeURIComponent(event.id)}`,
+      );
+      await onDeleted();
+    } catch (e: unknown) {
+      setErr(e instanceof ApiError ? e.message : "delete failed");
+      setBusy(false);
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <li className="event-row event-row-editing">
+        <EditEventForm
+          batchID={batchID}
+          event={event}
+          onCancel={onCancel}
+          onSaved={onSaved}
+        />
+      </li>
+    );
+  }
+
+  return (
+    <li className="event-row">
+      <div className="event-row-head">
+        <div className="event-meta">
+          <span className={`event-kind event-kind-${event.kind}`}>{event.kind.replace(/_/g, " ")}</span>
+          <span className="muted event-when" title={fmtDateTime(event.occurred_at)}>
+            {fmtRelative(event.occurred_at)}
+          </span>
+        </div>
+        <div className="event-row-actions">
+          <button type="button" className="link-button" onClick={onEdit} disabled={busy}>
+            Edit
+          </button>
+          <button type="button" className="link-button event-delete" onClick={onDelete} disabled={busy}>
+            {busy ? "Deleting…" : "Delete"}
+          </button>
+        </div>
+      </div>
+      {event.title && <div className="event-title">{event.title}</div>}
+      {event.description && <p className="event-desc">{event.description}</p>}
+      {err && <p className="error">{err}</p>}
+    </li>
+  );
+}
+
+function EditEventForm({
+  batchID, event, onCancel, onSaved,
+}: {
+  batchID: string;
+  event: BatchEvent;
+  onCancel: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const initial = new Date(event.occurred_at);
+  const [kind, setKind] = useState<EventKind>(event.kind);
+  const [occurredDate, setOccurredDate] = useState(toDateInput(initial));
+  const [occurredTime, setOccurredTime] = useState(toTimeInput(initial));
+  const [description, setDescription] = useState(event.description ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    try {
+      // Build a partial PATCH — only send fields that actually changed.
+      // Server uses COALESCE so omitted fields are left alone; keeps
+      // network payload small and avoids re-running validation on
+      // unchanged columns.
+      const body: Record<string, unknown> = {};
+      if (kind !== event.kind) body.kind = kind;
+      const iso = combineDateTime(occurredDate, occurredTime);
+      if (iso && iso !== new Date(event.occurred_at).toISOString()) {
+        body.occurred_at = iso;
+      }
+      const trimmed = description.trim();
+      if (trimmed !== (event.description ?? "")) {
+        body.description = trimmed;
+      }
+      await api.patch(
+        `/api/batches/${encodeURIComponent(batchID)}/events/${encodeURIComponent(event.id)}`,
+        body,
+      );
+      await onSaved();
+    } catch (e2: unknown) {
+      setErr(e2 instanceof ApiError ? e2.message : "save failed");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={onSubmit} className="log-event-form edit-event-form">
+      <div className="log-event-row">
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value as EventKind)}
+          aria-label="Event kind"
+        >
+          {EVENT_KINDS.map((k) => (
+            <option key={k} value={k}>{k.replace(/_/g, " ")}</option>
+          ))}
+        </select>
+        <div className="datetime-pair">
+          <input
+            type="date"
+            value={occurredDate}
+            onChange={(e) => setOccurredDate(e.target.value)}
+            aria-label="Date"
+          />
+          <TimeInput value={occurredTime} onChange={setOccurredTime} ariaLabel="Time" />
+        </div>
+      </div>
+      <textarea
+        rows={2}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Description (optional)"
+        maxLength={2048}
+        aria-label="Description"
+      />
+      {err && <p className="error">{err}</p>}
+      <div className="log-event-actions">
+        <button type="button" className="cancel-link" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+        <button type="submit" disabled={busy}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -337,8 +503,8 @@ function LogEventForm({
   onLogged: () => Promise<void>;
 }) {
   const [kind, setKind] = useState<EventKind>("note");
-  const [occurredAt, setOccurredAt] = useState(toLocalInput(new Date()));
-  const [title, setTitle] = useState("");
+  const [occurredDate, setOccurredDate] = useState(toDateInput(new Date()));
+  const [occurredTime, setOccurredTime] = useState(toTimeInput(new Date()));
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -349,15 +515,15 @@ function LogEventForm({
     setBusy(true);
     try {
       const body: Record<string, unknown> = { kind };
-      const iso = fromLocalInput(occurredAt);
+      const iso = combineDateTime(occurredDate, occurredTime);
       if (iso) body.occurred_at = iso;
-      if (title.trim()) body.title = title.trim();
       if (description.trim()) body.description = description.trim();
       await api.post(`/api/batches/${encodeURIComponent(batchID)}/events`, body);
-      setTitle("");
       setDescription("");
       // Reset occurred_at to "now" for the next log.
-      setOccurredAt(toLocalInput(new Date()));
+      const now = new Date();
+      setOccurredDate(toDateInput(now));
+      setOccurredTime(toTimeInput(now));
       await onLogged();
     } catch (e2: unknown) {
       setErr(e2 instanceof ApiError ? e2.message : "log failed");
@@ -378,23 +544,15 @@ function LogEventForm({
             <option key={k} value={k}>{k.replace(/_/g, " ")}</option>
           ))}
         </select>
-        <input
-          type="datetime-local"
-          value={occurredAt}
-          onChange={(e) => setOccurredAt(e.target.value)}
-          aria-label="When"
-        />
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Title (optional)"
-          maxLength={200}
-          aria-label="Title"
-        />
-        <button type="submit" disabled={busy}>
-          {busy ? "Logging…" : "Log"}
-        </button>
+        <div className="datetime-pair">
+          <input
+            type="date"
+            value={occurredDate}
+            onChange={(e) => setOccurredDate(e.target.value)}
+            aria-label="Date"
+          />
+          <TimeInput value={occurredTime} onChange={setOccurredTime} ariaLabel="Time" />
+        </div>
       </div>
       <textarea
         rows={2}
@@ -405,6 +563,11 @@ function LogEventForm({
         aria-label="Description"
       />
       {err && <p className="error">{err}</p>}
+      <div className="log-event-actions">
+        <button type="submit" disabled={busy}>
+          {busy ? "Logging…" : "Log"}
+        </button>
+      </div>
     </form>
   );
 }
@@ -481,7 +644,8 @@ function LogReadingForm({
   batchID: string;
   onLogged: () => Promise<void>;
 }) {
-  const [takenAt, setTakenAt] = useState(toLocalInput(new Date()));
+  const [takenDate, setTakenDate] = useState(toDateInput(new Date()));
+  const [takenTime, setTakenTime] = useState(toTimeInput(new Date()));
   const [gravity, setGravity] = useState("");
   const [temp, setTemp] = useState("");
   const [ph, setPh] = useState("");
@@ -501,7 +665,7 @@ function LogReadingForm({
     setBusy(true);
     try {
       const body: Record<string, unknown> = {};
-      const iso = fromLocalInput(takenAt);
+      const iso = combineDateTime(takenDate, takenTime);
       if (iso) body.taken_at = iso;
       const g = parseNum(gravity);
       const t = parseNum(temp);
@@ -515,7 +679,9 @@ function LogReadingForm({
       setTemp("");
       setPh("");
       setNotes("");
-      setTakenAt(toLocalInput(new Date()));
+      const now = new Date();
+      setTakenDate(toDateInput(now));
+      setTakenTime(toTimeInput(now));
       await onLogged();
     } catch (e2: unknown) {
       setErr(e2 instanceof ApiError ? e2.message : "log failed");
@@ -527,12 +693,15 @@ function LogReadingForm({
   return (
     <form onSubmit={onSubmit} className="log-reading-form">
       <div className="log-reading-row">
-        <input
-          type="datetime-local"
-          value={takenAt}
-          onChange={(e) => setTakenAt(e.target.value)}
-          aria-label="When"
-        />
+        <div className="datetime-pair">
+          <input
+            type="date"
+            value={takenDate}
+            onChange={(e) => setTakenDate(e.target.value)}
+            aria-label="Date"
+          />
+          <TimeInput value={takenTime} onChange={setTakenTime} ariaLabel="Time" />
+        </div>
         <input
           type="number"
           step="0.001"
@@ -646,7 +815,8 @@ function LogTastingNoteForm({
   batchID: string;
   onLogged: () => Promise<void>;
 }) {
-  const [tastedAt, setTastedAt] = useState(toLocalInput(new Date()));
+  const [tastedDate, setTastedDate] = useState(toDateInput(new Date()));
+  const [tastedTime, setTastedTime] = useState(toTimeInput(new Date()));
   const [rating, setRating] = useState<number | null>(null);
   const [aroma, setAroma] = useState("");
   const [flavor, setFlavor] = useState("");
@@ -670,7 +840,7 @@ function LogTastingNoteForm({
     setBusy(true);
     try {
       const body: Record<string, unknown> = {};
-      const iso = fromLocalInput(tastedAt);
+      const iso = combineDateTime(tastedDate, tastedTime);
       if (iso) body.tasted_at = iso;
       if (rating !== null) body.rating = rating;
       if (aroma.trim())     body.aroma = aroma.trim();
@@ -685,7 +855,9 @@ function LogTastingNoteForm({
       setMouthfeel("");
       setFinish("");
       setNotes("");
-      setTastedAt(toLocalInput(new Date()));
+      const now = new Date();
+      setTastedDate(toDateInput(now));
+      setTastedTime(toTimeInput(now));
       await onLogged();
     } catch (e2: unknown) {
       setErr(e2 instanceof ApiError ? e2.message : "save failed");
@@ -697,12 +869,15 @@ function LogTastingNoteForm({
   return (
     <form onSubmit={onSubmit} className="log-tasting-form">
       <div className="log-tasting-head">
-        <input
-          type="datetime-local"
-          value={tastedAt}
-          onChange={(e) => setTastedAt(e.target.value)}
-          aria-label="When tasted"
-        />
+        <div className="datetime-pair">
+          <input
+            type="date"
+            value={tastedDate}
+            onChange={(e) => setTastedDate(e.target.value)}
+            aria-label="Date tasted"
+          />
+          <TimeInput value={tastedTime} onChange={setTastedTime} ariaLabel="Time tasted" />
+        </div>
         <RatingInput value={rating} onChange={setRating} />
       </div>
 
@@ -819,16 +994,32 @@ function fmtRelative(iso: string, now: Date = new Date()): string {
   return fmtDate(iso);
 }
 
-function toLocalInput(d: Date | string): string {
-  const date = typeof d === "string" ? new Date(d) : d;
-  if (Number.isNaN(date.getTime())) return "";
+// `<input type="date">` speaks "YYYY-MM-DD", `<input type="time">`
+// speaks "HH:mm" — both in the local tz. We split here (not
+// datetime-local) because the native datetime-local widget renders
+// chunkier than two side-by-side fields.
+function toDateInput(d: Date): string {
+  if (Number.isNaN(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function fromLocalInput(local: string): string | null {
-  if (!local) return null;
-  const d = new Date(local);
+function toTimeInput(d: Date): string {
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Combine the two field values back to RFC3339 (with the offset baked
+// in via toISOString). If date is missing we send nothing — the server
+// defaults occurred_at/tasted_at/taken_at to now. If time is missing
+// but date is set, we treat it as midnight local — same convention
+// as the native datetime-local widget when only the date segment is
+// filled.
+function combineDateTime(date: string, time: string): string | null {
+  if (!date) return null;
+  const t = time || "00:00";
+  const d = new Date(`${date}T${t}`);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 

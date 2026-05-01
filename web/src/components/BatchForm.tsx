@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ApiError, Batch, BatchStage, BrewType, Recipe, Visibility } from "../api";
+import { TimeInput } from "./TimeInput";
 
 const BREW_TYPES: BrewType[] = ["mead", "cider", "wine"];
 const VISIBILITIES: Visibility[] = ["public", "unlisted", "private"];
@@ -56,8 +57,10 @@ export function BatchForm(props: Props) {
   const [name, setName] = useState(defaultName);
   const [brewType, setBrewType] = useState<BrewType>(defaultBrewType);
   const [stage, setStage] = useState<BatchStage>(initial?.stage ?? "planning");
-  const [startedAt, setStartedAt] = useState(toLocalInput(initial?.started_at));
-  const [bottledAt, setBottledAt] = useState(toLocalInput(initial?.bottled_at));
+  const [startedDate, setStartedDate] = useState(toDateInput(initial?.started_at));
+  const [startedTime, setStartedTime] = useState(toTimeInput(initial?.started_at));
+  const [bottledDate, setBottledDate] = useState(toDateInput(initial?.bottled_at));
+  const [bottledTime, setBottledTime] = useState(toTimeInput(initial?.bottled_at));
   const [visibility, setVisibility] = useState<Visibility>(initial?.visibility ?? "private");
   const [notes, setNotes] = useState(initial?.notes ?? "");
 
@@ -81,10 +84,10 @@ export function BatchForm(props: Props) {
         visibility,
       };
       if (!isEdit) payload.brew_type = brewType;
-      const startedISO = fromLocalInput(startedAt);
+      const startedISO = combineDateTime(startedDate, startedTime);
       if (startedISO) payload.started_at = startedISO;
       if (isEdit) {
-        const bottledISO = fromLocalInput(bottledAt);
+        const bottledISO = combineDateTime(bottledDate, bottledTime);
         if (bottledISO) payload.bottled_at = bottledISO;
       }
       if (notes.trim()) payload.notes = notes.trim();
@@ -172,29 +175,25 @@ export function BatchForm(props: Props) {
       <section className="form-section">
         <h2>Timeline <span className="muted section-help">(optional)</span></h2>
 
-        <label className="field">
-          <span>Started at</span>
-          <input
-            type="datetime-local"
-            value={startedAt}
-            onChange={(e) => setStartedAt(e.target.value)}
-          />
-          <span className="field-help muted">
-            {isEdit
-              ? "Editing this re-anchors any pending reminders on this batch."
-              : "Setting this on a recipe-pinned batch schedules its reminders."}
-          </span>
-        </label>
+        <DateTimeField
+          label="Started at"
+          date={startedDate}
+          time={startedTime}
+          onDateChange={setStartedDate}
+          onTimeChange={setStartedTime}
+          help={isEdit
+            ? "Editing this re-anchors any pending reminders on this batch."
+            : "Setting this on a recipe-pinned batch schedules its reminders."}
+        />
 
         {isEdit && (
-          <label className="field">
-            <span>Bottled at</span>
-            <input
-              type="datetime-local"
-              value={bottledAt}
-              onChange={(e) => setBottledAt(e.target.value)}
-            />
-          </label>
+          <DateTimeField
+            label="Bottled at"
+            date={bottledDate}
+            time={bottledTime}
+            onDateChange={setBottledDate}
+            onTimeChange={setBottledTime}
+          />
         )}
       </section>
 
@@ -250,21 +249,85 @@ function Segmented<T extends string>({
   );
 }
 
-// datetime-local <-> RFC3339. The native control speaks "YYYY-MM-DDTHH:mm"
-// in the local tz; we send RFC3339 with the offset baked in so the server
-// stores wall-clock unambiguously.
-function toLocalInput(iso?: string): string {
+// Date+time pair with "Now" / "Clear" affordances. Most batches are
+// started right now; the Now button reduces the common case to a
+// single click, and the date picker is still there for backfills.
+function DateTimeField({
+  label, date, time, onDateChange, onTimeChange, help,
+}: {
+  label: string;
+  date: string;
+  time: string;
+  onDateChange: (v: string) => void;
+  onTimeChange: (v: string) => void;
+  help?: string;
+}) {
+  const setNow = () => {
+    const now = new Date().toISOString();
+    onDateChange(toDateInput(now));
+    onTimeChange(toTimeInput(now));
+  };
+  const clear = () => {
+    onDateChange("");
+    onTimeChange("");
+  };
+  const hasValue = date !== "" || time !== "";
+
+  return (
+    <div className="field datetime-field">
+      <div className="datetime-field-head">
+        <span>{label}</span>
+        <span className="datetime-field-quick">
+          <button type="button" className="link-button" onClick={setNow}>Now</button>
+          {hasValue && (
+            <button type="button" className="link-button" onClick={clear}>Clear</button>
+          )}
+        </span>
+      </div>
+      <div className="datetime-pair">
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => onDateChange(e.target.value)}
+          aria-label={`${label} date`}
+        />
+        <TimeInput
+          value={time}
+          onChange={onTimeChange}
+          ariaLabel={`${label} time`}
+        />
+      </div>
+      {help && <span className="field-help muted">{help}</span>}
+    </div>
+  );
+}
+
+// `<input type="date">` speaks "YYYY-MM-DD", `<input type="time">`
+// speaks "HH:mm" — both in the local tz. We split (rather than use
+// datetime-local) because the native datetime-local widget renders
+// chunkier than two side-by-side fields.
+function toDateInput(iso?: string): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  // Pull local components — `toISOString` would yield UTC, which would
-  // be off by hours when displayed in the input.
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function fromLocalInput(local: string): string | null {
-  if (!local) return null;
-  const d = new Date(local);
+function toTimeInput(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// If date is missing we send nothing — the server treats started_at
+// as null. If time is missing but date is set, midnight local; matches
+// the native datetime-local convention for a date-only entry.
+function combineDateTime(date: string, time: string): string | null {
+  if (!date) return null;
+  const t = time || "00:00";
+  const d = new Date(`${date}T${t}`);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }

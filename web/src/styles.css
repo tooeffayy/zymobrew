@@ -232,6 +232,15 @@ input {
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
+/* Restore the user-agent default that the rule above clobbers.
+   react-aria-components renders <input type="text" hidden> for native
+   form integration (not type="hidden") so [hidden] is the right hook,
+   and the type-hidden case is included for completeness. */
+input[hidden],
+input[type="hidden"] {
+  display: none;
+}
+
 input::placeholder { color: var(--muted); }
 
 input:hover  { border-color: oklch(82% 0.01 70); }
@@ -253,6 +262,155 @@ input[type="number"]::-webkit-inner-spin-button {
   margin: 0;
 }
 input[type="number"] { -moz-appearance: textfield; }
+
+/* Tighten the native date/time renderers. Chrome/Safari add wide gaps
+   between MM/DD/YYYY segments and a chunky calendar/clock icon. We
+   can't restyle the popup, but we can compress the readout. */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  font-variant-numeric: tabular-nums;
+}
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit {
+  padding: 0;
+}
+input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+input[type="time"]::-webkit-datetime-edit-fields-wrapper,
+input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+}
+input[type="date"]::-webkit-datetime-edit-text,
+input[type="time"]::-webkit-datetime-edit-text,
+input[type="datetime-local"]::-webkit-datetime-edit-text {
+  padding: 0 1px;
+  color: var(--muted);
+}
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-year-field,
+input[type="time"]::-webkit-datetime-edit-hour-field,
+input[type="time"]::-webkit-datetime-edit-minute-field,
+input[type="datetime-local"]::-webkit-datetime-edit-month-field,
+input[type="datetime-local"]::-webkit-datetime-edit-day-field,
+input[type="datetime-local"]::-webkit-datetime-edit-year-field,
+input[type="datetime-local"]::-webkit-datetime-edit-hour-field,
+input[type="datetime-local"]::-webkit-datetime-edit-minute-field {
+  padding: 0 1px;
+}
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  padding: 0;
+  margin-left: 0.25rem;
+  opacity: 0.55;
+  cursor: pointer;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* Side-by-side date + time inputs that occupy a single grid cell.
+   Cleaner than the native datetime-local widget. The two children
+   share width by content size, so each gets just enough room. */
+.datetime-pair {
+  display: flex;
+  gap: 0.375rem;
+  align-items: center;
+  min-width: 0;
+}
+/* Native date input is fixed-width sized to its content. The
+   react-aria TimeField (.time-input) sizes to its segments and
+   handles its own internal layout. */
+.datetime-pair input[type="date"] {
+  flex: 0 0 10.5rem;
+  min-width: 0;
+}
+.datetime-pair .time-input {
+  flex: 0 0 auto;
+}
+
+/* react-aria TimeField — the DateInput is the bordered container,
+   each DateSegment is one of HH / MM / AM-PM. Match the look of the
+   native date input next to it: same border, padding, focus ring. */
+.time-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.625rem 0.75rem;
+  font: inherit;
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+  min-height: calc(0.625rem * 2 + 1.5rem);
+}
+.time-input[data-hovered] {
+  border-color: oklch(82% 0.01 70);
+}
+.time-input[data-focus-within] {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-ring);
+}
+
+.time-input-segment {
+  padding: 0 1px;
+  border-radius: 3px;
+  outline: none;
+}
+/* Each segment gets a soft accent highlight when focused — react-aria
+   moves focus across segments as the user types or arrows. */
+.time-input-segment[data-focused] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+/* Placeholder digits when a segment hasn't been typed in yet. */
+.time-input-segment[data-placeholder] {
+  color: var(--muted);
+}
+/* The literal segments (":", " ") aren't editable. */
+.time-input-segment[data-type="literal"] {
+  color: var(--muted);
+  padding: 0 1px;
+}
+.datetime-pair input {
+  margin: 0;
+}
+
+/* Form field that wraps a date+time pair plus inline Now/Clear
+   actions on the same row as the label. Keeps the field compact
+   instead of stretching to a full-width input the way native
+   datetime-local does. */
+.datetime-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.375rem;
+}
+.datetime-field-head > span:first-child {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--fg);
+}
+.datetime-field-quick {
+  display: inline-flex;
+  gap: 0.125rem;
+}
+.datetime-field-quick .link-button {
+  padding: 0.125rem 0.5rem;
+  font-size: 0.8125rem;
+}
+.datetime-field .datetime-pair {
+  margin-top: 0;
+}
 
 button {
   font: inherit;
@@ -772,27 +930,22 @@ dd {
 }
 
 .log-event-row {
-  display: grid;
-  grid-template-columns: 10rem 13rem minmax(0, 1fr) auto;
-  gap: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 0.5rem;
 }
-
-.log-event-row select,
-.log-event-row input {
+.log-event-row > select {
+  flex: 0 0 11rem;
   margin: 0;
 }
+.log-event-row > .datetime-pair {
+  flex: 0 1 auto;
+}
 
-@media (max-width: 720px) {
-  .log-event-row {
-    grid-template-columns: 1fr 1fr;
-  }
-  .log-event-row > input[aria-label="Title"] {
-    grid-column: 1 / -1;
-  }
-  .log-event-row > button {
-    grid-column: 1 / -1;
-  }
+.log-event-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .log-event-form textarea {
@@ -856,6 +1009,51 @@ dd {
   color: var(--fg-soft);
 }
 
+/* Top row of an event: meta on the left, edit/delete on the right.
+   Actions only need to appear on hover — they're rarely needed and
+   the journal scans cleaner without them claiming space. On touch
+   devices :hover is a no-op so the actions stay visible. */
+.event-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.event-row-actions {
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.event-row:hover .event-row-actions,
+.event-row:focus-within .event-row-actions {
+  opacity: 1;
+}
+@media (hover: none) {
+  .event-row-actions { opacity: 1; }
+}
+
+.event-row-actions .link-button {
+  padding: 0.125rem 0.5rem;
+  font-size: 0.8125rem;
+}
+.event-delete:hover { color: var(--error); }
+
+.event-row-editing {
+  padding: 0;
+  background: var(--bg-tint);
+  border-color: var(--accent-soft);
+}
+.edit-event-form {
+  margin: 0;
+  background: transparent;
+  border: none;
+}
+.log-event-actions .cancel-link {
+  margin-right: 0.5rem;
+}
+
 /* --- Collapsible section toggle -------------------------------------- */
 
 /* Readings + tasting notes are secondary surfaces — collapsed by
@@ -894,7 +1092,7 @@ dd {
    phone widths so the inputs stay tappable. */
 .log-reading-row {
   display: grid;
-  grid-template-columns: 12rem repeat(3, minmax(6rem, 1fr)) auto;
+  grid-template-columns: minmax(15rem, 17rem) repeat(3, minmax(6rem, 1fr)) auto;
   gap: 0.5rem;
   align-items: center;
 }
