@@ -37,10 +37,19 @@ COPY --from=web /web/dist ./web/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/zymo ./cmd/zymo
 
 # --- Runtime ------------------------------------------------------------
-# distroless/static has no pg_dump, so admin backups (which shell out to
-# pg_dump) are non-functional in this image. Switch to a base with the
-# postgres client when that pipeline goes live for self-hosters.
-FROM gcr.io/distroless/static:nonroot
+# Alpine + postgresql-client so admin-backup dispatcher's pg_dump shellout
+# resolves on PATH. We keep the binary statically linked (CGO_ENABLED=0
+# above) so libc divergence between alpine and the build stage is
+# irrelevant to the Go side; alpine's musl matters only for the postgres
+# client binaries it ships, which apk handles.
+#
+# Pinning the postgres version: pg_dump is forward-compatible (a newer
+# pg_dump can dump from an older server), so postgresql16-client works
+# against the project's Postgres 14+ requirement.
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates postgresql16-client \
+    && addgroup -S -g 65532 nonroot \
+    && adduser  -S -u 65532 -G nonroot nonroot
 COPY --from=build /out/zymo /usr/local/bin/zymo
 USER nonroot:nonroot
 EXPOSE 8080
