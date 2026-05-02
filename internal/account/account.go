@@ -54,6 +54,9 @@ func Anonymize(ctx context.Context, pool *pgxpool.Pool, q *queries.Queries, expo
 	if err := qtx.DeleteUserExportsForUser(ctx, userID); err != nil {
 		return fmt.Errorf("delete user exports: %w", err)
 	}
+	if err := qtx.DeleteAllInventoryForUser(ctx, userID); err != nil {
+		return fmt.Errorf("delete inventory: %w", err)
+	}
 	if err := qtx.AnonymizeUser(ctx, userID); err != nil {
 		return fmt.Errorf("anonymize user: %w", err)
 	}

@@ -353,6 +353,48 @@ export interface NotificationPrefs {
   timezone: string;
 }
 
+// --- Inventory types ------------------------------------------------------
+
+// Mirrors inventoryItemView in internal/server/inventory.go. `amount` and
+// `unit` are both optional — the server treats missing amount as "have it,
+// quantity unknown" in the recipe-match logic.
+export interface InventoryItem {
+  id: string;
+  kind: IngredientKind;
+  name: string;
+  amount?: number;
+  unit?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventoryListResponse {
+  items: InventoryItem[];
+}
+
+// Mirrors inventoryMatchView in internal/server/inventory.go. One row per
+// recipe ingredient with the match outcome. `shortfall` is in the recipe
+// ingredient's unit (no conversion is applied — see unit_mismatch).
+export type InventoryMatchStatus = "have" | "short" | "missing";
+
+export interface InventoryMatch {
+  ingredient_id: string;
+  kind: IngredientKind;
+  name: string;
+  amount?: number;
+  unit?: string;
+  status: InventoryMatchStatus;
+  inventory_id?: string;
+  inventory_amount?: number;
+  shortfall?: number;
+  unit_mismatch?: boolean;
+}
+
+export interface InventoryMatchResponse {
+  items: InventoryMatch[];
+}
+
 // Mirrors the Recipe schema in openapi.yaml. Returned by GET /api/recipes/{id}
 // — ingredients are the live (head-revision) set, not a revision snapshot.
 export interface Recipe {

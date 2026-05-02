@@ -2909,6 +2909,178 @@ button.danger:disabled {
   color: var(--muted);
 }
 
+/* --- Recipe inventory match ------------------------------------------ */
+
+/* Right-side group of (badge, amount) on a recipe ingredient row. The
+   row's flex container already justifies space-between, so this just
+   keeps the badge tucked next to the amount as a unit. */
+.ingredient-row-right {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.625rem;
+}
+
+/* Above-the-list summary: muted-positive when fully stocked, neutral
+   surface otherwise. Width-capped to match the ingredient card so the
+   eye reads them as a pair. */
+.inventory-summary {
+  max-width: 32rem;
+  margin: 0 0 0.875rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  font-size: 0.875rem;
+  color: var(--fg-soft);
+}
+.inventory-summary strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+.inventory-summary-ready {
+  background: oklch(95% 0.04 145);
+  border-color: oklch(86% 0.06 145);
+  color: oklch(35% 0.10 150);
+}
+.inventory-summary-ready strong { color: inherit; }
+.inventory-summary-link {
+  color: var(--accent);
+  text-decoration: none;
+  margin-left: 0.5em;
+}
+.inventory-summary-link:hover { text-decoration: underline; }
+
+/* Per-ingredient pill. Three states match the API status: have (calm
+   green), short (amber-warning, includes the gap quantity), missing
+   (red-leaning). unit_mismatch is its own neutral-warning so the user
+   knows the kind is on-hand but the units don't compare. */
+.inventory-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.inventory-badge-have {
+  background: oklch(94% 0.05 145);
+  color: oklch(40% 0.13 150);
+}
+.inventory-badge-short {
+  background: oklch(94% 0.05 75);
+  color: oklch(40% 0.15 60);
+}
+.inventory-badge-missing {
+  background: var(--error-soft);
+  color: var(--error);
+}
+.inventory-badge-mismatch {
+  background: oklch(94% 0.02 250);
+  color: oklch(40% 0.10 240);
+}
+
+/* --- Inventory page --------------------------------------------------- */
+
+/* Page header for inventory (and future stockpile-style pages). The
+   description sits beside the title rather than below it so the page
+   reads as a single block without forcing the toolbar far down. */
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin: 0 0 1.5rem;
+  flex-wrap: wrap;
+}
+.page-header h1 {
+  margin: 0 0 0.5rem;
+}
+
+.inventory-toolbar {
+  margin: 0 0 1.25rem;
+}
+
+.inventory-empty {
+  max-width: 32rem;
+  padding: 1rem 1.25rem;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+/* The grouped list reuses .ingredient-card / .ingredient-section /
+   .ingredient-row chrome from the recipe detail page so the brewer
+   reads inventory and recipe ingredients with one visual grammar.
+   The Edit button hides until row hover to keep the resting state
+   clean — the row is a reading surface first, an editor second. */
+.inventory-row {
+  position: relative;
+}
+.inventory-edit-btn {
+  font-size: 0.8125rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.inventory-row:hover .inventory-edit-btn,
+.inventory-row:focus-within .inventory-edit-btn {
+  opacity: 1;
+}
+@media (hover: none) {
+  /* Touch devices have no hover — keep the affordance always visible. */
+  .inventory-edit-btn { opacity: 1; }
+}
+
+.inventory-edit-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-tint);
+}
+.inventory-edit-side {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Add/edit form layout. Two paired rows (kind+name; amount+unit) keep
+   the form scannable on the modal's narrower width. The compact variant
+   used inline drops the outer gap so the row's own padding takes over. */
+.inventory-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.inventory-form-compact {
+  gap: 0.5rem;
+}
+.inventory-form-row {
+  display: flex;
+  gap: 0.5rem;
+}
+.inventory-form-row > select {
+  flex: 0 0 8rem;
+}
+.inventory-form-row > input[type="text"]:not(.inventory-unit-input) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.inventory-amount-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.inventory-unit-input {
+  flex: 0 0 8rem;
+}
+.inventory-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
 /* --- Motion respect ---------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {

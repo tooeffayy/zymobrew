@@ -496,6 +496,18 @@ type Follow struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
+type InventoryItem struct {
+	ID        uuid.UUID          `json:"id"`
+	UserID    uuid.UUID          `json:"user_id"`
+	Kind      IngredientKind     `json:"kind"`
+	Name      string             `json:"name"`
+	Amount    pgtype.Numeric     `json:"amount"`
+	Unit      pgtype.Text        `json:"unit"`
+	Notes     pgtype.Text        `json:"notes"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Notification struct {
 	ID         uuid.UUID          `json:"id"`
 	UserID     uuid.UUID          `json:"user_id"`

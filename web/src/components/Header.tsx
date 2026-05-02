@@ -33,6 +33,7 @@ export function Header() {
         {state.status === "authed" && (
           <>
             <NavLink to="/batches">Batches</NavLink>
+            <NavLink to="/inventory">Inventory</NavLink>
             <NavLink to="/notifications" className="nav-notifications" aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}>
               Notifications
               {unread > 0 && (
