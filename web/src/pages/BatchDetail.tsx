@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { Fragment, FormEvent, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -6,6 +6,7 @@ import {
   Batch,
   BatchEvent,
   BatchEventPage,
+  BatchStage,
   EventKind,
   Reading,
   ReadingPage,
@@ -123,7 +124,6 @@ export function BatchDetail() {
       <header className="recipe-header">
         <div className="recipe-header-meta">
           <span className={`pill pill-${batch.brew_type}`}>{batch.brew_type}</span>
-          <span className={`stage stage-${batch.stage}`}>{batch.stage}</span>
           {batch.started_at && (
             <span className="muted">Started {fmtDate(batch.started_at)}</span>
           )}
@@ -136,6 +136,7 @@ export function BatchDetail() {
         </div>
         <h1>{batch.name}</h1>
         {batch.notes && <p className="recipe-detail-desc">{batch.notes}</p>}
+        <StageStepper stage={batch.stage} />
       </header>
 
       <div className="recipe-actions">
@@ -180,6 +181,57 @@ export function BatchDetail() {
         refetch={refetch}
       />
     </div>
+  );
+}
+
+// --- Stage stepper -------------------------------------------------------
+
+// Linear lifecycle. `archived` sits outside the flow — it isn't a stage
+// you progress through, it's a sidelined state — so the stepper collapses
+// to a single pill in that case.
+const STAGE_FLOW: Array<{ key: BatchStage; label: string }> = [
+  { key: "planning",  label: "Planning" },
+  { key: "primary",   label: "Primary" },
+  { key: "secondary", label: "Secondary" },
+  { key: "aging",     label: "Aging" },
+  { key: "bottled",   label: "Bottled" },
+];
+
+function StageStepper({ stage }: { stage: BatchStage }) {
+  if (stage === "archived") {
+    return (
+      <div className="stage-stepper stage-stepper-archived">
+        <span className="stage-stepper-archived-label">Archived</span>
+      </div>
+    );
+  }
+  const idx = STAGE_FLOW.findIndex((s) => s.key === stage);
+  return (
+    <ol
+      className={`stage-stepper stage-stepper-${stage}`}
+      aria-label={`Lifecycle: ${STAGE_FLOW[idx]?.label ?? stage}`}
+    >
+      {STAGE_FLOW.map((s, i) => {
+        const state = i < idx ? "past" : i === idx ? "current" : "future";
+        return (
+          <Fragment key={s.key}>
+            {i > 0 && (
+              <span
+                className={`stage-stepper-line stage-stepper-line-${i <= idx ? "past" : "future"}`}
+                aria-hidden="true"
+              />
+            )}
+            <li
+              className={`stage-stepper-node stage-stepper-node-${state}`}
+              aria-current={state === "current" ? "step" : undefined}
+            >
+              <span className="stage-stepper-dot" aria-hidden="true" />
+              <span className="stage-stepper-label">{s.label}</span>
+            </li>
+          </Fragment>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -543,8 +595,15 @@ function LogEventForm({
     setBusy(true);
     try {
       const body: Record<string, unknown> = { kind };
+      // If the user accepted the prefilled "now" without editing it, omit
+      // occurred_at so the server can stamp it with full ms precision.
+      // The form's time input is HH:mm (minute precision), which means two
+      // events logged in the same minute would otherwise collide and the
+      // journal's secondary sort (random UUID) would mis-order them.
       const iso = combineDateTime(occurredDate, occurredTime);
-      if (iso) body.occurred_at = iso;
+      if (iso && !isNowToTheMinute(occurredDate, occurredTime)) {
+        body.occurred_at = iso;
+      }
       if (description.trim()) body.description = description.trim();
       await api.post(`/api/batches/${encodeURIComponent(batchID)}/events`, body);
       setDescription("");
@@ -1039,8 +1098,13 @@ function LogReadingForm({
     setBusy(true);
     try {
       const body: Record<string, unknown> = {};
+      // Same precision trick as LogEventForm: omit taken_at when the user
+      // accepted the prefilled "now" so the server stamps full ms precision
+      // and rapid-fire readings don't share an occurred_at to the minute.
       const iso = combineDateTime(takenDate, takenTime);
-      if (iso) body.taken_at = iso;
+      if (iso && !isNowToTheMinute(takenDate, takenTime)) {
+        body.taken_at = iso;
+      }
       const g = parseNum(gravity);
       const t = parseNum(temp);
       const p = parseNum(ph);
@@ -1387,6 +1451,19 @@ function toTimeInput(d: Date): string {
   if (Number.isNaN(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// True when the form's date+time fields still match wall-clock now to the
+// minute — i.e. the user hasn't edited the prefilled timestamp. Callers
+// use this to decide whether to send occurred_at / taken_at at all: the
+// HH:mm input only carries minute precision, so two events submitted in
+// the same minute would tie on occurred_at and the journal's secondary
+// sort (random UUID) would put them in arbitrary order. By omitting the
+// field on the "accepted default" path, we let the server stamp full ms
+// precision and rapid-fire log entries stay in chronological order.
+function isNowToTheMinute(date: string, time: string): boolean {
+  const now = new Date();
+  return date === toDateInput(now) && time === toTimeInput(now);
 }
 
 // Combine the two field values back to RFC3339 (with the offset baked

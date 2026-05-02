@@ -190,3 +190,93 @@ func TestEvents_UpdateAndDelete(t *testing.T) {
 		t.Fatalf("delete after delete: got %d, want 404", resp.StatusCode)
 	}
 }
+
+// TestEvents_AutoAdvanceStage covers the implicit stage transitions wired
+// into handleCreateBatchEvent + handleUpdateBatchEvent: pitch → primary,
+// rack → secondary, bottle → bottled. The transition is forward-only —
+// a stale "pitch" logged after racking should not roll the batch back.
+func TestEvents_AutoAdvanceStage(t *testing.T) {
+	srv, _ := setupAuth(t, config.ModeOpen)
+	cookies := registerHelper(t, srv, "alice")
+
+	getStage := func(t *testing.T, id string) string {
+		t.Helper()
+		r := doJSON(t, srv, http.MethodGet, "/api/batches/"+id, nil, cookies...)
+		if r.StatusCode != http.StatusOK {
+			t.Fatalf("get batch: got %d", r.StatusCode)
+		}
+		stage, _ := decodeMap(t, r)["stage"].(string)
+		return stage
+	}
+
+	// Create a fresh batch — defaults to "planning".
+	resp := doJSON(t, srv, http.MethodPost, "/api/batches", map[string]any{"name": "Spring Mead"}, cookies...)
+	id, _ := decodeMap(t, resp)["id"].(string)
+	if got := getStage(t, id); got != "planning" {
+		t.Fatalf("initial stage: want planning, got %q", got)
+	}
+
+	// pitch → primary
+	resp = doJSON(t, srv, http.MethodPost, "/api/batches/"+id+"/events", map[string]any{"kind": "pitch"}, cookies...)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("pitch event: got %d", resp.StatusCode)
+	}
+	if got := getStage(t, id); got != "primary" {
+		t.Fatalf("after pitch: want primary, got %q", got)
+	}
+
+	// rack → secondary
+	resp = doJSON(t, srv, http.MethodPost, "/api/batches/"+id+"/events", map[string]any{"kind": "rack"}, cookies...)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("rack event: got %d", resp.StatusCode)
+	}
+	if got := getStage(t, id); got != "secondary" {
+		t.Fatalf("after rack: want secondary, got %q", got)
+	}
+
+	// A second (stale) pitch event must not roll the batch backwards.
+	resp = doJSON(t, srv, http.MethodPost, "/api/batches/"+id+"/events", map[string]any{"kind": "pitch"}, cookies...)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("late pitch: got %d", resp.StatusCode)
+	}
+	if got := getStage(t, id); got != "secondary" {
+		t.Fatalf("after late pitch: want secondary (no rollback), got %q", got)
+	}
+
+	// bottle → bottled, and bottled_at is stamped.
+	resp = doJSON(t, srv, http.MethodPost, "/api/batches/"+id+"/events", map[string]any{"kind": "bottle"}, cookies...)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("bottle event: got %d", resp.StatusCode)
+	}
+	r := doJSON(t, srv, http.MethodGet, "/api/batches/"+id, nil, cookies...)
+	bottled := decodeMap(t, r)
+	if bottled["stage"] != "bottled" {
+		t.Fatalf("after bottle: want bottled, got %q", bottled["stage"])
+	}
+	if _, ok := bottled["bottled_at"].(string); !ok {
+		t.Fatalf("bottled_at not stamped: %+v", bottled)
+	}
+
+	// Non-stage-advancing events leave the stage alone.
+	resp = doJSON(t, srv, http.MethodPost, "/api/batches/"+id+"/events", map[string]any{"kind": "note", "description": "tastes great"}, cookies...)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("note event: got %d", resp.StatusCode)
+	}
+	if got := getStage(t, id); got != "bottled" {
+		t.Fatalf("after note: want bottled, got %q", got)
+	}
+
+	// Editing a "note" into a "rack" on a bottled batch must also not roll back.
+	resp = doJSON(t, srv, http.MethodPost, "/api/batches/"+id+"/events", map[string]any{"kind": "note"}, cookies...)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("note for edit: got %d", resp.StatusCode)
+	}
+	noteID, _ := decodeMap(t, resp)["id"].(string)
+	resp = doJSON(t, srv, http.MethodPatch, "/api/batches/"+id+"/events/"+noteID, map[string]any{"kind": "rack"}, cookies...)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch to rack: got %d", resp.StatusCode)
+	}
+	if got := getStage(t, id); got != "bottled" {
+		t.Fatalf("after edit-to-rack: want bottled (no rollback), got %q", got)
+	}
+}

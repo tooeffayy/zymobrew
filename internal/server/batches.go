@@ -659,6 +659,52 @@ func (s *Server) materializeTemplates(ctx context.Context, batch queries.Batch, 
 	})
 }
 
+// stageRank orders the lifecycle so auto-advancement only moves forward.
+// Pitching mid-aging won't bounce a batch back to primary; bottling on a
+// batch already bottled is a no-op. Archived sits at the end so nothing
+// ever auto-advances out of it.
+var stageRank = map[queries.BatchStage]int{
+	queries.BatchStagePlanning:  0,
+	queries.BatchStagePrimary:   1,
+	queries.BatchStageSecondary: 2,
+	queries.BatchStageAging:     3,
+	queries.BatchStageBottled:   4,
+	queries.BatchStageArchived:  5,
+}
+
+// stageForEvent maps stage-advancing event kinds to the stage they signal.
+// Pitching starts primary fermentation; racking moves off the lees into
+// secondary; bottling closes the active window.
+var stageForEvent = map[queries.EventKind]queries.BatchStage{
+	queries.EventKindPitch:  queries.BatchStagePrimary,
+	queries.EventKindRack:   queries.BatchStageSecondary,
+	queries.EventKindBottle: queries.BatchStageBottled,
+}
+
+// maybeAdvanceStage moves the batch forward when a freshly-recorded event
+// signals a later stage than the batch currently sits in. Bottling also
+// stamps bottled_at so the header chip and exports reflect the moment the
+// brewer actually packaged the batch. Best-effort and non-blocking — same
+// posture as materializeTemplates.
+func (s *Server) maybeAdvanceStage(ctx context.Context, batch queries.Batch, kind queries.EventKind, occurredAt time.Time) {
+	target, ok := stageForEvent[kind]
+	if !ok {
+		return
+	}
+	if stageRank[target] <= stageRank[batch.Stage] {
+		return
+	}
+	params := queries.UpdateBatchParams{
+		ID:       batch.ID,
+		BrewerID: batch.BrewerID,
+		Stage:    queries.NullBatchStage{BatchStage: target, Valid: true},
+	}
+	if target == queries.BatchStageBottled {
+		params.BottledAt = pgtype.Timestamptz{Time: occurredAt, Valid: true}
+	}
+	_, _ = s.queries.UpdateBatch(ctx, params)
+}
+
 // --- event handlers -------------------------------------------------------
 
 type createEventRequest struct {
@@ -765,6 +811,7 @@ func (s *Server) handleCreateBatchEvent(w http.ResponseWriter, r *http.Request) 
 	if anchor, ok := anchorForKind[event.Kind]; ok && batch.RecipeID.Valid {
 		s.materializeTemplates(r.Context(), batch, anchor, event.OccurredAt.Time)
 	}
+	s.maybeAdvanceStage(r.Context(), batch, event.Kind, event.OccurredAt.Time)
 
 	writeJSON(w, http.StatusCreated, toEventView(event))
 }
@@ -885,6 +932,7 @@ func (s *Server) handleUpdateBatchEvent(w http.ResponseWriter, r *http.Request) 
 	if anchor, ok := anchorForKind[event.Kind]; ok && batch.RecipeID.Valid {
 		s.materializeTemplates(r.Context(), batch, anchor, event.OccurredAt.Time)
 	}
+	s.maybeAdvanceStage(r.Context(), batch, event.Kind, event.OccurredAt.Time)
 
 	writeJSON(w, http.StatusOK, toEventView(event))
 }

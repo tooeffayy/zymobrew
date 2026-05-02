@@ -939,6 +939,137 @@ dd {
   color: var(--muted);
 }
 
+/* --- Stage stepper ----------------------------------------------------
+   Promotes the batch's lifecycle position from a meta-row pill into a
+   first-class header element. Five linear stages (planning → primary →
+   secondary → aging → bottled); archived is a sidelined state, not a
+   step in the flow, so it collapses to a single label. The current node
+   takes the per-stage hue so the stepper inherits the same color story
+   as the old pill. */
+.stage-stepper {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0;
+  --stepper-fill: var(--fg-soft);
+}
+.stage-stepper-planning  { --stepper-fill: var(--fg-soft); }
+.stage-stepper-primary   { --stepper-fill: oklch(40% 0.13 55); }
+.stage-stepper-secondary { --stepper-fill: oklch(40% 0.13 85); }
+.stage-stepper-aging     { --stepper-fill: oklch(38% 0.10 130); }
+.stage-stepper-bottled   { --stepper-fill: oklch(38% 0.10 210); }
+
+.stage-stepper-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.stage-stepper-dot {
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 999px;
+  border: 1.5px solid currentColor;
+  background: transparent;
+  flex: 0 0 auto;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.stage-stepper-line {
+  display: inline-block;
+  flex: 1 1 1.5rem;
+  min-width: 1.25rem;
+  max-width: 3.5rem;
+  height: 1.5px;
+  margin: 0 0.4rem;
+  background: var(--line);
+}
+
+/* Past stages: solid dot in the lifecycle color, slightly muted label so
+   the eye lands on the current node, not the trailing history. */
+.stage-stepper-node-past {
+  color: var(--stepper-fill);
+}
+.stage-stepper-node-past .stage-stepper-dot {
+  background: currentColor;
+}
+.stage-stepper-node-past .stage-stepper-label {
+  opacity: 0.7;
+}
+.stage-stepper-line-past {
+  background: var(--stepper-fill);
+  opacity: 0.7;
+}
+
+/* Current stage: scaled dot + filled hue + larger, sentence-case label
+   sets it apart from the rest. This is the "you are here" anchor. */
+.stage-stepper-node-current {
+  color: var(--stepper-fill);
+}
+.stage-stepper-node-current .stage-stepper-dot {
+  background: currentColor;
+  width: 0.875rem;
+  height: 0.875rem;
+  box-shadow: 0 0 0 4px color-mix(in oklch, currentColor 18%, transparent);
+}
+.stage-stepper-node-current .stage-stepper-label {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 24, "SOFT" 80;
+}
+
+/* Future stages: hollow dot, muted label. */
+.stage-stepper-node-future {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+/* Archived collapses the stepper to a single labeled chip — explicit
+   "this batch is set aside" rather than a phantom step at the end. */
+.stage-stepper-archived {
+  margin: 1.25rem 0 0;
+}
+.stage-stepper-archived-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.3125rem 0.75rem;
+  border-radius: 999px;
+  background: oklch(92% 0.005 70);
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 24, "SOFT" 80;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+.stage-stepper-archived-label::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+@media (max-width: 30rem) {
+  .stage-stepper-line { max-width: 1.5rem; margin: 0 0.25rem; }
+  .stage-stepper-node-current .stage-stepper-label { font-size: 0.875rem; }
+}
+
 /* --- Pinned recipe notice (BatchCreate) ------------------------------- */
 
 .pinned-recipe {
