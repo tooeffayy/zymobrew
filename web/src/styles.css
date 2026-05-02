@@ -1221,11 +1221,33 @@ dd {
 .log-reading-form {
   display: grid;
   gap: 0.5rem;
-  margin: 0.75rem 0 1.25rem;
-  padding: 1rem;
-  background: var(--surface-2);
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
+  margin: 0;
+}
+
+/* Inside the modal the form has no need for the inline-style box —
+   the modal's own surface provides visual separation. The grid is
+   restructured for the narrower modal width: date+time stretches across
+   the top, gravity/temp/pH share a row 3-up, notes spans wide, and the
+   submit button sits right-aligned in its own row. */
+.modal-body .log-reading-form {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  gap: 0.75rem;
+}
+
+.modal-body .log-reading-row {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.modal-body .log-reading-row .datetime-pair {
+  grid-column: 1 / -1;
+}
+
+.log-reading-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
 }
 
 /* Five-up grid: when, gravity, temp, pH, submit. Drops to 2-up on
@@ -1298,32 +1320,136 @@ dd {
   background: var(--accent-soft);
 }
 
-/* Toolbar above the table — stays in the section's normal flow but
-   reserves its space *unconditionally* (`bulk-toolbar-empty` makes it
-   invisible without removing it from layout). Without this, the table
-   would shift down the moment a row was selected, hiding the row the
-   user just clicked. */
+/* Toolbar above the readings table — always present so the table
+   position is stable across selection states. The "resting" variant
+   (no selection) reads as a quiet utility row with just the Add
+   button; when items are selected the bar fills in with bulk actions
+   to the right of a divider. */
 .bulk-toolbar {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
-  margin: 0.5rem 0;
-  background: var(--accent-soft);
-  border: 1px solid oklch(88% 0.04 75);
+  margin: 0.75rem 0 0.5rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
   border-radius: 8px;
   font-size: 0.875rem;
-  transition: opacity 120ms ease;
 }
 
-.bulk-toolbar-empty {
-  /* visibility:hidden (vs display:none) keeps the box in flow so the
-     table position is stable. opacity:0 + transparent border lets the
-     placeholder vanish completely while still occupying its slot. */
-  visibility: hidden;
-  opacity: 0;
-  background: transparent;
-  border-color: transparent;
+/* When a selection is active, lift the bar to the accent palette so
+   the bulk-action mode reads as a distinct state without the table
+   shifting position. */
+.bulk-toolbar:not(.bulk-toolbar-resting) {
+  background: var(--accent-soft);
+  border-color: oklch(88% 0.04 75);
+}
+
+.bulk-toolbar-add {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.bulk-toolbar-divider {
+  width: 1px;
+  height: 1.25rem;
+  background: var(--line);
+}
+
+/* --- Modal (react-aria) ----------------------------------------------- */
+
+/* react-aria-components ModalOverlay = the dimmed backdrop, full
+   viewport. Modal = the dialog container. Dialog = the focus-trapped
+   content region. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: oklch(20% 0.02 60 / 0.4);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  /* react-aria toggles `data-entering`/`data-exiting` so we can fade
+     the overlay without managing the open/close timing ourselves. */
+  animation: modal-overlay-in 120ms ease-out;
+}
+
+.modal-overlay[data-exiting] {
+  animation: modal-overlay-out 100ms ease-in;
+}
+
+@keyframes modal-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes modal-overlay-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+.modal {
+  width: 100%;
+  max-width: 38rem;
+  max-height: calc(100vh - 2rem);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: modal-in 140ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.modal[data-exiting] {
+  animation: modal-out 100ms ease-in;
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+@keyframes modal-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.985); }
+}
+
+.modal-dialog {
+  outline: none;
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.modal-title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  margin: 0 auto 0 0;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+}
+
+.modal-close {
+  /* The ✕ is a single glyph — use a small, square hit area with the
+     muted link-button look so it doesn't compete with the title. */
+  padding: 0.25rem 0.5rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.modal-body {
+  padding: 1rem 1.25rem 1.25rem;
+  overflow-y: auto;
 }
 
 .bulk-toolbar-label {

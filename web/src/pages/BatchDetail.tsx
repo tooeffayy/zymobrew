@@ -14,6 +14,7 @@ import {
   TastingNotePage,
   api,
 } from "../api";
+import { Modal } from "../components/Modal";
 import { ReadingsChart } from "../components/ReadingsChart";
 import { TimeInput } from "../components/TimeInput";
 import { fromCelsius, tempLabel, toCelsius, useTemperatureUnit } from "../units";
@@ -594,6 +595,7 @@ function ReadingsSection({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkErr, setBulkErr] = useState<string | null>(null);
+  const [logOpen, setLogOpen] = useState(false);
 
   // Server returns ascending (chronological); the table renders newest
   // first so a freshly logged reading appears at the top.
@@ -652,21 +654,22 @@ function ReadingsSection({
       {open && (
         <>
           <ReadingsChart readings={readings} events={events} />
-          <LogReadingForm batchID={batchID} onLogged={refetch} />
-          {sorted.length === 0 ? (
-            <p className="muted">No readings yet — log gravity, temperature, or pH above.</p>
-          ) : (
-            <>
-              {/* The toolbar always renders so the table below it doesn't
-                  jump down when a row is selected. When empty, the bar
-                  is visually hidden but reserves its slot — `aria-hidden`
-                  + inert children keep it out of the a11y tree too. */}
-              <div
-                className={`bulk-toolbar${validSelected.size === 0 ? " bulk-toolbar-empty" : ""}`}
-                role="region"
-                aria-label="Bulk actions"
-                aria-hidden={validSelected.size === 0}
-              >
+          {/* Toolbar is always present — left side hosts "+ Add reading"
+              (the entry point for new readings, replacing the inline
+              form), right side hosts bulk actions when something is
+              selected. Single anchor row above the table keeps the
+              table position stable across all states. */}
+          <div className="bulk-toolbar bulk-toolbar-resting">
+            <button
+              type="button"
+              className="link-button bulk-toolbar-add"
+              onClick={() => setLogOpen(true)}
+            >
+              + Add reading
+            </button>
+            {validSelected.size > 0 && (
+              <>
+                <span className="bulk-toolbar-divider" aria-hidden="true" />
                 <span className="bulk-toolbar-label">
                   {validSelected.size} selected
                 </span>
@@ -674,8 +677,7 @@ function ReadingsSection({
                   type="button"
                   className="link-button event-delete"
                   onClick={onBulkDelete}
-                  disabled={bulkBusy || validSelected.size === 0}
-                  tabIndex={validSelected.size === 0 ? -1 : 0}
+                  disabled={bulkBusy}
                 >
                   {bulkBusy ? "Deleting…" : "Delete selected"}
                 </button>
@@ -683,13 +685,18 @@ function ReadingsSection({
                   type="button"
                   className="link-button"
                   onClick={() => setSelected(new Set())}
-                  disabled={bulkBusy || validSelected.size === 0}
-                  tabIndex={validSelected.size === 0 ? -1 : 0}
+                  disabled={bulkBusy}
                 >
                   Clear
                 </button>
                 {bulkErr && <span className="error bulk-toolbar-error">{bulkErr}</span>}
-              </div>
+              </>
+            )}
+          </div>
+          {sorted.length === 0 ? (
+            <p className="muted">No readings yet — click <em>+ Add reading</em> above to log gravity, temperature, or pH.</p>
+          ) : (
+            <>
               <table className="readings-table">
                 <colgroup>
                   <col className="col-check" />
@@ -738,6 +745,21 @@ function ReadingsSection({
               </table>
             </>
           )}
+          <Modal
+            isOpen={logOpen}
+            onOpenChange={setLogOpen}
+            title="Log a reading"
+          >
+            {(close) => (
+              <LogReadingForm
+                batchID={batchID}
+                onLogged={async () => {
+                  await refetch();
+                  close();
+                }}
+              />
+            )}
+          </Modal>
         </>
       )}
     </section>
@@ -1064,9 +1086,6 @@ function LogReadingForm({
           placeholder="pH"
           aria-label="pH"
         />
-        <button type="submit" disabled={busy || !hasAny}>
-          {busy ? "Logging…" : "Log reading"}
-        </button>
       </div>
       <input
         type="text"
@@ -1077,6 +1096,11 @@ function LogReadingForm({
         aria-label="Notes"
       />
       {err && <p className="error">{err}</p>}
+      <div className="log-reading-actions">
+        <button type="submit" disabled={busy || !hasAny}>
+          {busy ? "Logging…" : "Log reading"}
+        </button>
+      </div>
     </form>
   );
 }
