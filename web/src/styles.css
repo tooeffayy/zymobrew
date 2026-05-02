@@ -44,7 +44,9 @@
   --shadow: 0 4px 12px oklch(20% 0.02 60 / 0.05), 0 2px 4px oklch(20% 0.02 60 / 0.04);
   --shadow-lg: 0 12px 32px oklch(20% 0.02 60 / 0.08), 0 4px 12px oklch(20% 0.02 60 / 0.04);
 
-  /* Type */
+  /* Type — body stays a clean humanist sans, display flips to Fraunces
+     so headings + the wordmark carry the warm, brewing-rooted character. */
+  --font-display: "Fraunces", "Iowan Old Style", "Charter", "Georgia", serif;
   font-family:
     "InterVariable", "Inter",
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
@@ -100,9 +102,11 @@ body {
 }
 
 .brand {
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 18, "SOFT" 100;
   font-weight: 700;
-  font-size: 1.0625rem;
-  letter-spacing: -0.015em;
+  font-size: 1.1875rem;
+  letter-spacing: -0.02em;
   color: var(--fg);
   text-decoration: none;
 }
@@ -180,7 +184,13 @@ body {
 h1,
 h2,
 h3 {
-  letter-spacing: -0.018em;
+  font-family: var(--font-display);
+  /* Fraunces axes — SOFT warms the terminals; opsz scales design contrast
+     up at display sizes. Pinned per-element (smaller opsz on subheads) so
+     section headings don't read as oversized as h1. */
+  font-variation-settings: "opsz" 96, "SOFT" 50;
+  font-weight: 600;
+  letter-spacing: -0.022em;
   color: var(--fg);
   margin: 0 0 0.75rem;
 }
@@ -881,6 +891,22 @@ dd {
   letter-spacing: 0.06em;
   background: oklch(94% 0.005 70);
   color: var(--fg-soft);
+}
+
+/* Status-dot motif. The wordmark dot was a one-off; same idea applied
+   to status/kind pills makes it a system you read across the app.
+   currentColor picks up each pill's per-state hue automatically. */
+.stage::before,
+.event-kind::before {
+  content: "";
+  display: inline-block;
+  width: 0.375rem;
+  height: 0.375rem;
+  margin-right: 0.4em;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.85;
+  flex: 0 0 auto;
 }
 
 .stage-planning {
