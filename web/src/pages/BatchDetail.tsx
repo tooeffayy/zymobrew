@@ -314,13 +314,22 @@ function EventsSection({
   // Single id at a time — opening a different row's edit closes the
   // previous one. Avoids two open editors fighting over the same data.
   const [editingID, setEditingID] = useState<string | null>(null);
+  const [logOpen, setLogOpen] = useState(false);
 
   return (
     <section className="recipe-section">
       <h2>Journal</h2>
-      <LogEventForm batchID={batchID} onLogged={refetch} />
+      <div className="bulk-toolbar bulk-toolbar-resting">
+        <button
+          type="button"
+          className="link-button bulk-toolbar-add"
+          onClick={() => setLogOpen(true)}
+        >
+          + Add entry
+        </button>
+      </div>
       {sorted.length === 0 ? (
-        <p className="muted">No events yet — log pitch / rack / bottle as you go.</p>
+        <p className="muted">No events yet — click <em>+ Add entry</em> above to log pitch / rack / bottle as you go.</p>
       ) : (
         <ul className="event-list">
           {sorted.map((e) => (
@@ -340,6 +349,21 @@ function EventsSection({
           ))}
         </ul>
       )}
+      <Modal
+        isOpen={logOpen}
+        onOpenChange={setLogOpen}
+        title="Log a journal entry"
+      >
+        {(close) => (
+          <LogEventForm
+            batchID={batchID}
+            onLogged={async () => {
+              await refetch();
+              close();
+            }}
+          />
+        )}
+      </Modal>
     </section>
   );
 }

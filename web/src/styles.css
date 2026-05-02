@@ -1053,6 +1053,22 @@ dd {
   margin: 0;
 }
 
+/* Inside the modal the form drops its inline box-style chrome — the
+   modal's own surface provides separation. The kind selector relaxes
+   from its fixed 11rem so it shares the row evenly with date + time on
+   the narrower modal width. */
+.modal-body .log-event-form {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin-bottom: 0;
+  gap: 0.75rem;
+}
+
+.modal-body .log-event-row>select {
+  flex: 1 1 8rem;
+}
+
 .event-list {
   list-style: none;
   padding: 0;
