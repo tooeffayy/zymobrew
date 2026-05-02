@@ -157,13 +157,16 @@ func TestInventory_RequireAuth(t *testing.T) {
 
 // TestInventory_RecipeMatch covers the per-recipe match endpoint —
 // the user-facing "do I have what this recipe needs" lookup. Exercises
-// every status (have/short/missing) plus the unit_mismatch hint, against
-// a recipe with multiple ingredients.
+// every status (have/short/missing) plus the unit_mismatch hint and
+// the unit-conversion paths added in the conversion patch:
+//   - cross-unit have via conversion (recipe g, inventory oz)
+//   - sum across multiple inventory rows in different compatible units
+//   - true unit_mismatch (recipe asks mass, inventory holds count units)
+//   - inventory amount NULL → "have, quantity unknown"
 func TestInventory_RecipeMatch(t *testing.T) {
 	srv, _ := setupAuth(t, config.ModeOpen)
 	cookies := registerHelper(t, srv, "alice")
 
-	// Build a recipe with four ingredients to exercise each match outcome.
 	resp := doJSON(t, srv, http.MethodPost, "/api/recipes", map[string]any{
 		"name":      "Mead Test",
 		"brew_type": "mead",
@@ -172,6 +175,9 @@ func TestInventory_RecipeMatch(t *testing.T) {
 			{"kind": "yeast", "name": "K1-V1116", "amount": 5.0, "unit": "g", "sort_order": 1},
 			{"kind": "spice", "name": "Cinnamon", "amount": 1.0, "unit": "stick", "sort_order": 2},
 			{"kind": "fruit", "name": "Orange Zest", "amount": 30.0, "unit": "g", "sort_order": 3},
+			{"kind": "honey", "name": "Clover", "amount": 1500.0, "unit": "g", "sort_order": 4},
+			{"kind": "spice", "name": "Star Anise", "amount": 5.0, "unit": "g", "sort_order": 5},
+			{"kind": "nutrient", "name": "Fermaid-O", "amount": 2.0, "unit": "g", "sort_order": 6},
 		},
 	}, cookies...)
 	if resp.StatusCode != http.StatusCreated {
@@ -179,12 +185,25 @@ func TestInventory_RecipeMatch(t *testing.T) {
 	}
 	recipeID, _ := decodeMap(t, resp)["id"].(string)
 
-	// Inventory: 5 lb wildflower (have), 2 g K1-V1116 (short), no cinnamon
-	// (missing), 30 OZ orange zest (unit_mismatch — recipe wants grams).
+	// Inventory layout exercising each path:
+	//   wildflower    — 5 lb (have, exact-unit match)
+	//   K1-V1116      — 2 g  (short by 3 g)
+	//   cinnamon      — none (missing)
+	//   orange zest   — 30 oz (have via oz→g conversion: ~850 g >> 30 g)
+	//   clover honey  — 1 lb + 600 g (have via cross-unit sum: 453.6 + 600
+	//                                = 1053 g, short by ~447 g — actually
+	//                                short, so this exercises sum-then-short)
+	//   star anise    — 2 sticks (true unit_mismatch — recipe wants g,
+	//                              inventory only in count units)
+	//   Fermaid-O     — quantity unknown (NULL amount → have)
 	for _, item := range []map[string]any{
 		{"kind": "honey", "name": "wildflower", "amount": 5.0, "unit": "lb"}, // case-insensitive name match
 		{"kind": "yeast", "name": "K1-V1116", "amount": 2.0, "unit": "g"},
 		{"kind": "fruit", "name": "Orange Zest", "amount": 30.0, "unit": "oz"},
+		{"kind": "honey", "name": "Clover", "amount": 1.0, "unit": "lb"},
+		{"kind": "honey", "name": "Clover", "amount": 600.0, "unit": "g"},
+		{"kind": "spice", "name": "Star Anise", "amount": 2.0, "unit": "stick"},
+		{"kind": "nutrient", "name": "Fermaid-O"}, // no amount, no unit
 	} {
 		r := doJSON(t, srv, http.MethodPost, "/api/inventory", item, cookies...)
 		if r.StatusCode != http.StatusCreated {
@@ -198,8 +217,8 @@ func TestInventory_RecipeMatch(t *testing.T) {
 	}
 	body := decodeMap(t, resp)
 	itemsAny, _ := body["items"].([]any)
-	if len(itemsAny) != 4 {
-		t.Fatalf("expected 4 match rows, got %d", len(itemsAny))
+	if len(itemsAny) != 7 {
+		t.Fatalf("expected 7 match rows, got %d", len(itemsAny))
 	}
 
 	byName := map[string]map[string]any{}
@@ -209,7 +228,7 @@ func TestInventory_RecipeMatch(t *testing.T) {
 		byName[name] = m
 	}
 
-	// have: wildflower honey (case-insensitive name match)
+	// Wildflower honey: have via exact-unit match
 	if byName["Wildflower"]["status"] != "have" {
 		t.Errorf("Wildflower: want have, got %v", byName["Wildflower"]["status"])
 	}
@@ -217,7 +236,7 @@ func TestInventory_RecipeMatch(t *testing.T) {
 		t.Errorf("Wildflower: shortfall should be omitted on have")
 	}
 
-	// short: K1-V1116, shortfall = 5g - 2g = 3g
+	// K1-V1116: short by 3 g
 	if byName["K1-V1116"]["status"] != "short" {
 		t.Errorf("K1-V1116: want short, got %v", byName["K1-V1116"]["status"])
 	}
@@ -225,17 +244,52 @@ func TestInventory_RecipeMatch(t *testing.T) {
 		t.Errorf("K1-V1116 shortfall: want 3, got %v", byName["K1-V1116"]["shortfall"])
 	}
 
-	// missing: cinnamon
+	// Cinnamon: missing
 	if byName["Cinnamon"]["status"] != "missing" {
 		t.Errorf("Cinnamon: want missing, got %v", byName["Cinnamon"]["status"])
 	}
-
-	// missing + unit_mismatch: orange zest (recipe g, inventory oz)
-	if byName["Orange Zest"]["status"] != "missing" {
-		t.Errorf("Orange Zest: want missing, got %v", byName["Orange Zest"]["status"])
+	if mm, _ := byName["Cinnamon"]["unit_mismatch"].(bool); mm {
+		t.Errorf("Cinnamon: unit_mismatch should be false (no inventory at all)")
 	}
-	if mm, _ := byName["Orange Zest"]["unit_mismatch"].(bool); !mm {
-		t.Errorf("Orange Zest: unit_mismatch should be true (have oz, recipe wants g)")
+
+	// Orange Zest: HAVE via oz → g conversion (30 oz ≈ 850 g >> 30 g)
+	if byName["Orange Zest"]["status"] != "have" {
+		t.Errorf("Orange Zest: want have (cross-unit conversion), got %v", byName["Orange Zest"]["status"])
+	}
+	if mm, _ := byName["Orange Zest"]["unit_mismatch"].(bool); mm {
+		t.Errorf("Orange Zest: unit_mismatch should be false now that oz→g converts")
+	}
+	if invAmt, _ := byName["Orange Zest"]["inventory_amount"].(float64); invAmt < 800 || invAmt > 900 {
+		t.Errorf("Orange Zest inventory_amount (in g): want ~850, got %v", invAmt)
+	}
+
+	// Clover honey: 1 lb + 600 g = ~1053.6 g, recipe wants 1500 g → SHORT by ~446 g
+	if byName["Clover"]["status"] != "short" {
+		t.Errorf("Clover: want short (cross-unit sum), got %v", byName["Clover"]["status"])
+	}
+	invAmt, _ := byName["Clover"]["inventory_amount"].(float64)
+	if invAmt < 1050 || invAmt > 1060 {
+		t.Errorf("Clover inventory_amount (sum in g): want ~1053.6, got %v", invAmt)
+	}
+	gap, _ := byName["Clover"]["shortfall"].(float64)
+	if gap < 440 || gap > 450 {
+		t.Errorf("Clover shortfall (in g): want ~446.4, got %v", gap)
+	}
+
+	// Star Anise: missing + unit_mismatch (recipe g, inventory only in stick)
+	if byName["Star Anise"]["status"] != "missing" {
+		t.Errorf("Star Anise: want missing, got %v", byName["Star Anise"]["status"])
+	}
+	if mm, _ := byName["Star Anise"]["unit_mismatch"].(bool); !mm {
+		t.Errorf("Star Anise: unit_mismatch should be true (recipe g, inventory stick)")
+	}
+
+	// Fermaid-O: have, quantity unknown
+	if byName["Fermaid-O"]["status"] != "have" {
+		t.Errorf("Fermaid-O: want have (NULL inventory amount), got %v", byName["Fermaid-O"]["status"])
+	}
+	if _, ok := byName["Fermaid-O"]["inventory_amount"]; ok {
+		t.Errorf("Fermaid-O: inventory_amount should be omitted (we couldn't measure)")
 	}
 }
 

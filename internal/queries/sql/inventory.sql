@@ -37,34 +37,29 @@ DELETE FROM inventory_items WHERE id = $1 AND user_id = $2;
 DELETE FROM inventory_items WHERE user_id = $1;
 
 -- name: MatchInventoryForRecipe :many
--- Returns one row per recipe ingredient with the matching inventory
--- item joined in (NULL inventory cols mean "missing"). Match is strict:
--- same kind, case-insensitive name, same unit (or both NULL). Unit
--- conversion is deferred — the handler reports a "unit mismatch" hint
--- separately when names match but units don't.
+-- Returns recipe ingredients joined with every inventory row that matches
+-- on kind + case-insensitive name. Unit equality is intentionally NOT in
+-- the join — the Go handler converts compatible-unit rows to the recipe's
+-- unit (calc.Convert) and aggregates them, so a brewer with 800g + 200g
+-- of the same honey reads as 1kg even when those land in two rows.
+--
+-- The result has multiple rows per ingredient when inventory carries the
+-- ingredient in several units; ingredients with no matches still appear
+-- (LEFT JOIN, NULL inventory cols).
 SELECT
   ri.id            AS ingredient_id,
   ri.kind          AS ingredient_kind,
   ri.name          AS ingredient_name,
   ri.amount        AS ingredient_amount,
   ri.unit          AS ingredient_unit,
+  ri.sort_order    AS ingredient_sort_order,
   inv.id           AS inventory_id,
   inv.amount       AS inventory_amount,
-  inv.unit         AS inventory_unit,
-  -- Separately surface the "name matches but unit doesn't" case so the
-  -- UI can flag a unit mismatch instead of silently calling it missing.
-  EXISTS (
-    SELECT 1 FROM inventory_items inv2
-    WHERE inv2.user_id = sqlc.arg('user_id')
-      AND inv2.kind = ri.kind
-      AND lower(inv2.name) = lower(ri.name)
-      AND inv2.unit IS DISTINCT FROM ri.unit
-  ) AS has_unit_mismatch
+  inv.unit         AS inventory_unit
 FROM recipe_ingredients ri
 LEFT JOIN inventory_items inv
   ON inv.user_id = sqlc.arg('user_id')
  AND inv.kind = ri.kind
  AND lower(inv.name) = lower(ri.name)
- AND inv.unit IS NOT DISTINCT FROM ri.unit
 WHERE ri.recipe_id = sqlc.arg('recipe_id')
-ORDER BY ri.sort_order ASC, ri.id ASC;
+ORDER BY ri.sort_order ASC, ri.id ASC, inv.created_at ASC;

@@ -320,7 +320,7 @@ function InventoryBadge({ match }: { match: InventoryMatch }) {
     return (
       <span
         className="inventory-badge inventory-badge-mismatch"
-        title="You have this kind on hand in a different unit — strict match can't tell if you have enough."
+        title="You have this kind on hand, but only in an incompatible unit (e.g. recipe wants grams, inventory has 'sticks'). Convert by hand or add a row in a compatible unit."
       >
         unit mismatch
       </span>

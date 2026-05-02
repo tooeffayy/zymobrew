@@ -146,11 +146,15 @@ type Querier interface {
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID) error
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) (int64, error)
-	// Returns one row per recipe ingredient with the matching inventory
-	// item joined in (NULL inventory cols mean "missing"). Match is strict:
-	// same kind, case-insensitive name, same unit (or both NULL). Unit
-	// conversion is deferred — the handler reports a "unit mismatch" hint
-	// separately when names match but units don't.
+	// Returns recipe ingredients joined with every inventory row that matches
+	// on kind + case-insensitive name. Unit equality is intentionally NOT in
+	// the join — the Go handler converts compatible-unit rows to the recipe's
+	// unit (calc.Convert) and aggregates them, so a brewer with 800g + 200g
+	// of the same honey reads as 1kg even when those land in two rows.
+	//
+	// The result has multiple rows per ingredient when inventory carries the
+	// ingredient in several units; ingredients with no matches still appear
+	// (LEFT JOIN, NULL inventory cols).
 	MatchInventoryForRecipe(ctx context.Context, arg MatchInventoryForRecipeParams) ([]MatchInventoryForRecipeRow, error)
 	MaterializeReminderTemplates(ctx context.Context, arg MaterializeReminderTemplatesParams) error
 	// Shifts fire_at on already-materialized reminders when the anchor moves

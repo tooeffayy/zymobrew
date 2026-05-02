@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"zymobrew/internal/calc"
 	"zymobrew/internal/queries"
 )
 
@@ -234,12 +236,17 @@ func validateInventoryFields(kind, name, unit, notes string) string {
 // inventoryMatchView is the per-ingredient row in a recipe's inventory
 // match. status is one of:
 //
-//	have      — inventory amount >= ingredient amount (or amount is NULL)
-//	short     — inventory exists but amount < ingredient amount
-//	missing   — no inventory row matches (with or without unit_mismatch)
+//	have      — inventory (after unit conversion + aggregation) covers
+//	            the recipe's amount, or the recipe doesn't specify one.
+//	short     — inventory exists in convertible units but the converted
+//	            sum falls below the recipe amount.
+//	missing   — no inventory rows match kind + name, or every match is
+//	            in a non-convertible unit (in which case unit_mismatch
+//	            is true).
 //
-// shortfall is populated only when status == "short" and both amounts
-// are present, expressed in the recipe ingredient's unit (no conversion).
+// inventory_amount is the aggregated total in the recipe's unit when
+// at least one convertible inventory row exists. shortfall is populated
+// only when status == "short" and is also in the recipe's unit.
 type inventoryMatchView struct {
 	IngredientID    string   `json:"ingredient_id"`
 	Kind            string   `json:"kind"`
@@ -286,41 +293,120 @@ func (s *Server) handleRecipeInventoryMatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	views := make([]inventoryMatchView, 0, len(rows))
-	for _, row := range rows {
-		views = append(views, buildInventoryMatchView(row))
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": views})
+	writeJSON(w, http.StatusOK, map[string]any{"items": aggregateInventoryMatch(rows)})
 }
 
-func buildInventoryMatchView(row queries.MatchInventoryForRecipeRow) inventoryMatchView {
-	v := inventoryMatchView{
-		IngredientID: row.IngredientID.String(),
-		Kind:         string(row.IngredientKind),
-		Name:         row.IngredientName,
-		Amount:       numericPtr(row.IngredientAmount),
-		Unit:         textOrEmpty(row.IngredientUnit),
-		UnitMismatch: row.HasUnitMismatch,
+// aggregateInventoryMatch reduces the (ingredient × inventory) row set
+// returned by MatchInventoryForRecipe into one view per recipe ingredient,
+// applying unit conversion + summing across convertible inventory rows.
+//
+// Rules per ingredient:
+//   - No matching inventory rows at all → missing.
+//   - Recipe has no amount → any matching row counts as have.
+//   - Some inventory row has NULL amount → have (we know they have some
+//     of it; can't measure the shortfall, don't pretend to).
+//   - Convert each compatible-unit inventory row into the recipe's unit
+//     and sum. Compare against the recipe amount → have / short.
+//   - When *every* matching row uses an incompatible unit (e.g., recipe
+//     wants "g", inventory has "stick"), there's nothing to sum →
+//     missing + unit_mismatch=true.
+func aggregateInventoryMatch(rows []queries.MatchInventoryForRecipeRow) []inventoryMatchView {
+	// Group rows by ingredient_id, preserving the SQL's ingredient order.
+	type bucket struct {
+		ingredient queries.MatchInventoryForRecipeRow
+		matches    []queries.MatchInventoryForRecipeRow
 	}
-	if !row.InventoryID.Valid {
+	order := []uuid.UUID{}
+	buckets := map[uuid.UUID]*bucket{}
+	for _, row := range rows {
+		b, ok := buckets[row.IngredientID]
+		if !ok {
+			b = &bucket{ingredient: row}
+			buckets[row.IngredientID] = b
+			order = append(order, row.IngredientID)
+		}
+		if row.InventoryID.Valid {
+			b.matches = append(b.matches, row)
+		}
+	}
+
+	views := make([]inventoryMatchView, 0, len(order))
+	for _, id := range order {
+		b := buckets[id]
+		views = append(views, classifyMatch(b.ingredient, b.matches))
+	}
+	return views
+}
+
+func classifyMatch(ingredient queries.MatchInventoryForRecipeRow, matches []queries.MatchInventoryForRecipeRow) inventoryMatchView {
+	v := inventoryMatchView{
+		IngredientID: ingredient.IngredientID.String(),
+		Kind:         string(ingredient.IngredientKind),
+		Name:         ingredient.IngredientName,
+		Amount:       numericPtr(ingredient.IngredientAmount),
+		Unit:         textOrEmpty(ingredient.IngredientUnit),
+	}
+
+	if len(matches) == 0 {
 		v.Status = "missing"
 		return v
 	}
-	v.InventoryID = row.InventoryID.UUID.String()
-	v.InventoryAmount = numericPtr(row.InventoryAmount)
-	// "Have it" semantics:
-	//   - both amounts present → compare; short if inv < req
-	//   - inventory amount missing → assume the brewer has enough (they
-	//     entered the row knowing it was on hand); status = have
-	//   - recipe amount missing → no shortfall to compute; status = have
-	if v.Amount == nil || v.InventoryAmount == nil {
+
+	// Recipe specifies no amount → "I just need some of this." Any
+	// matching kind+name row qualifies. Pick the first match's id so
+	// the UI can deep-link if desired.
+	if v.Amount == nil {
 		v.Status = "have"
+		v.InventoryID = matches[0].InventoryID.UUID.String()
 		return v
 	}
-	if *v.InventoryAmount < *v.Amount {
-		v.Status = "short"
-		gap := *v.Amount - *v.InventoryAmount
+
+	// Walk matches; convert to the recipe's unit when possible. NULL
+	// amounts short-circuit to "have" — we know the brewer has some,
+	// they just didn't measure it.
+	var sum float64
+	convertible := 0
+	for _, m := range matches {
+		invAmt := numericPtr(m.InventoryAmount)
+		if invAmt == nil {
+			v.Status = "have"
+			v.InventoryID = m.InventoryID.UUID.String()
+			return v
+		}
+		converted, ok := calc.Convert(*invAmt, textOrEmpty(m.InventoryUnit), v.Unit)
+		if !ok {
+			continue
+		}
+		sum += converted
+		convertible++
+	}
+
+	if convertible == 0 {
+		// Inventory rows exist but none can be compared in the recipe's
+		// unit — surface the gap so the UI can flag it instead of
+		// silently calling it missing.
+		v.Status = "missing"
+		v.UnitMismatch = true
+		return v
+	}
+
+	v.InventoryAmount = &sum
+	// Use the first convertible match's id as the canonical "this is
+	// what we matched against" pointer. Aggregation across multiple
+	// rows means there isn't one true id; this is good enough for UI
+	// linking and tests assert on it deterministically (server orders
+	// by inv.created_at ASC).
+	for _, m := range matches {
+		if _, ok := calc.Convert(1, textOrEmpty(m.InventoryUnit), v.Unit); ok {
+			v.InventoryID = m.InventoryID.UUID.String()
+			break
+		}
+	}
+
+	if sum < *v.Amount {
+		gap := *v.Amount - sum
 		v.Shortfall = &gap
+		v.Status = "short"
 		return v
 	}
 	v.Status = "have"
