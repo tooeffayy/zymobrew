@@ -14,7 +14,9 @@ import {
   TastingNotePage,
   api,
 } from "../api";
+import { ReadingsChart } from "../components/ReadingsChart";
 import { TimeInput } from "../components/TimeInput";
+import { fromCelsius, tempLabel, toCelsius, useTemperatureUnit } from "../units";
 
 // Order matters: the kinds that advance reminder anchors come first
 // because they're the actions a brewer does most often.
@@ -167,6 +169,7 @@ export function BatchDetail() {
       <ReadingsSection
         batchID={batch.id}
         readings={readings}
+        events={events}
         refetch={refetch}
       />
 
@@ -578,19 +581,62 @@ function LogEventForm({
 // should I do next" timeline (reminders + events) leads the page; this
 // is for brewers who want to log gravity/temp/pH alongside.
 function ReadingsSection({
-  batchID, readings, refetch,
+  batchID, readings, events, refetch,
 }: {
   batchID: string;
   readings: Reading[];
+  events: BatchEvent[];
   refetch: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(readings.length > 0);
+  const [tempUnit] = useTemperatureUnit();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkErr, setBulkErr] = useState<string | null>(null);
 
   // Server returns ascending (chronological); the table renders newest
   // first so a freshly logged reading appears at the top.
   const sorted = [...readings].sort(
     (a, b) => +new Date(b.taken_at) - +new Date(a.taken_at),
   );
+
+  // Drop selected ids that no longer exist (post-delete or post-refetch).
+  // Cheap to recompute every render — readings is bounded.
+  const validSelected = new Set(
+    [...selected].filter((id) => readings.some((r) => r.id === id)),
+  );
+
+  const toggle = (id: string, checked: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+  const selectAll = (checked: boolean) => {
+    setSelected(checked ? new Set(readings.map((r) => r.id)) : new Set());
+  };
+  const onBulkDelete = async () => {
+    const ids = [...validSelected];
+    if (ids.length === 0) return;
+    if (!window.confirm(`Delete ${ids.length} reading${ids.length === 1 ? "" : "s"}?`)) return;
+    setBulkBusy(true);
+    setBulkErr(null);
+    try {
+      await api.delete(`/api/batches/${encodeURIComponent(batchID)}/readings`, { ids });
+      setSelected(new Set());
+      setEditingId(null);
+      await refetch();
+    } catch (e) {
+      setBulkErr(e instanceof ApiError ? e.message : "delete failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const allChecked = readings.length > 0 && validSelected.size === readings.length;
+  const someChecked = validSelected.size > 0 && !allChecked;
 
   return (
     <section className="recipe-section readings-section">
@@ -605,36 +651,317 @@ function ReadingsSection({
       </button>
       {open && (
         <>
+          <ReadingsChart readings={readings} events={events} />
           <LogReadingForm batchID={batchID} onLogged={refetch} />
           {sorted.length === 0 ? (
             <p className="muted">No readings yet — log gravity, temperature, or pH above.</p>
           ) : (
-            <table className="readings-table">
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Gravity</th>
-                  <th>Temp °C</th>
-                  <th>pH</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((r) => (
-                  <tr key={r.id}>
-                    <td className="reading-when">{fmtDateTime(r.taken_at)}</td>
-                    <td className="reading-num">{fmtGravity(r.gravity)}</td>
-                    <td className="reading-num">{fmtNum(r.temperature_c, 1)}</td>
-                    <td className="reading-num">{fmtNum(r.ph, 2)}</td>
-                    <td>{r.notes ?? ""}</td>
+            <>
+              {/* The toolbar always renders so the table below it doesn't
+                  jump down when a row is selected. When empty, the bar
+                  is visually hidden but reserves its slot — `aria-hidden`
+                  + inert children keep it out of the a11y tree too. */}
+              <div
+                className={`bulk-toolbar${validSelected.size === 0 ? " bulk-toolbar-empty" : ""}`}
+                role="region"
+                aria-label="Bulk actions"
+                aria-hidden={validSelected.size === 0}
+              >
+                <span className="bulk-toolbar-label">
+                  {validSelected.size} selected
+                </span>
+                <button
+                  type="button"
+                  className="link-button event-delete"
+                  onClick={onBulkDelete}
+                  disabled={bulkBusy || validSelected.size === 0}
+                  tabIndex={validSelected.size === 0 ? -1 : 0}
+                >
+                  {bulkBusy ? "Deleting…" : "Delete selected"}
+                </button>
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setSelected(new Set())}
+                  disabled={bulkBusy || validSelected.size === 0}
+                  tabIndex={validSelected.size === 0 ? -1 : 0}
+                >
+                  Clear
+                </button>
+                {bulkErr && <span className="error bulk-toolbar-error">{bulkErr}</span>}
+              </div>
+              <table className="readings-table">
+                <colgroup>
+                  <col className="col-check" />
+                  <col className="col-when" />
+                  <col className="col-num" />
+                  <col className="col-num" />
+                  <col className="col-num" />
+                  <col />
+                  <col className="col-actions" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th className="col-check-th">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all readings"
+                        checked={allChecked}
+                        ref={(el) => { if (el) el.indeterminate = someChecked; }}
+                        onChange={(e) => selectAll(e.target.checked)}
+                      />
+                    </th>
+                    <th>When</th>
+                    <th>Gravity</th>
+                    <th>Temp {tempLabel(tempUnit)}</th>
+                    <th>pH</th>
+                    <th>Notes</th>
+                    <th aria-label="Actions" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {sorted.map((r) => (
+                    <ReadingRow
+                      key={r.id}
+                      batchID={batchID}
+                      reading={r}
+                      isEditing={editingId === r.id}
+                      isSelected={validSelected.has(r.id)}
+                      onSelectChange={(checked) => toggle(r.id, checked)}
+                      onEdit={() => setEditingId(r.id)}
+                      onCancel={() => setEditingId(null)}
+                      onSaved={async () => { setEditingId(null); await refetch(); }}
+                      onDeleted={async () => { setEditingId(null); await refetch(); }}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
         </>
       )}
     </section>
+  );
+}
+
+function ReadingRow({
+  batchID, reading, isEditing, isSelected, onSelectChange, onEdit, onCancel, onSaved, onDeleted,
+}: {
+  batchID: string;
+  reading: Reading;
+  isEditing: boolean;
+  isSelected: boolean;
+  onSelectChange: (checked: boolean) => void;
+  onEdit: () => void;
+  onCancel: () => void;
+  onSaved: () => Promise<void>;
+  onDeleted: () => Promise<void>;
+}) {
+  const [tempUnit] = useTemperatureUnit();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  if (isEditing) {
+    // The editing row owns the row layout (it has its own colspan-aware
+    // markup), so the bulk-select checkbox cell is rendered empty.
+    return (
+      <EditReadingRow
+        batchID={batchID}
+        reading={reading}
+        onCancel={onCancel}
+        onSaved={onSaved}
+      />
+    );
+  }
+
+  const onDelete = async () => {
+    if (!window.confirm("Delete this reading?")) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.delete(
+        `/api/batches/${encodeURIComponent(batchID)}/readings/${encodeURIComponent(reading.id)}`,
+      );
+      await onDeleted();
+    } catch (e: unknown) {
+      setErr(e instanceof ApiError ? e.message : "delete failed");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <tr className={isSelected ? "reading-row-selected" : undefined}>
+      <td className="col-check-td">
+        <input
+          type="checkbox"
+          aria-label={`Select reading from ${fmtDateTime(reading.taken_at)}`}
+          checked={isSelected}
+          onChange={(e) => onSelectChange(e.target.checked)}
+        />
+      </td>
+      <td className="reading-when">{fmtDateTime(reading.taken_at)}</td>
+      <td className="reading-num">{fmtGravity(reading.gravity)}</td>
+      <td className="reading-num">
+        {fmtNum(
+          typeof reading.temperature_c === "number"
+            ? fromCelsius(reading.temperature_c, tempUnit)
+            : undefined,
+          1,
+        )}
+      </td>
+      <td className="reading-num">{fmtNum(reading.ph, 2)}</td>
+      <td>
+        {reading.notes ?? ""}
+        {err && <span className="error reading-row-error"> {err}</span>}
+      </td>
+      <td className="reading-actions">
+        <button type="button" className="link-button" onClick={onEdit} disabled={busy}>
+          Edit
+        </button>
+        <button type="button" className="link-button event-delete" onClick={onDelete} disabled={busy}>
+          {busy ? "…" : "Delete"}
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function EditReadingRow({
+  batchID, reading, onCancel, onSaved,
+}: {
+  batchID: string;
+  reading: Reading;
+  onCancel: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [tempUnit] = useTemperatureUnit();
+  const initial = new Date(reading.taken_at);
+  const [takenDate, setTakenDate] = useState(toDateInput(initial));
+  const [takenTime, setTakenTime] = useState(toTimeInput(initial));
+  const [gravity, setGravity] = useState(
+    typeof reading.gravity === "number" ? String(reading.gravity) : "",
+  );
+  const [temp, setTemp] = useState(
+    typeof reading.temperature_c === "number"
+      ? fromCelsius(reading.temperature_c, tempUnit).toFixed(1)
+      : "",
+  );
+  const [ph, setPh] = useState(
+    typeof reading.ph === "number" ? String(reading.ph) : "",
+  );
+  const [notes, setNotes] = useState(reading.notes ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    try {
+      // COALESCE PATCH: only send fields the user actually changed. Empty
+      // strings are treated as "no change" for numerics — fields can't be
+      // cleared to NULL via PATCH (per API invariants in CLAUDE.md), and
+      // an empty input expresses intent to leave alone, not clear.
+      const body: Record<string, unknown> = {};
+      const iso = combineDateTime(takenDate, takenTime);
+      if (iso && iso !== initial.toISOString()) body.taken_at = iso;
+
+      const g = parseNum(gravity);
+      if (g !== null && g !== reading.gravity) body.gravity = g;
+
+      const t = parseNum(temp);
+      if (t !== null) {
+        const asC = toCelsius(t, tempUnit);
+        if (asC !== reading.temperature_c) body.temperature_c = asC;
+      }
+
+      const p = parseNum(ph);
+      if (p !== null && p !== reading.ph) body.ph = p;
+
+      if (notes !== (reading.notes ?? "")) body.notes = notes;
+
+      if (Object.keys(body).length > 0) {
+        await api.patch(
+          `/api/batches/${encodeURIComponent(batchID)}/readings/${encodeURIComponent(reading.id)}`,
+          body,
+        );
+      }
+      await onSaved();
+    } catch (e2: unknown) {
+      setErr(e2 instanceof ApiError ? e2.message : "save failed");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <tr className="reading-row-editing">
+      <td className="col-check-td" aria-hidden="true" />
+      <td className="reading-when">
+        <div className="datetime-pair reading-edit-when">
+          <input
+            type="date"
+            value={takenDate}
+            onChange={(e) => setTakenDate(e.target.value)}
+            aria-label="Date"
+          />
+          <TimeInput value={takenTime} onChange={setTakenTime} ariaLabel="Time" />
+        </div>
+      </td>
+      <td className="reading-num">
+        <input
+          type="number"
+          step="0.001"
+          min="0.99"
+          max="1.2"
+          inputMode="decimal"
+          value={gravity}
+          onChange={(e) => setGravity(e.target.value)}
+          aria-label="Gravity"
+        />
+      </td>
+      <td className="reading-num">
+        <input
+          type="number"
+          step="0.1"
+          inputMode="decimal"
+          value={temp}
+          onChange={(e) => setTemp(e.target.value)}
+          aria-label={tempUnit === "F" ? "Temperature in Fahrenheit" : "Temperature in Celsius"}
+        />
+      </td>
+      <td className="reading-num">
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          max="14"
+          inputMode="decimal"
+          value={ph}
+          onChange={(e) => setPh(e.target.value)}
+          aria-label="pH"
+        />
+      </td>
+      <td>
+        <input
+          type="text"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          maxLength={1024}
+          aria-label="Notes"
+        />
+        {err && <p className="error reading-row-error">{err}</p>}
+      </td>
+      <td className="reading-actions">
+        <form onSubmit={onSubmit} className="reading-edit-actions">
+          <button type="submit" className="link-button" disabled={busy}>
+            {busy ? "…" : "Save"}
+          </button>
+          <button type="button" className="link-button cancel-link" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+        </form>
+      </td>
+    </tr>
   );
 }
 
@@ -652,6 +979,7 @@ function LogReadingForm({
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [tempUnit] = useTemperatureUnit();
 
   // Mirrors the server-side guard (handleCreateReading) — at least one
   // measurement is required. Cheap to enforce here so the submit button
@@ -671,7 +999,10 @@ function LogReadingForm({
       const t = parseNum(temp);
       const p = parseNum(ph);
       if (g !== null) body.gravity = g;
-      if (t !== null) body.temperature_c = t;
+      // Always send Celsius — that's the canonical storage. F input is
+      // converted unrounded so a "70°F" entry round-trips to "70.0°F"
+      // on display rather than drifting via intermediate truncation.
+      if (t !== null) body.temperature_c = toCelsius(t, tempUnit);
       if (p !== null) body.ph = p;
       if (notes.trim()) body.notes = notes.trim();
       await api.post(`/api/batches/${encodeURIComponent(batchID)}/readings`, body);
@@ -719,8 +1050,8 @@ function LogReadingForm({
           inputMode="decimal"
           value={temp}
           onChange={(e) => setTemp(e.target.value)}
-          placeholder="Temp °C"
-          aria-label="Temperature in Celsius"
+          placeholder={`Temp ${tempLabel(tempUnit)}`}
+          aria-label={tempUnit === "F" ? "Temperature in Fahrenheit" : "Temperature in Celsius"}
         />
         <input
           type="number"

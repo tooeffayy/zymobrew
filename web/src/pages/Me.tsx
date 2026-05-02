@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { ApiError, PublicProfile, api } from "../api";
 import { useAuth } from "../auth";
+import { TempUnit, useTemperatureUnit } from "../units";
 
 // Authenticated user's profile + account controls. Three sections:
 //
@@ -52,6 +53,7 @@ export function Me() {
               });
             }}
           />
+          <PreferencesSection />
           <PasswordSection />
           <DangerSection
             username={state.user.username}
@@ -167,6 +169,55 @@ function ProfileSection({
           </button>
         </div>
       </form>
+    </section>
+  );
+}
+
+// --- Preferences ----------------------------------------------------------
+
+// Display-only preferences kept in localStorage. The server stores
+// canonical units (Celsius); the toggle just swaps how readings are
+// rendered + interpreted on input. Per-device by design — same brewer
+// might run metric on their phone and imperial on their laptop.
+function PreferencesSection() {
+  const [tempUnit, setTempUnit] = useTemperatureUnit();
+
+  const choose = (u: TempUnit) => () => setTempUnit(u);
+
+  return (
+    <section className="recipe-section">
+      <h2>Preferences</h2>
+      <div className="profile-form">
+        <fieldset className="field">
+          <legend>Temperature unit</legend>
+          <div className="radio-group">
+            <label className="radio">
+              <input
+                type="radio"
+                name="temp-unit"
+                value="C"
+                checked={tempUnit === "C"}
+                onChange={choose("C")}
+              />
+              <span>Celsius (°C)</span>
+            </label>
+            <label className="radio">
+              <input
+                type="radio"
+                name="temp-unit"
+                value="F"
+                checked={tempUnit === "F"}
+                onChange={choose("F")}
+              />
+              <span>Fahrenheit (°F)</span>
+            </label>
+          </div>
+          <span className="field-help muted">
+            Affects how temperatures are shown and entered. Stored values are
+            always Celsius — flipping back and forth is lossless.
+          </span>
+        </fieldset>
+      </div>
     </section>
   );
 }

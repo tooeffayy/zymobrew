@@ -475,6 +475,151 @@ func (s *Server) handleListReadings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"readings": views})
 }
 
+type updateReadingRequest struct {
+	TakenAt      *time.Time `json:"taken_at,omitempty"`
+	Gravity      *float64   `json:"gravity,omitempty"`
+	TemperatureC *float64   `json:"temperature_c,omitempty"`
+	PH           *float64   `json:"ph,omitempty"`
+	Notes        *string    `json:"notes,omitempty"`
+}
+
+func (s *Server) handleUpdateReading(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	batchID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch id"})
+		return
+	}
+	readingID, err := uuid.Parse(chi.URLParam(r, "readingId"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid reading id"})
+		return
+	}
+	if !s.userOwnsBatch(r.Context(), user.ID, batchID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+
+	var req updateReadingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+
+	params := queries.UpdateReadingParams{
+		ID:           readingID,
+		BatchID:      batchID,
+		Gravity:      floatToNumeric(req.Gravity),
+		TemperatureC: floatToNumeric(req.TemperatureC),
+		Ph:           floatToNumeric(req.PH),
+	}
+	if req.TakenAt != nil {
+		params.TakenAt = pgtype.Timestamptz{Time: *req.TakenAt, Valid: true}
+	}
+	if req.Notes != nil {
+		params.Notes = pgtype.Text{String: *req.Notes, Valid: true}
+	}
+
+	reading, err := s.queries.UpdateReading(r.Context(), params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "update failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, toReadingView(reading))
+}
+
+type bulkDeleteReadingsRequest struct {
+	IDs []string `json:"ids"`
+}
+
+const maxBulkDeleteReadings = 200
+
+func (s *Server) handleBulkDeleteReadings(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	batchID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch id"})
+		return
+	}
+	if !s.userOwnsBatch(r.Context(), user.ID, batchID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+
+	var req bulkDeleteReadingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if len(req.IDs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ids required"})
+		return
+	}
+	if len(req.IDs) > maxBulkDeleteReadings {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "too many ids"})
+		return
+	}
+
+	ids := make([]uuid.UUID, 0, len(req.IDs))
+	for _, raw := range req.IDs {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid reading id"})
+			return
+		}
+		ids = append(ids, id)
+	}
+
+	// One DELETE filtered by batch_id + ANY(ids). IDs that aren't in this
+	// batch silently no-op (the count won't include them) — same behavior
+	// as a per-row DELETE returning 404, but in bulk we don't fail the
+	// request because partial success is the useful semantic here.
+	n, err := s.queries.DeleteReadingsBulk(r.Context(), queries.DeleteReadingsBulkParams{
+		BatchID: batchID,
+		Ids:     ids,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
+}
+
+func (s *Server) handleDeleteReading(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	batchID, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch id"})
+		return
+	}
+	readingID, err := uuid.Parse(chi.URLParam(r, "readingId"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid reading id"})
+		return
+	}
+	if !s.userOwnsBatch(r.Context(), user.ID, batchID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	n, err := s.queries.DeleteReading(r.Context(), queries.DeleteReadingParams{
+		ID:      readingID,
+		BatchID: batchID,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
+		return
+	}
+	if n == 0 {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // userOwnsBatch returns true iff the batch exists and is owned by the user.
 // One small extra query, but it keeps reading/event handlers from leaking
 // existence of other users' batches via timing or 403 vs 404.

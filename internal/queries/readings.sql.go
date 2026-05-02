@@ -54,6 +54,42 @@ func (q *Queries) CreateReading(ctx context.Context, arg CreateReadingParams) (R
 	return i, err
 }
 
+const deleteReading = `-- name: DeleteReading :execrows
+DELETE FROM readings
+WHERE id = $1 AND batch_id = $2
+`
+
+type DeleteReadingParams struct {
+	ID      uuid.UUID `json:"id"`
+	BatchID uuid.UUID `json:"batch_id"`
+}
+
+func (q *Queries) DeleteReading(ctx context.Context, arg DeleteReadingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteReading, arg.ID, arg.BatchID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteReadingsBulk = `-- name: DeleteReadingsBulk :execrows
+DELETE FROM readings
+WHERE batch_id = $1 AND id = ANY($2::uuid[])
+`
+
+type DeleteReadingsBulkParams struct {
+	BatchID uuid.UUID   `json:"batch_id"`
+	Ids     []uuid.UUID `json:"ids"`
+}
+
+func (q *Queries) DeleteReadingsBulk(ctx context.Context, arg DeleteReadingsBulkParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteReadingsBulk, arg.BatchID, arg.Ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listReadingsForBatch = `-- name: ListReadingsForBatch :many
 SELECT id, batch_id, device_id, taken_at, gravity, temperature_c, ph, notes, source, raw_payload FROM readings
 WHERE batch_id = $1
@@ -89,4 +125,51 @@ func (q *Queries) ListReadingsForBatch(ctx context.Context, batchID uuid.UUID) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateReading = `-- name: UpdateReading :one
+UPDATE readings SET
+  taken_at      = COALESCE($1,      taken_at),
+  gravity       = COALESCE($2,       gravity),
+  temperature_c = COALESCE($3, temperature_c),
+  ph            = COALESCE($4,            ph),
+  notes         = COALESCE($5,         notes)
+WHERE id = $6 AND batch_id = $7
+RETURNING id, batch_id, device_id, taken_at, gravity, temperature_c, ph, notes, source, raw_payload
+`
+
+type UpdateReadingParams struct {
+	TakenAt      pgtype.Timestamptz `json:"taken_at"`
+	Gravity      pgtype.Numeric     `json:"gravity"`
+	TemperatureC pgtype.Numeric     `json:"temperature_c"`
+	Ph           pgtype.Numeric     `json:"ph"`
+	Notes        pgtype.Text        `json:"notes"`
+	ID           uuid.UUID          `json:"id"`
+	BatchID      uuid.UUID          `json:"batch_id"`
+}
+
+func (q *Queries) UpdateReading(ctx context.Context, arg UpdateReadingParams) (Reading, error) {
+	row := q.db.QueryRow(ctx, updateReading,
+		arg.TakenAt,
+		arg.Gravity,
+		arg.TemperatureC,
+		arg.Ph,
+		arg.Notes,
+		arg.ID,
+		arg.BatchID,
+	)
+	var i Reading
+	err := row.Scan(
+		&i.ID,
+		&i.BatchID,
+		&i.DeviceID,
+		&i.TakenAt,
+		&i.Gravity,
+		&i.TemperatureC,
+		&i.Ph,
+		&i.Notes,
+		&i.Source,
+		&i.RawPayload,
+	)
+	return i, err
 }

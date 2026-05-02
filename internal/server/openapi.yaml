@@ -2017,6 +2017,154 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+    delete:
+      tags: [batches]
+      operationId: bulkDeleteReadings
+      summary: Bulk-delete readings by ID. IDs not in this batch are silently skipped.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  maxItems: 200
+                  items:
+                    $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: Bulk delete result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: integer
+        "400":
+          description: Validation error (empty ids, malformed ids, too many)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Batch not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/batches/{id}/readings/{readingId}:
+    patch:
+      tags: [batches]
+      operationId: updateReading
+      summary: Update a reading (COALESCE). Fields cannot be cleared to NULL.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - name: readingId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                taken_at:
+                  $ref: '#/components/schemas/DateTime'
+                gravity:
+                  type: number
+                temperature_c:
+                  type: number
+                ph:
+                  type: number
+                notes:
+                  type: string
+      responses:
+        "200":
+          description: Updated reading
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reading'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Reading not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [batches]
+      operationId: deleteReading
+      summary: Delete a reading
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - name: readingId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Reading not found or not owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/batches/{id}/events:
     post:

@@ -368,3 +368,6 @@ River runs in-process. Queue state in `river_*` tables. `migrate.Up` runs goose 
 - **Federation** — no ActivityPub. Instances are islands; data moves via export/import.
 - **Hosted SaaS** — AGPL + CLA preserves the option; not the current focus.
 - **Native iOS/Android push** — requires Apple/Google relay. Web Push (VAPID) covers it.
+
+## Special Instructions
+- Always check available plugins and use whichever are relevant to the current task.

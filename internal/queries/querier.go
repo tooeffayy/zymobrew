@@ -57,6 +57,8 @@ type Querier interface {
 	DeleteNotificationsForUser(ctx context.Context, userID uuid.UUID) error
 	DeletePushDevice(ctx context.Context, arg DeletePushDeviceParams) (int64, error)
 	DeletePushDevicesForUser(ctx context.Context, userID uuid.UUID) error
+	DeleteReading(ctx context.Context, arg DeleteReadingParams) (int64, error)
+	DeleteReadingsBulk(ctx context.Context, arg DeleteReadingsBulkParams) (int64, error)
 	DeleteRecipe(ctx context.Context, arg DeleteRecipeParams) (int64, error)
 	DeleteRecipeComment(ctx context.Context, arg DeleteRecipeCommentParams) (int64, error)
 	DeleteRecipeIngredients(ctx context.Context, recipeID uuid.UUID) error
@@ -146,6 +148,7 @@ type Querier interface {
 	UnlikeRecipe(ctx context.Context, arg UnlikeRecipeParams) error
 	UpdateBatch(ctx context.Context, arg UpdateBatchParams) (Batch, error)
 	UpdateBatchEvent(ctx context.Context, arg UpdateBatchEventParams) (BatchEvent, error)
+	UpdateReading(ctx context.Context, arg UpdateReadingParams) (Reading, error)
 	UpdateRecipeMeta(ctx context.Context, arg UpdateRecipeMetaParams) (Recipe, error)
 	UpdateReminder(ctx context.Context, arg UpdateReminderParams) (Reminder, error)
 	UpdateReminderTemplate(ctx context.Context, arg UpdateReminderTemplateParams) (RecipeReminderTemplate, error)

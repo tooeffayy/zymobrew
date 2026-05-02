@@ -5,43 +5,43 @@
 :root {
   /* Surfaces — page is white; tints are reserved for hover states and
      subtle separators so the warm accent does the brand-carrying work. */
-  --bg:        oklch(100%  0     0);
-  --bg-tint:   oklch(97%   0.008 75);
-  --surface:   oklch(100%  0     0);
-  --surface-2: oklch(99%   0.005 80);
+  --bg: oklch(100% 0 0);
+  --bg-tint: oklch(97% 0.008 75);
+  --surface: oklch(100% 0 0);
+  --surface-2: oklch(99% 0.005 80);
 
   /* Text */
-  --fg:        oklch(22%   0.02  60);
-  --fg-soft:   oklch(40%   0.02  60);
-  --muted:     oklch(55%   0.015 60);
-  --line:      oklch(90%   0.01  70);
-  --line-soft: oklch(94%   0.008 70);
+  --fg: oklch(22% 0.02 60);
+  --fg-soft: oklch(40% 0.02 60);
+  --muted: oklch(55% 0.015 60);
+  --line: oklch(90% 0.01 70);
+  --line-soft: oklch(94% 0.008 70);
 
   /* Brand — warm amber/honey, signals fermentation without being literal. */
-  --accent:        oklch(56%   0.13  55);
-  --accent-hover:  oklch(50%   0.14  55);
-  --accent-soft:   oklch(94%   0.04  75);
-  --accent-ring:   oklch(56%   0.13  55 / 0.35);
+  --accent: oklch(56% 0.13 55);
+  --accent-hover: oklch(50% 0.14 55);
+  --accent-soft: oklch(94% 0.04 75);
+  --accent-ring: oklch(56% 0.13 55 / 0.35);
 
   /* Semantic */
-  --error:       oklch(55%   0.19  25);
-  --error-soft:  oklch(96%   0.03  25);
+  --error: oklch(55% 0.19 25);
+  --error-soft: oklch(96% 0.03 25);
 
   /* Brew-type pill hues — keep mead = brand amber, others nudge around the wheel. */
-  --pill-mead-bg:     oklch(94% 0.05  75);
-  --pill-mead-fg:     oklch(40% 0.13  60);
-  --pill-cider-bg:    oklch(95% 0.05 130);
-  --pill-cider-fg:    oklch(38% 0.10 140);
-  --pill-wine-bg:     oklch(94% 0.05 350);
-  --pill-wine-fg:     oklch(40% 0.13 350);
-  --pill-beer-bg:     oklch(94% 0.05  85);
-  --pill-beer-fg:     oklch(38% 0.13  70);
+  --pill-mead-bg: oklch(94% 0.05 75);
+  --pill-mead-fg: oklch(40% 0.13 60);
+  --pill-cider-bg: oklch(95% 0.05 130);
+  --pill-cider-fg: oklch(38% 0.10 140);
+  --pill-wine-bg: oklch(94% 0.05 350);
+  --pill-wine-fg: oklch(40% 0.13 350);
+  --pill-beer-bg: oklch(94% 0.05 85);
+  --pill-beer-fg: oklch(38% 0.13 70);
   --pill-kombucha-bg: oklch(94% 0.05 200);
   --pill-kombucha-fg: oklch(38% 0.10 210);
 
   /* Elevation */
   --shadow-sm: 0 1px 2px oklch(20% 0.02 60 / 0.04), 0 1px 1px oklch(20% 0.02 60 / 0.03);
-  --shadow:    0 4px 12px oklch(20% 0.02 60 / 0.05), 0 2px 4px oklch(20% 0.02 60 / 0.04);
+  --shadow: 0 4px 12px oklch(20% 0.02 60 / 0.05), 0 2px 4px oklch(20% 0.02 60 / 0.04);
   --shadow-lg: 0 12px 32px oklch(20% 0.02 60 / 0.08), 0 4px 12px oklch(20% 0.02 60 / 0.04);
 
   /* Type */
@@ -58,9 +58,14 @@
   color-scheme: light;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-html, body { margin: 0; }
+html,
+body {
+  margin: 0;
+}
 
 body {
   background: var(--bg);
@@ -136,10 +141,17 @@ body {
   transition: color 120ms ease, background 120ms ease;
 }
 
+/* `:not(:disabled)` bumps specificity past the global
+   `button:hover:not(:disabled)` rule (which lives later in the file
+   and would otherwise win, painting link-buttons in --accent-hover with
+   a lift). transform/box-shadow are explicitly cleared so a button-tag
+   link-button doesn't inherit the page's primary-button hover lift. */
 .site-nav a:hover,
-.link-button:hover {
+.link-button:hover:not(:disabled) {
   color: var(--fg);
   background: var(--bg-tint);
+  transform: none;
+  box-shadow: none;
 }
 
 .site-nav a.active {
@@ -165,7 +177,9 @@ body {
 
 /* --- Page typography --------------------------------------------------- */
 
-h1, h2, h3 {
+h1,
+h2,
+h3 {
   letter-spacing: -0.018em;
   color: var(--fg);
   margin: 0 0 0.75rem;
@@ -241,9 +255,14 @@ input[type="hidden"] {
   display: none;
 }
 
-input::placeholder { color: var(--muted); }
+input::placeholder {
+  color: var(--muted);
+}
 
-input:hover  { border-color: oklch(82% 0.01 70); }
+input:hover {
+  border-color: oklch(82% 0.01 70);
+}
+
 input:focus,
 input:focus-visible {
   outline: none;
@@ -261,7 +280,11 @@ input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
-input[type="number"] { -moz-appearance: textfield; }
+
+input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
 
 /* Tighten the native date/time renderers. Chrome/Safari add wide gaps
    between MM/DD/YYYY segments and a chunky calendar/clock icon. We
@@ -271,22 +294,26 @@ input[type="time"],
 input[type="datetime-local"] {
   font-variant-numeric: tabular-nums;
 }
+
 input[type="date"]::-webkit-datetime-edit,
 input[type="time"]::-webkit-datetime-edit,
 input[type="datetime-local"]::-webkit-datetime-edit {
   padding: 0;
 }
+
 input[type="date"]::-webkit-datetime-edit-fields-wrapper,
 input[type="time"]::-webkit-datetime-edit-fields-wrapper,
 input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper {
   padding: 0;
 }
+
 input[type="date"]::-webkit-datetime-edit-text,
 input[type="time"]::-webkit-datetime-edit-text,
 input[type="datetime-local"]::-webkit-datetime-edit-text {
   padding: 0 1px;
   color: var(--muted);
 }
+
 input[type="date"]::-webkit-datetime-edit-month-field,
 input[type="date"]::-webkit-datetime-edit-day-field,
 input[type="date"]::-webkit-datetime-edit-year-field,
@@ -299,6 +326,7 @@ input[type="datetime-local"]::-webkit-datetime-edit-hour-field,
 input[type="datetime-local"]::-webkit-datetime-edit-minute-field {
   padding: 0 1px;
 }
+
 input[type="date"]::-webkit-calendar-picker-indicator,
 input[type="time"]::-webkit-calendar-picker-indicator,
 input[type="datetime-local"]::-webkit-calendar-picker-indicator {
@@ -307,6 +335,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   opacity: 0.55;
   cursor: pointer;
 }
+
 input[type="date"]::-webkit-calendar-picker-indicator:hover,
 input[type="time"]::-webkit-calendar-picker-indicator:hover,
 input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
@@ -322,6 +351,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
   align-items: center;
   min-width: 0;
 }
+
 /* Native date input is fixed-width sized to its content. The
    react-aria TimeField (.time-input) sizes to its segments and
    handles its own internal layout. */
@@ -329,6 +359,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
   flex: 0 0 10.5rem;
   min-width: 0;
 }
+
 .datetime-pair .time-input {
   flex: 0 0 auto;
 }
@@ -337,9 +368,13 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
    each DateSegment is one of HH / MM / AM-PM. Match the look of the
    native date input next to it: same border, padding, focus ring. */
 .time-input {
+  /* Inline-flex with no gap — each DateSegment carries its own minimal
+     padding, and the literal segments (":", " ") provide visual rhythm.
+     Adding gap on top of the segment padding makes the field look
+     spongy, especially next to a tight date input. */
   display: inline-flex;
   align-items: center;
-  gap: 0.125rem;
+  gap: 0;
   padding: 0.625rem 0.75rem;
   font: inherit;
   font-size: 0.9375rem;
@@ -351,9 +386,11 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
   transition: border-color 120ms ease, box-shadow 120ms ease;
   min-height: calc(0.625rem * 2 + 1.5rem);
 }
+
 .time-input[data-hovered] {
   border-color: oklch(82% 0.01 70);
 }
+
 .time-input[data-focus-within] {
   outline: none;
   border-color: var(--accent);
@@ -361,25 +398,31 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
 }
 
 .time-input-segment {
-  padding: 0 1px;
+  padding: 0 2px;
   border-radius: 3px;
   outline: none;
 }
+
 /* Each segment gets a soft accent highlight when focused — react-aria
    moves focus across segments as the user types or arrows. */
 .time-input-segment[data-focused] {
   background: var(--accent-soft);
   color: var(--accent);
 }
+
 /* Placeholder digits when a segment hasn't been typed in yet. */
 .time-input-segment[data-placeholder] {
   color: var(--muted);
 }
-/* The literal segments (":", " ") aren't editable. */
+
+/* Literal segments are non-editable separators (":" between HH/MM, the
+   space before AM/PM). Strip padding so they don't add slack on top of
+   the editable segments' own padding. */
 .time-input-segment[data-type="literal"] {
   color: var(--muted);
-  padding: 0 1px;
+  padding: 0;
 }
+
 .datetime-pair input {
   margin: 0;
 }
@@ -395,19 +438,23 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
   gap: 0.5rem;
   margin-bottom: 0.375rem;
 }
-.datetime-field-head > span:first-child {
+
+.datetime-field-head>span:first-child {
   font-weight: 600;
   font-size: 0.9375rem;
   color: var(--fg);
 }
+
 .datetime-field-quick {
   display: inline-flex;
   gap: 0.125rem;
 }
+
 .datetime-field-quick .link-button {
   padding: 0.125rem 0.5rem;
   font-size: 0.8125rem;
 }
+
 .datetime-field .datetime-pair {
   margin-top: 0;
 }
@@ -530,7 +577,9 @@ dd {
   color: var(--fg);
 }
 
-.recipe-title:hover { color: var(--accent); }
+.recipe-title:hover {
+  color: var(--accent);
+}
 
 .recipe-meta {
   display: flex;
@@ -547,6 +596,7 @@ dd {
   line-height: 1.5;
   /* Clamp long descriptions so a verbose recipe doesn't dominate the feed. */
   display: -webkit-box;
+  line-clamp: 2;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
@@ -576,11 +626,31 @@ dd {
   background: var(--accent-soft);
   color: var(--accent);
 }
-.pill-mead     { background: var(--pill-mead-bg);     color: var(--pill-mead-fg); }
-.pill-cider    { background: var(--pill-cider-bg);    color: var(--pill-cider-fg); }
-.pill-wine     { background: var(--pill-wine-bg);     color: var(--pill-wine-fg); }
-.pill-beer     { background: var(--pill-beer-bg);     color: var(--pill-beer-fg); }
-.pill-kombucha { background: var(--pill-kombucha-bg); color: var(--pill-kombucha-fg); }
+
+.pill-mead {
+  background: var(--pill-mead-bg);
+  color: var(--pill-mead-fg);
+}
+
+.pill-cider {
+  background: var(--pill-cider-bg);
+  color: var(--pill-cider-fg);
+}
+
+.pill-wine {
+  background: var(--pill-wine-bg);
+  color: var(--pill-wine-fg);
+}
+
+.pill-beer {
+  background: var(--pill-beer-bg);
+  color: var(--pill-beer-fg);
+}
+
+.pill-kombucha {
+  background: var(--pill-kombucha-bg);
+  color: var(--pill-kombucha-fg);
+}
 
 /* --- Recipe detail ----------------------------------------------------- */
 
@@ -594,9 +664,13 @@ dd {
   text-decoration: none;
 }
 
-.back-link a:hover { color: var(--fg); }
+.back-link a:hover {
+  color: var(--fg);
+}
 
-.recipe-header { margin-bottom: 2rem; }
+.recipe-header {
+  margin-bottom: 2rem;
+}
 
 .recipe-header h1 {
   font-size: clamp(1.875rem, 4vw, 2.5rem);
@@ -681,7 +755,7 @@ dd {
   overflow: hidden;
 }
 
-.ingredient-section + .ingredient-section {
+.ingredient-section+.ingredient-section {
   border-top: 1px solid var(--line-soft);
 }
 
@@ -808,12 +882,36 @@ dd {
   background: oklch(94% 0.005 70);
   color: var(--fg-soft);
 }
-.stage-planning  { background: oklch(94% 0.005  70); color: var(--fg-soft); }
-.stage-primary   { background: oklch(94% 0.05   55); color: oklch(40% 0.13  55); }
-.stage-secondary { background: oklch(94% 0.05   95); color: oklch(40% 0.13  85); }
-.stage-aging     { background: oklch(94% 0.05  120); color: oklch(38% 0.10 130); }
-.stage-bottled   { background: oklch(94% 0.05  200); color: oklch(38% 0.10 210); }
-.stage-archived  { background: oklch(92% 0.005  70); color: var(--muted); }
+
+.stage-planning {
+  background: oklch(94% 0.005 70);
+  color: var(--fg-soft);
+}
+
+.stage-primary {
+  background: oklch(94% 0.05 55);
+  color: oklch(40% 0.13 55);
+}
+
+.stage-secondary {
+  background: oklch(94% 0.05 95);
+  color: oklch(40% 0.13 85);
+}
+
+.stage-aging {
+  background: oklch(94% 0.05 120);
+  color: oklch(38% 0.10 130);
+}
+
+.stage-bottled {
+  background: oklch(94% 0.05 200);
+  color: oklch(38% 0.10 210);
+}
+
+.stage-archived {
+  background: oklch(92% 0.005 70);
+  color: var(--muted);
+}
 
 /* --- Pinned recipe notice (BatchCreate) ------------------------------- */
 
@@ -898,6 +996,7 @@ dd {
   .reminder-row {
     grid-template-columns: minmax(0, 1fr);
   }
+
   .reminder-actions {
     justify-content: flex-start;
   }
@@ -935,11 +1034,13 @@ dd {
   align-items: center;
   gap: 0.5rem;
 }
-.log-event-row > select {
+
+.log-event-row>select {
   flex: 0 0 11rem;
   margin: 0;
 }
-.log-event-row > .datetime-pair {
+
+.log-event-row>.datetime-pair {
   flex: 0 1 auto;
 }
 
@@ -987,11 +1088,30 @@ dd {
   color: var(--accent);
 }
 
-.event-kind-pitch  { background: oklch(94% 0.05  55); color: oklch(40% 0.13 55); }
-.event-kind-rack   { background: oklch(94% 0.05 130); color: oklch(38% 0.10 140); }
-.event-kind-bottle { background: oklch(94% 0.05 200); color: oklch(38% 0.10 210); }
-.event-kind-note   { background: oklch(94% 0.005 70); color: var(--fg-soft); }
-.event-kind-photo  { background: oklch(94% 0.05 350); color: oklch(40% 0.13 350); }
+.event-kind-pitch {
+  background: oklch(94% 0.05 55);
+  color: oklch(40% 0.13 55);
+}
+
+.event-kind-rack {
+  background: oklch(94% 0.05 130);
+  color: oklch(38% 0.10 140);
+}
+
+.event-kind-bottle {
+  background: oklch(94% 0.05 200);
+  color: oklch(38% 0.10 210);
+}
+
+.event-kind-note {
+  background: oklch(94% 0.005 70);
+  color: var(--fg-soft);
+}
+
+.event-kind-photo {
+  background: oklch(94% 0.05 350);
+  color: oklch(40% 0.13 350);
+}
 
 .event-when {
   font-variant-numeric: tabular-nums;
@@ -1026,30 +1146,48 @@ dd {
   opacity: 0;
   transition: opacity 120ms ease;
 }
+
 .event-row:hover .event-row-actions,
 .event-row:focus-within .event-row-actions {
   opacity: 1;
 }
+
 @media (hover: none) {
-  .event-row-actions { opacity: 1; }
+  .event-row-actions {
+    opacity: 1;
+  }
 }
 
 .event-row-actions .link-button {
   padding: 0.125rem 0.5rem;
   font-size: 0.8125rem;
 }
-.event-delete:hover { color: var(--error); }
+
+/* Destructive action — red in idle to telegraph intent before the user
+   has to hover or read the label, with a soft-red wash on hover so the
+   target still feels active without going full filled-button. The
+   `:not(:disabled)` keeps the busy "…" state visually muted. */
+.event-delete {
+  color: var(--error);
+}
+
+.event-delete:hover:not(:disabled) {
+  color: var(--error);
+  background: var(--error-soft);
+}
 
 .event-row-editing {
   padding: 0;
   background: var(--bg-tint);
   border-color: var(--accent-soft);
 }
+
 .edit-event-form {
   margin: 0;
   background: transparent;
   border: none;
 }
+
 .log-event-actions .cancel-link {
   margin-right: 0.5rem;
 }
@@ -1068,9 +1206,11 @@ dd {
   text-align: left;
   color: var(--fg);
 }
+
 .section-toggle h2 {
   margin: 0;
 }
+
 .section-toggle-chevron {
   color: var(--muted);
   font-size: 0.875rem;
@@ -1098,7 +1238,7 @@ dd {
 }
 
 .log-reading-row input,
-.log-reading-form > input {
+.log-reading-form>input {
   margin: 0;
 }
 
@@ -1106,8 +1246,9 @@ dd {
   .log-reading-row {
     grid-template-columns: 1fr 1fr;
   }
-  .log-reading-row > input[aria-label="When"],
-  .log-reading-row > button {
+
+  .log-reading-row>input[aria-label="When"],
+  .log-reading-row>button {
     grid-column: 1 / -1;
   }
 }
@@ -1116,6 +1257,83 @@ dd {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
+  /* Fixed layout so a row entering edit mode (wider date + time inputs)
+     doesn't reflow the other rows' column widths. With `auto`, the table
+     re-balances to the widest cell per column, which made every row
+     visibly shift sideways when one was being edited. */
+  table-layout: fixed;
+}
+
+/* Explicit widths required by table-layout: fixed. Notes is the only
+   flex column — it absorbs the leftover space. */
+.readings-table col.col-check   { width: 2.5rem; }
+.readings-table col.col-when    { width: 17rem; }
+.readings-table col.col-num     { width: 6rem; }
+.readings-table col.col-actions { width: 7rem; }
+
+/* Center the checkbox in its narrow column and override the global
+   `input { display: block; width: 100%; ... }` rule so the checkbox
+   stays its native size. */
+.readings-table .col-check-th,
+.readings-table .col-check-td {
+  text-align: center;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.readings-table input[type="checkbox"] {
+  display: inline-block;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  /* Slightly larger than UA default so it's a comfortable hit target
+     in a row of small text. */
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+.reading-row-selected td {
+  background: var(--accent-soft);
+}
+
+/* Toolbar above the table — stays in the section's normal flow but
+   reserves its space *unconditionally* (`bulk-toolbar-empty` makes it
+   invisible without removing it from layout). Without this, the table
+   would shift down the moment a row was selected, hiding the row the
+   user just clicked. */
+.bulk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+  background: var(--accent-soft);
+  border: 1px solid oklch(88% 0.04 75);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  transition: opacity 120ms ease;
+}
+
+.bulk-toolbar-empty {
+  /* visibility:hidden (vs display:none) keeps the box in flow so the
+     table position is stable. opacity:0 + transparent border lets the
+     placeholder vanish completely while still occupying its slot. */
+  visibility: hidden;
+  opacity: 0;
+  background: transparent;
+  border-color: transparent;
+}
+
+.bulk-toolbar-label {
+  font-weight: 600;
+  color: var(--fg);
+  margin-right: auto;
+}
+
+.bulk-toolbar-error {
+  font-size: 0.8125rem;
 }
 
 .readings-table th,
@@ -1140,7 +1358,89 @@ dd {
 
 .reading-num {
   text-align: right;
-  width: 6rem;
+}
+
+/* Edit/Delete column. Buttons sit inline at the row's end and only earn
+   visual weight on hover (link-button base style is muted). The width
+   is set on the `col` element above; here we just align the contents. */
+.reading-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.reading-actions .link-button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+/* Inline edit mode: shrink number/text inputs so they sit inside the
+   table cell without forcing the row taller than its display state. */
+.reading-row-editing td {
+  background: var(--bg-tint);
+}
+
+.reading-row-editing input[type="number"],
+.reading-row-editing input[type="text"],
+.reading-row-editing input[type="date"],
+.reading-row-editing input[type="time"],
+.reading-row-editing .time-input {
+  margin-top: 0;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.8125rem;
+  border-radius: 5px;
+  min-height: 0;
+}
+
+.reading-edit-when {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.reading-edit-actions {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.reading-row-error {
+  color: var(--error);
+  font-size: 0.75rem;
+  margin: 0.25rem 0 0;
+}
+
+/* Reading charts — one Chart.js line chart per metric (gravity / temp /
+   pH). Stacked vertically; pitch/rack/bottle render as dashed
+   annotation lines via chartjs-plugin-annotation. */
+.readings-charts {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.reading-chart {
+  margin: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem 0.5rem;
+}
+
+.reading-chart-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--fg-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+}
+
+/* Chart.js + maintainAspectRatio:false needs the parent to have an
+   explicit height. 180px matches the old SVG's visual weight. */
+.reading-chart-canvas {
+  position: relative;
+  height: 180px;
 }
 
 /* --- Tasting notes --------------------------------------------------- */
@@ -1161,6 +1461,7 @@ dd {
   gap: 0.75rem;
   align-items: center;
 }
+
 .log-tasting-head input {
   margin: 0;
 }
@@ -1192,12 +1493,15 @@ dd {
   cursor: pointer;
   color: oklch(85% 0.02 70);
 }
+
 .rating-star-active {
   color: oklch(72% 0.16 75);
 }
+
 .rating-star:hover {
   color: oklch(72% 0.16 75);
 }
+
 .rating-clear {
   margin-left: 0.5rem;
   font-size: 0.8125rem;
@@ -1236,6 +1540,7 @@ dd {
   color: oklch(72% 0.16 75);
   letter-spacing: 0.05em;
 }
+
 .tasting-rating-empty {
   color: oklch(85% 0.02 70);
 }
@@ -1248,6 +1553,7 @@ dd {
   margin: 0;
   font-size: 0.9375rem;
 }
+
 .tasting-fields dt {
   font-weight: 600;
   color: var(--fg-soft);
@@ -1256,6 +1562,7 @@ dd {
   letter-spacing: 0.04em;
   padding-top: 0.125rem;
 }
+
 .tasting-fields dd {
   margin: 0;
   color: var(--fg);
@@ -1304,7 +1611,10 @@ dd {
   font-size: 0.9375rem;
 }
 
-.empty-cta:hover { background: var(--accent-hover); color: white; }
+.empty-cta:hover {
+  background: var(--accent-hover);
+  color: white;
+}
 
 /* --- Recipe form ------------------------------------------------------- */
 
@@ -1330,7 +1640,9 @@ dd {
   margin: 0;
 }
 
-.section-help { font-weight: 400; }
+.section-help {
+  font-weight: 400;
+}
 
 .field {
   display: grid;
@@ -1338,7 +1650,7 @@ dd {
   margin: 0;
 }
 
-.field > span:first-child {
+.field>span:first-child {
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--fg-soft);
@@ -1365,7 +1677,10 @@ textarea {
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-textarea:hover { border-color: oklch(82% 0.01 70); }
+textarea:hover {
+  border-color: oklch(82% 0.01 70);
+}
+
 textarea:focus,
 textarea:focus-visible {
   outline: none;
@@ -1422,7 +1737,9 @@ select:focus-visible {
   user-select: none;
 }
 
-.segmented-item:hover { color: var(--fg); }
+.segmented-item:hover {
+  color: var(--fg);
+}
 
 .segmented-item input {
   position: absolute;
@@ -1480,14 +1797,31 @@ select:focus-visible {
       "kind name name"
       "amount unit remove";
   }
-  .ingredient-edit-row > .kind-select { grid-area: kind; }
-  .ingredient-edit-row > input[aria-label="Name"]   { grid-area: name; }
-  .ingredient-edit-row > input[aria-label="Amount"] { grid-area: amount; }
-  .ingredient-edit-row > .unit-select               { grid-area: unit; }
-  .ingredient-edit-row > .row-remove                { grid-area: remove; }
+
+  .ingredient-edit-row>.kind-select {
+    grid-area: kind;
+  }
+
+  .ingredient-edit-row>input[aria-label="Name"] {
+    grid-area: name;
+  }
+
+  .ingredient-edit-row>input[aria-label="Amount"] {
+    grid-area: amount;
+  }
+
+  .ingredient-edit-row>.unit-select {
+    grid-area: unit;
+  }
+
+  .ingredient-edit-row>.row-remove {
+    grid-area: remove;
+  }
 }
 
-.kind-select { text-transform: capitalize; }
+.kind-select {
+  text-transform: capitalize;
+}
 
 .row-remove {
   width: 2rem;
@@ -1552,7 +1886,9 @@ select:focus-visible {
   font-size: 0.9375rem;
 }
 
-.cancel-link:hover { color: var(--fg); }
+.cancel-link:hover {
+  color: var(--fg);
+}
 
 /* --- Notifications ---------------------------------------------------- */
 
@@ -1586,7 +1922,9 @@ select:focus-visible {
   margin-bottom: 1rem;
 }
 
-.notifications-header h1 { margin: 0; }
+.notifications-header h1 {
+  margin: 0;
+}
 
 .notification-list {
   list-style: none;
@@ -1666,6 +2004,7 @@ select:focus-visible {
   .notification-row {
     grid-template-columns: minmax(0, 1fr);
   }
+
   .notification-actions {
     justify-content: flex-start;
   }
@@ -1673,7 +2012,9 @@ select:focus-visible {
 
 /* --- Notification preferences ---------------------------------------- */
 
-.prefs-section { margin-top: 2.5rem; }
+.prefs-section {
+  margin-top: 2.5rem;
+}
 
 .prefs-form {
   display: grid;
@@ -1697,7 +2038,9 @@ select:focus-visible {
   gap: 0.125rem;
 }
 
-.prefs-toggle small { font-size: 0.8125rem; }
+.prefs-toggle small {
+  font-size: 0.8125rem;
+}
 
 .prefs-quiet {
   border: 1px solid var(--line-soft);
@@ -1712,7 +2055,10 @@ select:focus-visible {
   color: var(--fg);
 }
 
-.prefs-help { margin: 0 0 0.625rem; font-size: 0.8125rem; }
+.prefs-help {
+  margin: 0 0 0.625rem;
+  font-size: 0.8125rem;
+}
 
 .prefs-quiet-row {
   display: flex;
@@ -1721,13 +2067,20 @@ select:focus-visible {
   gap: 0.75rem;
 }
 
-.prefs-quiet-row .field { margin: 0; }
+.prefs-quiet-row .field {
+  margin: 0;
+}
 
 /* --- Push subscribe (per-browser) ------------------------------------- */
 
-.push-section { margin-top: 2.5rem; }
+.push-section {
+  margin-top: 2.5rem;
+}
 
-.push-body { display: grid; gap: 0.5rem; }
+.push-body {
+  display: grid;
+  gap: 0.5rem;
+}
 
 .push-status {
   margin: 0;
@@ -1746,8 +2099,13 @@ select:focus-visible {
   background: var(--muted);
 }
 
-.push-status-on::before  { background: var(--accent); }
-.push-status-off::before { background: var(--muted);  }
+.push-status-on::before {
+  background: var(--accent);
+}
+
+.push-status-off::before {
+  background: var(--muted);
+}
 
 .push-body code {
   font-size: 0.875em;
@@ -1766,11 +2124,18 @@ select:focus-visible {
   margin-bottom: 0.25rem;
 }
 
-.template-section-head h2 { margin: 0; }
+.template-section-head h2 {
+  margin: 0;
+}
 
-.template-help { margin: 0 0 1rem; font-size: 0.875rem; }
+.template-help {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+}
 
-.template-empty { margin: 0; }
+.template-empty {
+  margin: 0;
+}
 
 .template-list {
   list-style: none;
@@ -1799,7 +2164,11 @@ select:focus-visible {
   border: 1px solid var(--line-soft);
 }
 
-.template-main { display: grid; gap: 0.25rem; min-width: 0; }
+.template-main {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
 
 .template-title-row {
   display: flex;
@@ -1808,7 +2177,10 @@ select:focus-visible {
   flex-wrap: wrap;
 }
 
-.template-title { font-weight: 600; color: var(--fg); }
+.template-title {
+  font-weight: 600;
+  color: var(--fg);
+}
 
 .template-when {
   font-size: 0.8125rem;
@@ -1839,7 +2211,9 @@ select:focus-visible {
   align-items: flex-start;
 }
 
-.template-delete:hover { color: var(--error); }
+.template-delete:hover {
+  color: var(--error);
+}
 
 @media (max-width: 560px) {
   .template-row {
@@ -1861,7 +2235,9 @@ select:focus-visible {
 
 /* "Add" form rendered standalone (outside a row) needs its own surface
    since .template-row-editing already paints one. */
-.template-section > .template-form { background: var(--surface-2); }
+.template-section>.template-form {
+  background: var(--surface-2);
+}
 
 .template-when-controls {
   display: flex;
@@ -1870,7 +2246,9 @@ select:focus-visible {
   align-items: center;
 }
 
-.template-magnitude { width: 5rem; }
+.template-magnitude {
+  width: 5rem;
+}
 
 .template-form-grid {
   display: grid;
@@ -1878,10 +2256,14 @@ select:focus-visible {
   gap: 1rem;
 }
 
-.template-sort { width: 6rem; }
+.template-sort {
+  width: 6rem;
+}
 
 @media (max-width: 560px) {
-  .template-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .template-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* --- Calculators ------------------------------------------------------ */
@@ -1923,7 +2305,9 @@ select:focus-visible {
   gap: 0.875rem;
 }
 
-.calc-error { margin: 0; }
+.calc-error {
+  margin: 0;
+}
 
 .calc-result {
   display: grid;
@@ -1964,7 +2348,9 @@ select:focus-visible {
 
 /* --- Profile (Me) ----------------------------------------------------- */
 
-.profile-page .recipe-section { max-width: 36rem; }
+.profile-page .recipe-section {
+  max-width: 36rem;
+}
 
 .profile-form {
   display: grid;
@@ -1996,6 +2382,42 @@ select:focus-visible {
   word-break: break-all;
 }
 
+/* Fieldset reset for the Preferences radio group. The .field grid + label
+   styling already covers the legend visually, so we strip the native border
+   and align the legend with other field labels. */
+fieldset.field {
+  border: 0;
+  padding: 0;
+}
+
+fieldset.field>legend {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--fg-soft);
+  letter-spacing: 0.005em;
+  padding: 0;
+  margin-bottom: 0.375rem;
+}
+
+.radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.radio-group .radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.radio-group .radio input[type="radio"] {
+  margin: 0;
+  cursor: pointer;
+}
+
 /* Destructive-action button. Red border + red text in idle, filled-red on
    hover. Distinct from the muted .action-button.danger hover state used on
    row-level menus — this one earns the visual weight because it sits in a
@@ -2006,7 +2428,9 @@ select:focus-visible {
   margin-top: 2rem;
 }
 
-.danger-zone h2 { color: var(--error); }
+.danger-zone h2 {
+  color: var(--error);
+}
 
 .danger-zone code {
   font-size: 0.875em;
@@ -2034,7 +2458,10 @@ button.danger:disabled {
 
 /* --- Admin (dashboard) ------------------------------------------------- */
 
-.admin-page { display: grid; gap: 1.5rem; }
+.admin-page {
+  display: grid;
+  gap: 1.5rem;
+}
 
 .admin-header {
   display: grid;
@@ -2076,8 +2503,14 @@ button.danger:disabled {
   margin-bottom: 0.5rem;
 }
 
-.admin-section-head h2 { margin: 0 0 0.5rem; }
-.admin-section-head .muted { margin: 0; max-width: 36rem; }
+.admin-section-head h2 {
+  margin: 0 0 0.5rem;
+}
+
+.admin-section-head .muted {
+  margin: 0;
+  max-width: 36rem;
+}
 
 .backup-list {
   list-style: none;
@@ -2099,7 +2532,11 @@ button.danger:disabled {
   box-shadow: var(--shadow-sm);
 }
 
-.backup-main { display: grid; gap: 0.25rem; min-width: 0; }
+.backup-main {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
 
 .backup-title-row {
   display: flex;
@@ -2127,9 +2564,14 @@ button.danger:disabled {
   font-size: 0.8125rem;
 }
 
-.backup-sha { letter-spacing: 0; }
+.backup-sha {
+  letter-spacing: 0;
+}
 
-.backup-err { margin: 0.25rem 0 0; font-size: 0.8125rem; }
+.backup-err {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+}
 
 .backup-status {
   display: inline-block;
@@ -2143,11 +2585,30 @@ button.danger:disabled {
   color: var(--muted);
 }
 
-.backup-status-pending  { background: oklch(94% 0.025 90); color: oklch(45% 0.10 80); }
-.backup-status-running  { background: oklch(94% 0.04 230); color: oklch(45% 0.13 240); }
-.backup-status-complete { background: oklch(94% 0.05 145); color: oklch(40% 0.15 150); }
-.backup-status-failed   { background: var(--error-soft); color: var(--error); }
-.backup-status-expired  { background: oklch(92% 0.005 70); color: var(--muted); }
+.backup-status-pending {
+  background: oklch(94% 0.025 90);
+  color: oklch(45% 0.10 80);
+}
+
+.backup-status-running {
+  background: oklch(94% 0.04 230);
+  color: oklch(45% 0.13 240);
+}
+
+.backup-status-complete {
+  background: oklch(94% 0.05 145);
+  color: oklch(40% 0.15 150);
+}
+
+.backup-status-failed {
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+.backup-status-expired {
+  background: oklch(92% 0.005 70);
+  color: var(--muted);
+}
 
 /* --- Motion respect ---------------------------------------------------- */
 
@@ -2156,6 +2617,7 @@ button.danger:disabled {
     transition: none !important;
     animation: none !important;
   }
+
   .recipe-card:hover,
   button:hover:not(:disabled) {
     transform: none;

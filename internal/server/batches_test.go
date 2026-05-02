@@ -238,3 +238,110 @@ func TestReadings_RequireValue(t *testing.T) {
 		t.Fatalf("got %d, want 400", resp.StatusCode)
 	}
 }
+
+func TestReadings_UpdateAndDelete(t *testing.T) {
+	srv, _ := setupAuth(t, config.ModeOpen)
+	cookies := registerHelper(t, srv, "alice")
+	resp := doJSON(t, srv, http.MethodPost, "/api/batches", map[string]any{"name": "x"}, cookies...)
+	batchID, _ := decodeMap(t, resp)["id"].(string)
+
+	resp = doJSON(t, srv, http.MethodPost, "/api/batches/"+batchID+"/readings", map[string]any{
+		"gravity":       1.080,
+		"temperature_c": 20.5,
+	}, cookies...)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create got %d", resp.StatusCode)
+	}
+	readingID, _ := decodeMap(t, resp)["id"].(string)
+
+	// PATCH: update gravity only; temperature should be untouched (COALESCE).
+	resp = doJSON(t, srv, http.MethodPatch, "/api/batches/"+batchID+"/readings/"+readingID, map[string]any{
+		"gravity": 1.075,
+	}, cookies...)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch got %d", resp.StatusCode)
+	}
+	body := decodeMap(t, resp)
+	if g, _ := body["gravity"].(float64); g != 1.075 {
+		t.Fatalf("gravity = %v, want 1.075", g)
+	}
+	if tC, _ := body["temperature_c"].(float64); tC != 20.5 {
+		t.Fatalf("temperature_c = %v, want untouched 20.5", tC)
+	}
+
+	// Cross-batch DELETE returns 404 (the reading belongs to a different batch).
+	resp = doJSON(t, srv, http.MethodPost, "/api/batches", map[string]any{"name": "y"}, cookies...)
+	otherID, _ := decodeMap(t, resp)["id"].(string)
+	resp = doJSON(t, srv, http.MethodDelete, "/api/batches/"+otherID+"/readings/"+readingID, nil, cookies...)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-batch delete got %d, want 404", resp.StatusCode)
+	}
+
+	// DELETE on the right batch: 204, then a second DELETE is 404.
+	resp = doJSON(t, srv, http.MethodDelete, "/api/batches/"+batchID+"/readings/"+readingID, nil, cookies...)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete got %d, want 204", resp.StatusCode)
+	}
+	resp = doJSON(t, srv, http.MethodDelete, "/api/batches/"+batchID+"/readings/"+readingID, nil, cookies...)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("second delete got %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestReadings_BulkDelete(t *testing.T) {
+	srv, _ := setupAuth(t, config.ModeOpen)
+	cookies := registerHelper(t, srv, "alice")
+	resp := doJSON(t, srv, http.MethodPost, "/api/batches", map[string]any{"name": "x"}, cookies...)
+	batchID, _ := decodeMap(t, resp)["id"].(string)
+	resp = doJSON(t, srv, http.MethodPost, "/api/batches", map[string]any{"name": "y"}, cookies...)
+	otherBatchID, _ := decodeMap(t, resp)["id"].(string)
+
+	mkReading := func(batch string, sg float64) string {
+		r := doJSON(t, srv, http.MethodPost, "/api/batches/"+batch+"/readings", map[string]any{
+			"gravity": sg,
+		}, cookies...)
+		if r.StatusCode != http.StatusCreated {
+			t.Fatalf("create got %d", r.StatusCode)
+		}
+		id, _ := decodeMap(t, r)["id"].(string)
+		return id
+	}
+	a, b, c := mkReading(batchID, 1.080), mkReading(batchID, 1.060), mkReading(batchID, 1.040)
+	otherReading := mkReading(otherBatchID, 1.020)
+
+	// Empty ids → 400.
+	resp = doJSON(t, srv, http.MethodDelete, "/api/batches/"+batchID+"/readings", map[string]any{
+		"ids": []string{},
+	}, cookies...)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty ids got %d, want 400", resp.StatusCode)
+	}
+
+	// Bulk delete a + b, plus a foreign-batch id (should be silently skipped).
+	resp = doJSON(t, srv, http.MethodDelete, "/api/batches/"+batchID+"/readings", map[string]any{
+		"ids": []string{a, b, otherReading},
+	}, cookies...)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("bulk delete got %d, want 200", resp.StatusCode)
+	}
+	body := decodeMap(t, resp)
+	if got, _ := body["deleted"].(float64); got != 2 {
+		t.Fatalf("deleted = %v, want 2 (foreign id should not count)", got)
+	}
+
+	// c should remain in batchID; otherReading should remain in otherBatchID.
+	for _, want := range []struct{ batch, id string }{{batchID, c}, {otherBatchID, otherReading}} {
+		r := doJSON(t, srv, http.MethodGet, "/api/batches/"+want.batch+"/readings", nil, cookies...)
+		body := decodeMap(t, r)
+		readings, _ := body["readings"].([]any)
+		found := false
+		for _, rd := range readings {
+			if m, ok := rd.(map[string]any); ok && m["id"] == want.id {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("expected reading %s to remain in batch %s", want.id, want.batch)
+		}
+	}
+}
