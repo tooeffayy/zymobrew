@@ -765,6 +765,13 @@ dd {
   overflow: hidden;
 }
 
+/* Inventory has more columns than recipe-detail (selection + category +
+   name + qty + unit) and is the page's primary content, so let it fill
+   .site-main instead of inheriting the recipe-detail width cap. */
+.inventory-card {
+  max-width: none;
+}
+
 .ingredient-section+.ingredient-section {
   border-top: 1px solid var(--line-soft);
 }
@@ -779,28 +786,96 @@ dd {
   color: var(--muted);
 }
 
-.ingredient-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 1rem;
-  padding: 0.375rem 1rem;
+/* react-aria Table per kind. table-layout: fixed pins column widths so
+   qty/unit columns line up across sections — that's the whole point of
+   moving to a table. Visually-hidden header (kind h3 already labels the
+   section); column widths are tuned for the fact that qty rarely needs
+   more than 5–6 chars and unit is a short token like "g" or "fl oz". */
+.ingredient-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
   font-size: 0.9375rem;
 }
 
-.ingredient-section .ingredient-row:last-child {
+/* Visually hide the header row but keep its <th>s in table layout flow.
+   We can't use position:absolute (the standard sr-only trick) because
+   that pulls the thead's cells out of the table model — fixed-table-
+   layout's column-sizing pass then sees no width hints (data cells
+   don't drive widths; only the *first row*'s do, which is the header)
+   and falls back to equal column division. Zero-height + transparent
+   text keeps the cells in flow so .ingredient-col-* widths apply. */
+.ingredient-table .react-aria-TableHeader > tr {
+  height: 0;
+}
+
+.ingredient-table .react-aria-TableHeader > tr > th {
+  height: 0;
+  padding: 0;
+  border: 0;
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Selectors target <td> directly, not .react-aria-Cell — passing our
+   own className to <Cell> replaces the default class entirely. */
+.ingredient-table .ingredient-row > td {
+  padding: 0.375rem 0.5rem;
+  vertical-align: baseline;
+}
+
+.ingredient-table .ingredient-row > td:first-child {
+  padding-left: 1rem;
+}
+
+.ingredient-table .ingredient-row > td:last-child {
+  padding-right: 1rem;
+}
+
+.ingredient-section .ingredient-table .ingredient-row:last-child > td {
   padding-bottom: 0.625rem;
 }
 
+.ingredient-col-name {
+  width: auto;
+}
+
+.ingredient-col-qty {
+  width: 4.5rem;
+}
+
+.ingredient-col-unit {
+  width: 3.5rem;
+}
+
+/* Name + inventory pill share a cell so the pill always sits right next
+   to the name regardless of the column's auto-distributed width. */
 .ingredient-name {
   color: var(--fg);
   font-weight: 500;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
-.ingredient-amount {
+.ingredient-name-text {
+  min-width: 0;
+}
+
+.ingredient-qty {
   font-variant-numeric: tabular-nums;
   color: var(--fg);
   font-weight: 500;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ingredient-unit {
+  color: var(--fg-soft);
   white-space: nowrap;
 }
 
@@ -956,11 +1031,26 @@ dd {
   gap: 0.5rem 0;
   --stepper-fill: var(--fg-soft);
 }
-.stage-stepper-planning  { --stepper-fill: var(--fg-soft); }
-.stage-stepper-primary   { --stepper-fill: oklch(40% 0.13 55); }
-.stage-stepper-secondary { --stepper-fill: oklch(40% 0.13 85); }
-.stage-stepper-aging     { --stepper-fill: oklch(38% 0.10 130); }
-.stage-stepper-bottled   { --stepper-fill: oklch(38% 0.10 210); }
+
+.stage-stepper-planning {
+  --stepper-fill: var(--fg-soft);
+}
+
+.stage-stepper-primary {
+  --stepper-fill: oklch(40% 0.13 55);
+}
+
+.stage-stepper-secondary {
+  --stepper-fill: oklch(40% 0.13 85);
+}
+
+.stage-stepper-aging {
+  --stepper-fill: oklch(38% 0.10 130);
+}
+
+.stage-stepper-bottled {
+  --stepper-fill: oklch(38% 0.10 210);
+}
 
 .stage-stepper-node {
   display: inline-flex;
@@ -1000,12 +1090,15 @@ dd {
 .stage-stepper-node-past {
   color: var(--stepper-fill);
 }
+
 .stage-stepper-node-past .stage-stepper-dot {
   background: currentColor;
 }
+
 .stage-stepper-node-past .stage-stepper-label {
   opacity: 0.7;
 }
+
 .stage-stepper-line-past {
   background: var(--stepper-fill);
   opacity: 0.7;
@@ -1016,12 +1109,14 @@ dd {
 .stage-stepper-node-current {
   color: var(--stepper-fill);
 }
+
 .stage-stepper-node-current .stage-stepper-dot {
   background: currentColor;
   width: 0.875rem;
   height: 0.875rem;
   box-shadow: 0 0 0 4px color-mix(in oklch, currentColor 18%, transparent);
 }
+
 .stage-stepper-node-current .stage-stepper-label {
   font-size: 0.9375rem;
   font-weight: 600;
@@ -1042,6 +1137,7 @@ dd {
 .stage-stepper-archived {
   margin: 1.25rem 0 0;
 }
+
 .stage-stepper-archived-label {
   display: inline-flex;
   align-items: center;
@@ -1055,6 +1151,7 @@ dd {
   font-size: 0.9375rem;
   font-weight: 600;
 }
+
 .stage-stepper-archived-label::before {
   content: "";
   display: inline-block;
@@ -1066,8 +1163,14 @@ dd {
 }
 
 @media (max-width: 30rem) {
-  .stage-stepper-line { max-width: 1.5rem; margin: 0 0.25rem; }
-  .stage-stepper-node-current .stage-stepper-label { font-size: 0.875rem; }
+  .stage-stepper-line {
+    max-width: 1.5rem;
+    margin: 0 0.25rem;
+  }
+
+  .stage-stepper-node-current .stage-stepper-label {
+    font-size: 0.875rem;
+  }
 }
 
 /* --- Pinned recipe notice (BatchCreate) ------------------------------- */
@@ -1461,10 +1564,21 @@ dd {
 
 /* Explicit widths required by table-layout: fixed. Notes is the only
    flex column — it absorbs the leftover space. */
-.readings-table col.col-check   { width: 2.5rem; }
-.readings-table col.col-when    { width: 17rem; }
-.readings-table col.col-num     { width: 6rem; }
-.readings-table col.col-actions { width: 7rem; }
+.readings-table col.col-check {
+  width: 2.5rem;
+}
+
+.readings-table col.col-when {
+  width: 17rem;
+}
+
+.readings-table col.col-num {
+  width: 6rem;
+}
+
+.readings-table col.col-actions {
+  width: 7rem;
+}
 
 /* Center the checkbox in its narrow column and override the global
    `input { display: block; width: 100%; ... }` rule so the checkbox
@@ -1554,13 +1668,23 @@ dd {
 }
 
 @keyframes modal-overlay-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes modal-overlay-out {
-  from { opacity: 1; }
-  to   { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
 }
 
 .modal {
@@ -1580,13 +1704,27 @@ dd {
 }
 
 @keyframes modal-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.985); }
-  to   { opacity: 1; transform: translateY(0)   scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 @keyframes modal-out {
-  from { opacity: 1; transform: scale(1); }
-  to   { opacity: 0; transform: scale(0.985); }
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.985);
+  }
 }
 
 .modal-dialog {
@@ -2101,7 +2239,7 @@ select:focus-visible {
     grid-area: kind;
   }
 
-  .ingredient-edit-row>input[aria-label="Name"] {
+  .ingredient-edit-row>.ingredient-name-combobox {
     grid-area: name;
   }
 
@@ -2151,6 +2289,67 @@ select:focus-visible {
 .row-remove:disabled {
   opacity: 0;
   pointer-events: none;
+}
+
+/* Inventory-driven autocomplete on the name field. The ComboBox wraps
+   the input so it (not the input) is the grid child — width:100% lets it
+   fill the name column the same way the bare input did. */
+.ingredient-name-combobox {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.ingredient-name-combobox > .ingredient-name-input {
+  width: 100%;
+  margin: 0;
+}
+
+.ingredient-name-popover {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.08);
+  min-width: var(--trigger-width, 14rem);
+  max-width: 22rem;
+  outline: none;
+}
+
+.ingredient-name-listbox {
+  display: block;
+  padding: 0.25rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  outline: none;
+}
+
+.ingredient-name-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.375rem 0.625rem;
+  font-size: 0.9375rem;
+  color: var(--fg);
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+.ingredient-name-option-meta {
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ingredient-name-option[data-focused],
+.ingredient-name-option[data-hovered] {
+  background: var(--bg-tint);
+}
+
+.ingredient-name-option[data-selected] {
+  background: var(--accent-soft);
+  font-weight: 500;
 }
 
 .add-button {
@@ -2907,6 +3106,557 @@ button.danger:disabled {
 .backup-status-expired {
   background: oklch(92% 0.005 70);
   color: var(--muted);
+}
+
+/* --- Recipe inventory match ------------------------------------------ */
+
+/* Above-the-list summary: muted-positive when fully stocked, neutral
+   surface otherwise. Width-capped to match the ingredient card so the
+   eye reads them as a pair. */
+.inventory-summary {
+  max-width: 32rem;
+  margin: 0 0 0.875rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  font-size: 0.875rem;
+  color: var(--fg-soft);
+}
+
+.inventory-summary strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.inventory-summary-ready {
+  background: oklch(95% 0.04 145);
+  border-color: oklch(86% 0.06 145);
+  color: oklch(35% 0.10 150);
+}
+
+.inventory-summary-ready strong {
+  color: inherit;
+}
+
+.inventory-summary-link {
+  color: var(--accent);
+  text-decoration: none;
+  margin-left: 0.5em;
+}
+
+.inventory-summary-link:hover {
+  text-decoration: underline;
+}
+
+/* Per-ingredient pill. Three states match the API status: have (calm
+   green), short (amber-warning, includes the gap quantity), missing
+   (red-leaning). unit_mismatch is its own neutral-warning so the user
+   knows the kind is on-hand but the units don't compare. */
+.inventory-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.inventory-badge-have {
+  background: oklch(94% 0.05 145);
+  color: oklch(40% 0.13 150);
+}
+
+.inventory-badge-short {
+  background: oklch(94% 0.05 75);
+  color: oklch(40% 0.15 60);
+}
+
+.inventory-badge-missing {
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+.inventory-badge-mismatch {
+  background: oklch(94% 0.02 250);
+  color: oklch(40% 0.10 240);
+}
+
+/* --- Inventory page --------------------------------------------------- */
+
+/* Page header for inventory (and future stockpile-style pages). The
+   description sits beside the title rather than below it so the page
+   reads as a single block without forcing the toolbar far down. */
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin: 0 0 1.5rem;
+  flex-wrap: wrap;
+}
+
+.page-header h1 {
+  margin: 0 0 0.5rem;
+}
+
+.inventory-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 1.25rem;
+}
+
+/* Square icon-only variant of .action-button. Matches the text-button
+   visual height so a row mixing both stays aligned. */
+.action-button.icon-button {
+  padding: 0.4375rem;
+  line-height: 0;
+}
+
+.action-button.icon-button svg {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+}
+
+.inventory-empty {
+  max-width: 32rem;
+  padding: 1rem 1.25rem;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+/* Single react-aria Table for the whole inventory. Categories live in
+   the first column rather than as section headers so quantity and unit
+   columns line up across the entire stockpile. table-layout: fixed
+   pins column widths; Cell padding handles row chrome. */
+.inventory-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.9375rem;
+}
+
+/* react-aria renders TableHeader as <thead><tr><th>…</th>…</tr></thead>.
+   We target <th> directly because passing className on <Column> replaces
+   the default `react-aria-Column` class, so the conventional
+   `.react-aria-Column` selector wouldn't match our cells. */
+.inventory-table .react-aria-TableHeader th {
+  text-align: left;
+  padding: 0.625rem 0.5rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.inventory-table .react-aria-TableHeader th:first-child {
+  padding-left: 1rem;
+}
+
+.inventory-table .react-aria-TableHeader th:last-child {
+  padding-right: 1rem;
+}
+
+.inventory-table .inventory-col-qty,
+.inventory-table .inventory-col-unit {
+  text-align: center;
+}
+
+.inventory-col-select {
+  width: 2.5rem;
+}
+
+/* Header and body cell for the selection column both center their
+   checkbox so the row checkboxes align under the select-all along one
+   vertical axis. vertical-align middle keeps the box centered against
+   the row's text baseline. */
+.inventory-table .inventory-col-select,
+.inventory-table .inventory-cell-select {
+  text-align: center;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  vertical-align: middle;
+}
+
+.inventory-col-category {
+  width: 6.5rem;
+  text-align: left;
+}
+
+.inventory-col-name {
+  width: auto;
+  text-align: left;
+}
+
+.inventory-col-qty {
+  width: 5rem;
+}
+
+/* Width is computed in Inventory.tsx by measuring the widest unit string
+   (current values + the kind-preset options) and writing the result to
+   `--inventory-unit-col-width` on the inventory card. 7rem is the floor
+   so the column never collapses below the "Unit" header label. */
+.inventory-col-unit {
+  width: var(--inventory-unit-col-width, 7rem);
+}
+
+/* Offscreen text-width probe paired with the measurement <span> in
+   Inventory.tsx. white-space:pre preserves any spacing inside multi-word
+   values ("fl oz") so the measured width matches the rendered cell. */
+.inventory-unit-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: pre;
+  top: 0;
+  left: 0;
+}
+
+.inventory-col-edit {
+  width: 5rem;
+}
+
+/* react-aria Checkbox renders unstyled — paint a 14px box that flips to
+   the brand colour when checked. The slot="selection" wrapper exposes
+   data-selected on the row's checkbox and on the header's "select-all"
+   checkbox alike, so one rule covers both. */
+.inventory-table .react-aria-Checkbox {
+  /* display: inline-flex; */
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  /* react-aria Checkbox renders as a <label>; the global form-label
+     rule adds margin-bottom: 1rem which pushes the visual centre up.
+     Reset for table-cell usage. */
+  margin: 0;
+  border: 1.5px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: background 0.1s ease, border-color 0.1s ease;
+  /* The check/dash glyphs are absolutely-positioned children — keep
+     them out of inline flow so the header cell's height doesn't
+     fluctuate when the checkbox flips between empty / indeterminate /
+     selected (the pseudo would otherwise add ~1.5px to its line box). */
+  position: relative;
+}
+
+.inventory-table .react-aria-Checkbox[data-hovered] {
+  border-color: var(--fg-soft);
+}
+
+.inventory-table .react-aria-Checkbox[data-focus-visible] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.inventory-table .react-aria-Checkbox[data-selected],
+.inventory-table .react-aria-Checkbox[data-indeterminate] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.inventory-table .react-aria-Checkbox[data-selected]::after {
+  content: "";
+  position: absolute;
+  width: 0.4rem;
+  height: 0.65rem;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-2px, -3px);
+}
+
+.inventory-table .react-aria-Checkbox[data-indeterminate]::after {
+  content: "";
+  position: absolute;
+  width: 0.55rem;
+  height: 2px;
+  background: white;
+}
+
+/* Selected row gets a subtle tint so the bulk-action target is visible. */
+.inventory-table .inventory-row[data-selected] {
+  background: var(--bg-tint);
+}
+
+/* Same caveat as the header rule: passing className on <Cell> drops
+   the default `react-aria-Cell` class, so target <td> directly. */
+.inventory-table .inventory-row>td {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  vertical-align: middle;
+  border-top: 1px solid var(--line-soft);
+}
+
+.inventory-table .inventory-row:first-of-type>td {
+  border-top: 0;
+}
+
+.inventory-table .inventory-row>td:first-child {
+  padding-left: 1rem;
+}
+
+.inventory-table .inventory-row>td:last-child {
+  padding-right: 0.25rem;
+}
+
+.inventory-category {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.inventory-name {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.inventory-qty {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  font-weight: 500;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.inventory-unit {
+  color: var(--fg-soft);
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* Inline-editable cell inputs. Render flush — no margin-top from the
+   global `input` rule, no border until hover/focus — so the column reads
+   as plain text until you click into it. Specificity inside .inventory-table
+   to override the page-wide `input` baseline. */
+.inventory-table .inventory-cell-input {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0.25rem 0.375rem;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.inventory-table .inventory-cell-input:hover:not(:focus) {
+  border-color: var(--line-soft);
+}
+
+.inventory-table .inventory-cell-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.inventory-table .inventory-cell-input:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.inventory-table .inventory-qty-cell-input {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.inventory-table .inventory-unit-cell-input {
+  text-align: left;
+  color: var(--fg-soft);
+}
+
+/* Hide native number spinners — they pull the value off the right edge
+   and break the plain-text appearance. */
+.inventory-table .inventory-qty-cell-input::-webkit-outer-spin-button,
+.inventory-table .inventory-qty-cell-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.inventory-table .inventory-qty-cell-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Unit ComboBox: input + chevron trigger sit side-by-side and fill the
+   cell. Chevron stays invisible at rest so the column reads as plain
+   text — same minimalism as the qty input — and reveals on hover/focus
+   to advertise that this is a dropdown. */
+.inventory-table .inventory-unit-combobox {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  width: 100%;
+}
+
+.inventory-table .inventory-unit-combobox .inventory-unit-cell-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.inventory-unit-trigger {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1.25rem;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 0.625rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.inventory-unit-combobox:hover .inventory-unit-trigger,
+.inventory-unit-combobox:focus-within .inventory-unit-trigger,
+.inventory-unit-trigger[data-pressed],
+.inventory-unit-trigger:focus-visible {
+  opacity: 1;
+}
+
+.inventory-unit-trigger:hover {
+  color: var(--fg);
+  background: var(--bg-tint);
+}
+
+@media (hover: none) {
+
+  /* Touch devices have no hover — keep the chevron visible so the
+     dropdown affordance is discoverable. */
+  .inventory-unit-trigger {
+    opacity: 0.5;
+  }
+}
+
+/* Popover renders in a portal at document root, so it doesn't need to
+   live inside .inventory-table to be styled. */
+.inventory-unit-popover {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.08);
+  min-width: 6rem;
+  max-width: 12rem;
+  outline: none;
+}
+
+.inventory-unit-listbox {
+  display: block;
+  padding: 0.25rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  outline: none;
+}
+
+.inventory-unit-option {
+  display: block;
+  padding: 0.375rem 0.625rem;
+  font-size: 0.875rem;
+  color: var(--fg);
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+.inventory-unit-option[data-focused],
+.inventory-unit-option[data-hovered] {
+  background: var(--bg-tint);
+}
+
+.inventory-unit-option[data-selected] {
+  background: var(--accent-soft);
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.inventory-edit-cell-btn {
+  text-align: right;
+}
+
+.inventory-edit-btn {
+  font-size: 0.8125rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.inventory-row:hover .inventory-edit-btn,
+.inventory-row:focus-within .inventory-edit-btn {
+  opacity: 1;
+}
+
+@media (hover: none) {
+
+  /* Touch devices have no hover — keep the affordance always visible. */
+  .inventory-edit-btn {
+    opacity: 1;
+  }
+}
+
+/* Remove button sits opposite Cancel/Save in the edit modal so the
+   destructive action lives at the visual edge. */
+.inventory-form-remove {
+  margin-right: auto;
+}
+
+/* Add/edit form layout. Two paired rows (kind+name; amount+unit) keep
+   the form scannable on the modal's narrower width. The compact variant
+   used inline drops the outer gap so the row's own padding takes over. */
+.inventory-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.inventory-form-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.inventory-form-row>select {
+  flex: 0 0 8rem;
+}
+
+.inventory-form-row>input[type="text"]:not(.inventory-unit-input) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.inventory-amount-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.inventory-unit-input {
+  flex: 0 0 8rem;
+}
+
+.inventory-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
 }
 
 /* --- Motion respect ---------------------------------------------------- */

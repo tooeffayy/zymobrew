@@ -25,11 +25,11 @@ const TEMPLATE_ANCHORS: ReminderAnchor[] = [
 ];
 
 const ANCHOR_LABEL: Record<ReminderAnchor, string> = {
-  absolute:     "absolute time",
-  batch_start:  "batch start",
-  pitch:        "pitch",
-  rack:         "rack",
-  bottle:       "bottle",
+  absolute: "absolute time",
+  batch_start: "batch start",
+  pitch: "pitch",
+  rack: "rack",
+  bottle: "bottle",
   custom_event: "custom event",
 };
 
@@ -46,9 +46,9 @@ type OffsetUnit = "minutes" | "hours" | "days" | "weeks";
 
 const UNIT_TO_MIN: Record<OffsetUnit, number> = {
   minutes: 1,
-  hours:   60,
-  days:    60 * 24,
-  weeks:   60 * 24 * 7,
+  hours: 60,
+  days: 60 * 24,
+  weeks: 60 * 24 * 7,
 };
 
 // Pick the largest unit that divides the offset cleanly so a "14 days"
@@ -259,17 +259,17 @@ function TemplateForm({
     ? decomposeOffset(template.offset_minutes)
     : { magnitude: 1, unit: "days" as OffsetUnit, sign: 1 as 1 | -1 };
 
-  const [title, setTitle]               = useState(template?.title ?? "");
-  const [description, setDescription]   = useState(template?.description ?? "");
-  const [anchor, setAnchor]             = useState<ReminderAnchor>(template?.anchor ?? "pitch");
-  const [magnitude, setMagnitude]       = useState(String(initial.magnitude));
-  const [unit, setUnit]                 = useState<OffsetUnit>(initial.unit);
-  const [sign, setSign]                 = useState<1 | -1>(initial.sign);
+  const [title, setTitle] = useState(template?.title ?? "");
+  const [description, setDescription] = useState(template?.description ?? "");
+  const [anchor, setAnchor] = useState<ReminderAnchor>(template?.anchor ?? "pitch");
+  const [magnitude, setMagnitude] = useState(String(initial.magnitude));
+  const [unit, setUnit] = useState<OffsetUnit>(initial.unit);
+  const [sign, setSign] = useState<1 | -1>(initial.sign);
   const [suggestedKind, setSuggestedKind] = useState<EventKind | "">(template?.suggested_event_kind ?? "");
-  const [sortOrder, setSortOrder]       = useState(String(template?.sort_order ?? 0));
+  const [sortOrder, setSortOrder] = useState(String(template?.sort_order ?? 0));
 
   const [busy, setBusy] = useState(false);
-  const [err, setErr]   = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();

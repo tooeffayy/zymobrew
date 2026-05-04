@@ -26,7 +26,7 @@ func TestSchemaTablesPresent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = 28 // bumped in 0005_account_deletions.sql (added account_deletion_requests)
+	const want = 29 // bumped in 0009_inventory.sql (added inventory_items)
 	if n != want {
 		t.Fatalf("expected %d app tables, got %d", want, n)
 	}

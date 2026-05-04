@@ -34,6 +34,8 @@ tags:
     description: Admin-only database backups
   - name: calculators
     description: Stateless brewing calculators (ABV, predicted FG, honey weight, pitch rate)
+  - name: inventory
+    description: Per-user ingredient stockpile, plus per-recipe match lookup
 
 components:
   securitySchemes:
@@ -569,6 +571,64 @@ components:
           type: string
         created_at:
           $ref: '#/components/schemas/DateTime'
+
+    InventoryItem:
+      type: object
+      required: [id, kind, name, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        kind:
+          type: string
+          enum: [honey, water, yeast, nutrient, fruit, spice, oak, acid, tannin, other, juice, sugar]
+        name:
+          type: string
+          maxLength: 200
+        amount:
+          type: number
+          format: double
+        unit:
+          type: string
+          maxLength: 32
+        notes:
+          type: string
+          maxLength: 2048
+        created_at:
+          $ref: '#/components/schemas/DateTime'
+        updated_at:
+          $ref: '#/components/schemas/DateTime'
+
+    InventoryMatch:
+      type: object
+      required: [ingredient_id, kind, name, status]
+      properties:
+        ingredient_id:
+          $ref: '#/components/schemas/UUID'
+        kind:
+          type: string
+        name:
+          type: string
+        amount:
+          type: number
+          format: double
+          description: Quantity called for in the recipe (may be absent).
+        unit:
+          type: string
+        status:
+          type: string
+          enum: [have, short, missing]
+        inventory_id:
+          $ref: '#/components/schemas/UUID'
+        inventory_amount:
+          type: number
+          format: double
+        shortfall:
+          type: number
+          format: double
+          description: Quantity by which the inventory falls short of the recipe ingredient, in the recipe ingredient's unit. Present only when status=short and both amounts are known.
+        unit_mismatch:
+          type: boolean
+          description: True when the brewer has an inventory entry with the same kind+name but a different unit. Surfaces unit-conversion gaps that the strict-match logic cannot resolve.
 
 paths:
 
@@ -1482,6 +1542,53 @@ paths:
           description: Like removed
         "401":
           description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/recipes/{id}/inventory-match:
+    get:
+      tags: [inventory]
+      operationId: getRecipeInventoryMatch
+      summary: For each recipe ingredient, report whether the caller has it on hand
+      description: |
+        Returns one row per recipe ingredient with the caller's inventory
+        joined in. Strict match — same kind, case-insensitive name, same
+        unit (or both NULL). Status is one of `have`, `short`, or `missing`.
+        `unit_mismatch` is true when the caller has an item with the same
+        kind+name but a different unit, surfacing the gap that strict
+        matching can't bridge.
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "200":
+          description: Match results, one entry per recipe ingredient.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/InventoryMatch'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Recipe not found or not visible
           content:
             application/json:
               schema:
@@ -3451,6 +3558,169 @@ paths:
                     type: number
         "400":
           description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/inventory:
+    get:
+      tags: [inventory]
+      operationId: listInventory
+      summary: List the caller's inventory items
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: All inventory items, sorted by kind then name.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/InventoryItem'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags: [inventory]
+      operationId: createInventoryItem
+      summary: Add an item to the caller's inventory
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, name]
+              properties:
+                kind:
+                  type: string
+                  enum: [honey, water, yeast, nutrient, fruit, spice, oak, acid, tannin, other, juice, sugar]
+                name:
+                  type: string
+                  maxLength: 200
+                amount:
+                  type: number
+                  format: double
+                unit:
+                  type: string
+                  maxLength: 32
+                notes:
+                  type: string
+                  maxLength: 2048
+      responses:
+        "201":
+          description: Item created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryItem'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/inventory/{id}:
+    patch:
+      tags: [inventory]
+      operationId: updateInventoryItem
+      summary: Update an inventory item (COALESCE PATCH semantics)
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                name:
+                  type: string
+                amount:
+                  type: number
+                  format: double
+                unit:
+                  type: string
+                notes:
+                  type: string
+      responses:
+        "200":
+          description: Item updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryItem'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [inventory]
+      operationId: deleteInventoryItem
+      summary: Delete an inventory item
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Not found
           content:
             application/json:
               schema:

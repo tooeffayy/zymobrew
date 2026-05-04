@@ -10,6 +10,7 @@ import { BatchDetail } from "./pages/BatchDetail";
 import { BatchEdit } from "./pages/BatchEdit";
 import { Batches } from "./pages/Batches";
 import { Calculators } from "./pages/Calculators";
+import { Inventory } from "./pages/Inventory";
 import { Login } from "./pages/Login";
 import { Me } from "./pages/Me";
 import { Notifications } from "./pages/Notifications";
@@ -136,6 +137,16 @@ export function App() {
               <RequireAuth>
                 <Layout>
                   <BatchEdit />
+                </Layout>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/inventory"
+            element={
+              <RequireAuth>
+                <Layout>
+                  <Inventory />
                 </Layout>
               </RequireAuth>
             }

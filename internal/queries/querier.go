@@ -33,6 +33,7 @@ type Querier interface {
 	CreateBatch(ctx context.Context, arg CreateBatchParams) (Batch, error)
 	CreateBatchEvent(ctx context.Context, arg CreateBatchEventParams) (BatchEvent, error)
 	CreateForkedRecipe(ctx context.Context, arg CreateForkedRecipeParams) (Recipe, error)
+	CreateInventoryItem(ctx context.Context, arg CreateInventoryItemParams) (InventoryItem, error)
 	CreateNotification(ctx context.Context, arg CreateNotificationParams) (Notification, error)
 	CreateReading(ctx context.Context, arg CreateReadingParams) (Reading, error)
 	CreateRecipeComment(ctx context.Context, arg CreateRecipeCommentParams) (RecipeComment, error)
@@ -49,10 +50,14 @@ type Querier interface {
 	// =============================================================================
 	CreateUserExport(ctx context.Context, arg CreateUserExportParams) (UserExport, error)
 	CreateUserWithPassword(ctx context.Context, arg CreateUserWithPasswordParams) (User, error)
+	// Used by account anonymization to wipe inventory alongside other
+	// per-user data. Returns nothing — caller doesn't care about the count.
+	DeleteAllInventoryForUser(ctx context.Context, userID uuid.UUID) error
 	DeleteBatch(ctx context.Context, arg DeleteBatchParams) (int64, error)
 	DeleteBatchEvent(ctx context.Context, arg DeleteBatchEventParams) (int64, error)
 	DeleteExpiredAdminBackups(ctx context.Context, dollar_1 int32) ([]pgtype.Text, error)
 	DeleteExpiredSessions(ctx context.Context) error
+	DeleteInventoryItem(ctx context.Context, arg DeleteInventoryItemParams) (int64, error)
 	DeleteNotificationPrefsForUser(ctx context.Context, userID uuid.UUID) error
 	DeleteNotificationsForUser(ctx context.Context, userID uuid.UUID) error
 	DeletePushDevice(ctx context.Context, arg DeletePushDeviceParams) (int64, error)
@@ -78,6 +83,7 @@ type Querier interface {
 	GetAdminBackup(ctx context.Context, id uuid.UUID) (AdminBackup, error)
 	GetBatchEvent(ctx context.Context, arg GetBatchEventParams) (BatchEvent, error)
 	GetBatchForUser(ctx context.Context, arg GetBatchForUserParams) (Batch, error)
+	GetInventoryItemForUser(ctx context.Context, arg GetInventoryItemForUserParams) (InventoryItem, error)
 	GetNotificationPrefs(ctx context.Context, userID uuid.UUID) (NotificationPref, error)
 	GetPendingUserExport(ctx context.Context, userID uuid.UUID) (UserExport, error)
 	GetRecipeByID(ctx context.Context, id uuid.UUID) (Recipe, error)
@@ -108,6 +114,10 @@ type Querier interface {
 	// Social data for export
 	// =============================================================================
 	ListFollowsByUser(ctx context.Context, followerID uuid.UUID) ([]Follow, error)
+	// Inventory is bounded (a brewer keeps tens, not thousands of items),
+	// so plain ORDER BY without keyset pagination is fine for v1. Sort by
+	// kind first then name so the page reads as a categorized list.
+	ListInventoryForUser(ctx context.Context, userID uuid.UUID) ([]InventoryItem, error)
 	ListLikesByUser(ctx context.Context, userID uuid.UUID) ([]RecipeLike, error)
 	ListNotifications(ctx context.Context, arg ListNotificationsParams) ([]Notification, error)
 	// Keyset pagination: (updated_at, id) DESC. Pass cursor_ts/cursor_id as
@@ -136,6 +146,16 @@ type Querier interface {
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID) error
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) (int64, error)
+	// Returns recipe ingredients joined with every inventory row that matches
+	// on kind + case-insensitive name. Unit equality is intentionally NOT in
+	// the join — the Go handler converts compatible-unit rows to the recipe's
+	// unit (calc.Convert) and aggregates them, so a brewer with 800g + 200g
+	// of the same honey reads as 1kg even when those land in two rows.
+	//
+	// The result has multiple rows per ingredient when inventory carries the
+	// ingredient in several units; ingredients with no matches still appear
+	// (LEFT JOIN, NULL inventory cols).
+	MatchInventoryForRecipe(ctx context.Context, arg MatchInventoryForRecipeParams) ([]MatchInventoryForRecipeRow, error)
 	MaterializeReminderTemplates(ctx context.Context, arg MaterializeReminderTemplatesParams) error
 	// Shifts fire_at on already-materialized reminders when the anchor moves
 	// (e.g. batch.started_at is patched). Status filter is intentionally narrower
@@ -148,6 +168,10 @@ type Querier interface {
 	UnlikeRecipe(ctx context.Context, arg UnlikeRecipeParams) error
 	UpdateBatch(ctx context.Context, arg UpdateBatchParams) (Batch, error)
 	UpdateBatchEvent(ctx context.Context, arg UpdateBatchEventParams) (BatchEvent, error)
+	// COALESCE PATCH semantics — omitted columns retain their value. amount
+	// and unit can't be cleared to NULL via PATCH (matches the rest of the
+	// API). notes can be cleared via empty string.
+	UpdateInventoryItem(ctx context.Context, arg UpdateInventoryItemParams) (InventoryItem, error)
 	UpdateReading(ctx context.Context, arg UpdateReadingParams) (Reading, error)
 	UpdateRecipeMeta(ctx context.Context, arg UpdateRecipeMetaParams) (Recipe, error)
 	UpdateReminder(ctx context.Context, arg UpdateReminderParams) (Reminder, error)

@@ -1,7 +1,24 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  Input as AriaInput,
+  ComboBox,
+  ListBox,
+  ListBoxItem,
+  Popover,
+} from "react-aria-components";
 import { Link } from "react-router-dom";
 
-import { ApiError, BrewType, Ingredient, IngredientKind, Recipe, Visibility } from "../api";
+import {
+  ApiError,
+  BrewType,
+  Ingredient,
+  IngredientKind,
+  InventoryItem,
+  InventoryListResponse,
+  Recipe,
+  Visibility,
+  api,
+} from "../api";
 
 // API surface only accepts mead/cider/wine today (server's
 // allowedBrewTypes); beer/kombucha land in later phases.
@@ -153,6 +170,18 @@ export function RecipeForm(props: Props) {
 
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Inventory drives the name-field autocomplete. Best-effort: a 401/network
+  // failure just means the user types names freehand. Fetched once per mount.
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<InventoryListResponse>("/api/inventory")
+      .then((res) => { if (!cancelled) setInventory(res.items); })
+      .catch(() => { /* silent — autocomplete is enhancement-only */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const updateIngredient = (uid: string, patch: Partial<IngredientDraft>) =>
     setIngredients((prev) =>
@@ -329,6 +358,7 @@ export function RecipeForm(props: Props) {
             <IngredientRow
               key={ing.uid}
               draft={ing}
+              inventory={inventory}
               onChange={(patch) => updateIngredient(ing.uid, patch)}
               onRemove={ingredients.length > 1 ? () => removeIngredient(ing.uid) : undefined}
             />
@@ -424,12 +454,33 @@ function NumberField({
 }
 
 function IngredientRow({
-  draft, onChange, onRemove,
+  draft, inventory, onChange, onRemove,
 }: {
   draft: IngredientDraft;
+  inventory: InventoryItem[];
   onChange: (patch: Partial<IngredientDraft>) => void;
   onRemove?: () => void;
 }) {
+  // Filter to the current kind so a "honey" row only suggests honeys.
+  // ComboBox's built-in filter then narrows by what the user types.
+  const inventoryForKind = useMemo(
+    () => inventory.filter((it) => it.kind === draft.kind),
+    [inventory, draft.kind],
+  );
+
+  const onPickInventory = (key: React.Key | null) => {
+    if (key === null) return;
+    const item = inventoryForKind.find((it) => it.id === String(key));
+    if (!item) return;
+    const patch: Partial<IngredientDraft> = { name: item.name };
+    // Convenience: prefill the unit if the row has none yet and the
+    // inventory unit is one of the kind's known options.
+    if (!draft.unit.trim() && item.unit && unitsForKind(draft.kind).includes(item.unit)) {
+      patch.unit = item.unit;
+    }
+    onChange(patch);
+  };
+
   return (
     <div className="ingredient-edit-row">
       <select
@@ -442,14 +493,41 @@ function IngredientRow({
           <option key={k} value={k}>{k}</option>
         ))}
       </select>
-      <input
-        type="text"
-        value={draft.name}
-        onChange={(e) => onChange({ name: e.target.value })}
-        placeholder="Name"
-        maxLength={200}
+      <ComboBox
         aria-label="Name"
-      />
+        inputValue={draft.name}
+        onInputChange={(value) => onChange({ name: value })}
+        onSelectionChange={onPickInventory}
+        allowsCustomValue
+        menuTrigger="input"
+        className="ingredient-name-combobox"
+      >
+        <AriaInput
+          className="ingredient-name-input"
+          placeholder="Name"
+          maxLength={200}
+        />
+        <Popover className="ingredient-name-popover" placement="bottom start">
+          <ListBox className="ingredient-name-listbox" items={inventoryForKind}>
+            {(it) => (
+              <ListBoxItem
+                id={it.id}
+                className="ingredient-name-option"
+                textValue={it.name}
+              >
+                <span className="ingredient-name-option-name">{it.name}</span>
+                {(it.amount != null || it.unit) && (
+                  <span className="ingredient-name-option-meta muted">
+                    {it.amount != null ? it.amount : ""}
+                    {it.amount != null && it.unit ? " " : ""}
+                    {it.unit ?? ""}
+                  </span>
+                )}
+              </ListBoxItem>
+            )}
+          </ListBox>
+        </Popover>
+      </ComboBox>
       <input
         type="number"
         inputMode="decimal"

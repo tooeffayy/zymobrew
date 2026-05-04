@@ -1,7 +1,23 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  Cell,
+  Column,
+  Row,
+  Table,
+  TableBody,
+  TableHeader,
+} from "react-aria-components";
 
-import { ApiError, Ingredient, IngredientKind, Recipe, api } from "../api";
+import {
+  ApiError,
+  Ingredient,
+  IngredientKind,
+  InventoryMatch,
+  InventoryMatchResponse,
+  Recipe,
+  api,
+} from "../api";
 import { useAuth } from "../auth";
 import { ReminderTemplatesSection } from "../components/ReminderTemplatesSection";
 
@@ -13,15 +29,19 @@ export function RecipeDetail() {
   const { state } = useAuth();
   const navigate = useNavigate();
   const [recipe, setRecipe] = useState<Recipe | null>(null);
+  const [match, setMatch] = useState<InventoryMatch[] | null>(null);
   const [error, setError] = useState<{ status: number; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "delete" | "fork">(null);
 
+  const isAuthed = state.status === "authed";
+
   useEffect(() => {
     setLoading(true);
     setError(null);
     setRecipe(null);
+    setMatch(null);
     api
       .get<Recipe>(`/api/recipes/${encodeURIComponent(id)}`)
       .then((r) => setRecipe(r))
@@ -34,6 +54,28 @@ export function RecipeDetail() {
       })
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Fetch inventory match in parallel — runs only for authed users
+  // (anon callers get a 401 from the endpoint). A failure here is
+  // non-fatal: the badges just don't render. We don't surface the
+  // error because the recipe itself loaded fine and inventory is
+  // a secondary signal.
+  useEffect(() => {
+    if (!id || !isAuthed) {
+      setMatch(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<InventoryMatchResponse>(`/api/recipes/${encodeURIComponent(id)}/inventory-match`)
+      .then((res) => {
+        if (!cancelled) setMatch(res.items);
+      })
+      .catch(() => {
+        if (!cancelled) setMatch(null);
+      });
+    return () => { cancelled = true; };
+  }, [id, isAuthed]);
 
   if (loading) {
     return (
@@ -60,8 +102,7 @@ export function RecipeDetail() {
 
   if (!recipe) return null;
 
-  const isAuthed = state.status === "authed";
-  const isOwner = isAuthed && state.user.id === recipe.author_id;
+  const isOwner = state.status === "authed" && state.user.id === recipe.author_id;
 
   const onDelete = async () => {
     // Native confirm keeps the destructive-action surface small and
@@ -162,7 +203,10 @@ export function RecipeDetail() {
         {recipe.ingredients.length === 0 ? (
           <p className="muted">No ingredients listed.</p>
         ) : (
-          <IngredientList ingredients={recipe.ingredients} />
+          <>
+            {match && match.length > 0 && <InventoryMatchSummary match={match} />}
+            <IngredientList ingredients={recipe.ingredients} match={match} />
+          </>
         )}
       </section>
 
@@ -196,7 +240,12 @@ const KIND_ORDER: IngredientKind[] = [
   "water", "acid", "tannin", "spice", "oak", "other",
 ];
 
-function IngredientList({ ingredients }: { ingredients: Ingredient[] }) {
+function IngredientList({
+  ingredients, match,
+}: {
+  ingredients: Ingredient[];
+  match: InventoryMatch[] | null;
+}) {
   const groups = new Map<IngredientKind, Ingredient[]>();
   for (const ing of ingredients) {
     const arr = groups.get(ing.kind) ?? [];
@@ -208,26 +257,136 @@ function IngredientList({ ingredients }: { ingredients: Ingredient[] }) {
   }
   const ordered = KIND_ORDER.filter((k) => groups.has(k)).map((k) => [k, groups.get(k)!] as const);
 
+  // Index match rows by ingredient_id for O(1) lookup. The server returns
+  // exactly one row per recipe ingredient, so a missing entry means we
+  // never fetched the match (anon caller, fetch failed); render the row
+  // un-decorated in that case.
+  const matchByID = new Map<string, InventoryMatch>();
+  if (match) {
+    for (const m of match) matchByID.set(m.ingredient_id, m);
+  }
+
+  // One Table per kind so the kind heading stays as a section break.
+  // Every table uses the same fixed column widths (table-layout: fixed
+  // + explicit widths in CSS), so qty/unit columns line up vertically
+  // across all sections — that's the alignment we couldn't get from a
+  // flex row with a packed "amount unit" string.
   return (
     <div className="ingredient-card">
       {ordered.map(([kind, items]) => (
         <section key={kind} className="ingredient-section">
           <h3 className="ingredient-kind">{kind}</h3>
-          {items.map((ing) => (
-            <div key={ing.id} className="ingredient-row">
-              <span className="ingredient-name">{ing.name}</span>
-              {ing.amount != null && (
-                <span className="ingredient-amount">
-                  {ing.amount}
-                  {ing.unit ? ` ${ing.unit}` : ""}
-                </span>
-              )}
-            </div>
-          ))}
+          <Table aria-label={`${kind} ingredients`} className="ingredient-table">
+            <TableHeader>
+              <Column isRowHeader className="ingredient-col-name">Name</Column>
+              <Column className="ingredient-col-qty">Quantity</Column>
+              <Column className="ingredient-col-unit">Unit</Column>
+            </TableHeader>
+            <TableBody items={items}>
+              {(ing) => {
+                const m = matchByID.get(ing.id);
+                return (
+                  <Row className="ingredient-row">
+                    <Cell className="ingredient-name">
+                      <span className="ingredient-name-text">{ing.name}</span>
+                      {m && <InventoryBadge match={m} />}
+                    </Cell>
+                    <Cell className="ingredient-qty">
+                      {ing.amount != null ? ing.amount : ""}
+                    </Cell>
+                    <Cell className="ingredient-unit">
+                      {ing.amount != null && ing.unit ? ing.unit : ""}
+                    </Cell>
+                  </Row>
+                );
+              }}
+            </TableBody>
+          </Table>
         </section>
       ))}
     </div>
   );
+}
+
+// Per-ingredient have/short/missing pill. The shortfall quantity is
+// inlined for the short case so the brewer reads the gap without
+// having to compare two amounts. unit_mismatch surfaces as a hint
+// suffix on the missing case — strict matching can't bridge units,
+// but knowing you have the right kind in a different unit is useful.
+function InventoryBadge({ match }: { match: InventoryMatch }) {
+  if (match.status === "have") {
+    return (
+      <span className="inventory-badge inventory-badge-have" title="In your inventory">
+        have
+      </span>
+    );
+  }
+  if (match.status === "short") {
+    const gap = match.shortfall != null
+      ? `short ${fmtBadgeAmount(match.shortfall)}${match.unit ? ` ${match.unit}` : ""}`
+      : "short";
+    return (
+      <span
+        className="inventory-badge inventory-badge-short"
+        title={
+          match.inventory_amount != null
+            ? `You have ${match.inventory_amount}${match.unit ? ` ${match.unit}` : ""}`
+            : undefined
+        }
+      >
+        {gap}
+      </span>
+    );
+  }
+  if (match.unit_mismatch) {
+    return (
+      <span
+        className="inventory-badge inventory-badge-mismatch"
+        title="You have this kind on hand, but only in an incompatible unit (e.g. recipe wants grams, inventory has 'sticks'). Convert by hand or add a row in a compatible unit."
+      >
+        unit mismatch
+      </span>
+    );
+  }
+  return (
+    <span className="inventory-badge inventory-badge-missing" title="Not in your inventory">
+      missing
+    </span>
+  );
+}
+
+// Above-the-list summary: "3 of 5 in stock — 2 missing, 1 short" or
+// the all-clear "Everything in stock". Hides itself when the recipe
+// has no ingredients (caller-guarded) or when the match is empty.
+function InventoryMatchSummary({ match }: { match: InventoryMatch[] }) {
+  let have = 0, short = 0, missing = 0;
+  for (const m of match) {
+    if (m.status === "have") have++;
+    else if (m.status === "short") short++;
+    else missing++;
+  }
+  const total = match.length;
+  if (have === total) {
+    return (
+      <p className="inventory-summary inventory-summary-ready">
+        Everything in stock — ready to brew.{" "}
+        <Link to="/inventory" className="inventory-summary-link">Manage inventory</Link>
+      </p>
+    );
+  }
+  const parts: string[] = [];
+  if (missing > 0) parts.push(`${missing} missing`);
+  if (short > 0)   parts.push(`${short} short`);
+  return (
+    <p className="inventory-summary">
+      <strong>{have} of {total}</strong> in stock — {parts.join(", ")}.{" "}
+      <Link to="/inventory" className="inventory-summary-link">Manage inventory</Link>
+    </p>
+  );
+}
+
+function fmtBadgeAmount(n: number): string {
+  return n.toFixed(3).replace(/\.?0+$/, "");
 }
 
 // Gravities print to 3 decimals (1.085) — that's the ubiquitous brewing
