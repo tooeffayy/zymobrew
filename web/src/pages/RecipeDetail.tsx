@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  Cell,
+  Column,
+  Row,
+  Table,
+  TableBody,
+  TableHeader,
+} from "react-aria-components";
 
 import {
   ApiError,
@@ -258,28 +266,42 @@ function IngredientList({
     for (const m of match) matchByID.set(m.ingredient_id, m);
   }
 
+  // One Table per kind so the kind heading stays as a section break.
+  // Every table uses the same fixed column widths (table-layout: fixed
+  // + explicit widths in CSS), so qty/unit columns line up vertically
+  // across all sections — that's the alignment we couldn't get from a
+  // flex row with a packed "amount unit" string.
   return (
     <div className="ingredient-card">
       {ordered.map(([kind, items]) => (
         <section key={kind} className="ingredient-section">
           <h3 className="ingredient-kind">{kind}</h3>
-          {items.map((ing) => {
-            const m = matchByID.get(ing.id);
-            return (
-              <div key={ing.id} className="ingredient-row">
-                <span className="ingredient-name">{ing.name}</span>
-                <span className="ingredient-row-right">
-                  {m && <InventoryBadge match={m} />}
-                  {ing.amount != null && (
-                    <span className="ingredient-amount">
-                      {ing.amount}
-                      {ing.unit ? ` ${ing.unit}` : ""}
-                    </span>
-                  )}
-                </span>
-              </div>
-            );
-          })}
+          <Table aria-label={`${kind} ingredients`} className="ingredient-table">
+            <TableHeader>
+              <Column isRowHeader className="ingredient-col-name">Name</Column>
+              <Column className="ingredient-col-qty">Quantity</Column>
+              <Column className="ingredient-col-unit">Unit</Column>
+            </TableHeader>
+            <TableBody items={items}>
+              {(ing) => {
+                const m = matchByID.get(ing.id);
+                return (
+                  <Row className="ingredient-row">
+                    <Cell className="ingredient-name">
+                      <span className="ingredient-name-text">{ing.name}</span>
+                      {m && <InventoryBadge match={m} />}
+                    </Cell>
+                    <Cell className="ingredient-qty">
+                      {ing.amount != null ? ing.amount : ""}
+                    </Cell>
+                    <Cell className="ingredient-unit">
+                      {ing.amount != null && ing.unit ? ing.unit : ""}
+                    </Cell>
+                  </Row>
+                );
+              }}
+            </TableBody>
+          </Table>
         </section>
       ))}
     </div>
