@@ -46,7 +46,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/zymo ./
 # Pinning the postgres version: pg_dump is forward-compatible (a newer
 # pg_dump can dump from an older server), so postgresql16-client works
 # against the project's Postgres 14+ requirement.
-FROM alpine:3.20
+FROM alpine:3.23
 RUN apk add --no-cache ca-certificates postgresql16-client \
     && addgroup -S -g 65532 nonroot \
     && adduser  -S -u 65532 -G nonroot nonroot
