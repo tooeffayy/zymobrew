@@ -204,7 +204,7 @@ These cross-cutting rules apply across all resources:
 
 **Brew-type guard** — only `mead`, `cider`, and `wine` are accepted at the API surface (`allowedBrewTypes` in `internal/server/batches.go`). The `brew_type` ENUM in Postgres also includes `beer` and `kombucha`, but those need flow logic (mash/boil for beer, F1/F2 for kombucha) that ships in Phases 6-7.
 
-**Auth** — all `/api/batches/*`, `/api/notifications/*`, `/api/users/me/*`, `/api/users/me/exports/*`, and `/api/admin/*` require auth. `/api/admin/*` additionally requires `users.is_admin = true` (`requireAdmin` middleware → 403). Recipe/profile reads and `/api/calculators/*` are public. See Auth section for session mechanics.
+**Auth** — every `/api/*` route requires auth except `/api/auth/register`, `/api/auth/login`, and `/api/push/public-key`. Outside `/api`, `/healthz`, `/readyz`, `/docs`, and `/api/openapi.yaml` are also public. `/api/admin/*` additionally requires `users.is_admin = true` (`requireAdmin` middleware → 403). The OpenAPI spec encodes this as a global `security:` default with `security: []` overrides on the public endpoints; new routes inherit the default and don't need a per-operation `security:` block. See Auth section for session mechanics.
 
 **Cursor pagination** — list endpoints (`/api/recipes`, `/api/recipes/mine`, `/api/recipes/{id}/comments`, `/api/batches`, `/api/notifications`) use opaque keyset cursors via `?cursor=&limit=` (default 50, max 100). Responses are `{<plural>: [...], next_cursor: string|null}`. Helpers: `internal/cursor` encodes `(timestamp, uuid)` as base64-url JSON; `internal/server/pagination.go` parses query params and produces `next_cursor`. SQL queries use `WHERE (sort_key, id) < (cursor_ts, cursor_id) OR cursor_ts IS NULL` with the IS-NULL guard required because Postgres row comparisons return NULL when any side is NULL. Other lists (readings, events, exports, admin backups, reminders) are naturally bounded or deferred — see "Known deferred gaps".
 
@@ -237,7 +237,7 @@ These cross-cutting rules apply across all resources:
 
 ### Calculators
 
-**Pure functions, public endpoints.** Live in `internal/calc` (no DB, no I/O); HTTP handlers in `internal/server/calculators.go`. No auth — useful before login and on instance landing pages.
+**Pure functions.** Live in `internal/calc` (no DB, no I/O); HTTP handlers in `internal/server/calculators.go`. Behind requireAuth like the rest of `/api/*`.
 
 **ABV** — defaults to the alternative `((76.08*(OG-FG)/(1.775-OG)) * (FG/0.794))` formula because the simple `(OG-FG)*131.25` drifts low above OG ~1.070 and mead routinely lives above that. `formula: "simple"` opt-in is exposed for callers who want to match other tools.
 

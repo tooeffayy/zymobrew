@@ -12,14 +12,19 @@ import (
 	"zymobrew/internal/server"
 )
 
-// Calculators are pure functions of request body — no DB needed, so tests
-// build the server with a nil pool (same shape as TestOpenAPICoversAllRoutes).
+// Calculators are pure functions of request body, but the routes still sit
+// behind requireAuth — so each test registers a user against a real DB and
+// passes the resulting session cookie on every call. Same shape as every
+// other DB-backed test in this package.
 
-func newCalcServer() *server.Server {
-	return server.New(nil, config.Config{InstanceMode: config.ModeOpen}, nil, nil)
+func newCalcServer(t *testing.T) (*server.Server, []*http.Cookie) {
+	t.Helper()
+	srv, _ := setupAuth(t, config.ModeOpen)
+	cookies := registerHelper(t, srv, "calcuser")
+	return srv, cookies
 }
 
-func postJSON(t *testing.T, srv *server.Server, path string, body any) (*http.Response, []byte) {
+func postJSON(t *testing.T, srv *server.Server, path string, body any, cookies ...*http.Cookie) (*http.Response, []byte) {
 	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
@@ -29,6 +34,9 @@ func postJSON(t *testing.T, srv *server.Server, path string, body any) (*http.Re
 	}
 	req := httptest.NewRequest(http.MethodPost, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	resp := rec.Result()
@@ -38,10 +46,10 @@ func postJSON(t *testing.T, srv *server.Server, path string, body any) (*http.Re
 }
 
 func TestCalcABV_Default(t *testing.T) {
-	srv := newCalcServer()
+	srv, cookies := newCalcServer(t)
 	resp, body := postJSON(t, srv, "/api/calculators/abv", map[string]any{
 		"og": 1.100, "fg": 1.020,
-	})
+	}, cookies...)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, body %s", resp.StatusCode, body)
 	}
@@ -61,10 +69,10 @@ func TestCalcABV_Default(t *testing.T) {
 }
 
 func TestCalcABV_Simple(t *testing.T) {
-	srv := newCalcServer()
+	srv, cookies := newCalcServer(t)
 	resp, body := postJSON(t, srv, "/api/calculators/abv", map[string]any{
 		"og": 1.100, "fg": 1.020, "formula": "simple",
-	})
+	}, cookies...)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
@@ -81,7 +89,7 @@ func TestCalcABV_Simple(t *testing.T) {
 }
 
 func TestCalcABV_BadInputs(t *testing.T) {
-	srv := newCalcServer()
+	srv, cookies := newCalcServer(t)
 	cases := []struct {
 		name string
 		body any
@@ -92,7 +100,7 @@ func TestCalcABV_BadInputs(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			resp, body := postJSON(t, srv, "/api/calculators/abv", c.body)
+			resp, body := postJSON(t, srv, "/api/calculators/abv", c.body, cookies...)
 			if resp.StatusCode != http.StatusBadRequest {
 				t.Errorf("status %d, body %s; want 400", resp.StatusCode, body)
 			}
@@ -101,10 +109,10 @@ func TestCalcABV_BadInputs(t *testing.T) {
 }
 
 func TestCalcPredictedFG(t *testing.T) {
-	srv := newCalcServer()
+	srv, cookies := newCalcServer(t)
 	resp, body := postJSON(t, srv, "/api/calculators/predicted-fg", map[string]any{
 		"og": 1.100, "attenuation_percent": 75,
-	})
+	}, cookies...)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, body %s", resp.StatusCode, body)
 	}
@@ -124,20 +132,20 @@ func TestCalcPredictedFG(t *testing.T) {
 }
 
 func TestCalcPredictedFG_BadAttenuation(t *testing.T) {
-	srv := newCalcServer()
+	srv, cookies := newCalcServer(t)
 	resp, _ := postJSON(t, srv, "/api/calculators/predicted-fg", map[string]any{
 		"og": 1.080, "attenuation_percent": 150,
-	})
+	}, cookies...)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status %d, want 400", resp.StatusCode)
 	}
 }
 
 func TestCalcHoneyWeight(t *testing.T) {
-	srv := newCalcServer()
+	srv, cookies := newCalcServer(t)
 	resp, body := postJSON(t, srv, "/api/calculators/honey-weight", map[string]any{
 		"target_og": 1.100, "batch_volume_l": 19,
-	})
+	}, cookies...)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, body %s", resp.StatusCode, body)
 	}
@@ -161,10 +169,10 @@ func TestCalcHoneyWeight(t *testing.T) {
 }
 
 func TestCalcSugarWeight(t *testing.T) {
-	srv := newCalcServer()
+	srv, cookies := newCalcServer(t)
 	resp, body := postJSON(t, srv, "/api/calculators/sugar-weight", map[string]any{
 		"target_og": 1.080, "batch_volume_l": 19,
-	})
+	}, cookies...)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, body %s", resp.StatusCode, body)
 	}
@@ -188,20 +196,20 @@ func TestCalcSugarWeight(t *testing.T) {
 }
 
 func TestCalcSugarWeight_BadInput(t *testing.T) {
-	srv := newCalcServer()
+	srv, cookies := newCalcServer(t)
 	resp, _ := postJSON(t, srv, "/api/calculators/sugar-weight", map[string]any{
 		"target_og": 1.0, "batch_volume_l": 19,
-	})
+	}, cookies...)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status %d, want 400", resp.StatusCode)
 	}
 }
 
 func TestCalcPitchRate(t *testing.T) {
-	srv := newCalcServer()
+	srv, cookies := newCalcServer(t)
 	resp, body := postJSON(t, srv, "/api/calculators/pitch-rate", map[string]any{
 		"og": 1.100, "batch_volume_l": 19,
-	})
+	}, cookies...)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, body %s", resp.StatusCode, body)
 	}
@@ -229,19 +237,22 @@ func TestCalcPitchRate(t *testing.T) {
 }
 
 func TestCalcPitchRate_BadVolume(t *testing.T) {
-	srv := newCalcServer()
+	srv, cookies := newCalcServer(t)
 	resp, _ := postJSON(t, srv, "/api/calculators/pitch-rate", map[string]any{
 		"og": 1.080, "batch_volume_l": 0,
-	})
+	}, cookies...)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status %d, want 400", resp.StatusCode)
 	}
 }
 
 func TestCalc_MalformedJSON(t *testing.T) {
-	srv := newCalcServer()
+	srv, cookies := newCalcServer(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/calculators/abv", bytes.NewBufferString(`{not valid`))
 	req.Header.Set("Content-Type", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	if rec.Result().StatusCode != http.StatusBadRequest {
@@ -249,13 +260,14 @@ func TestCalc_MalformedJSON(t *testing.T) {
 	}
 }
 
-func TestCalc_NoAuthRequired(t *testing.T) {
-	// Calculators are public — no Authorization header, no cookie should still 200.
-	srv := newCalcServer()
+func TestCalc_RequiresAuth(t *testing.T) {
+	// Calculators are gated behind the same requireAuth as everything else;
+	// no cookie => 401.
+	srv, _ := setupAuth(t, config.ModeOpen)
 	resp, _ := postJSON(t, srv, "/api/calculators/abv", map[string]any{
 		"og": 1.080, "fg": 1.010,
 	})
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("unauthenticated calculator call: status %d, want 200", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("unauthenticated calculator call: status %d, want 401", resp.StatusCode)
 	}
 }

@@ -12,13 +12,14 @@ import (
 func TestProfile_GetPublic(t *testing.T) {
 	srv, _ := setupAuth(t, config.ModeOpen)
 
-	doJSON(t, srv, http.MethodPost, "/api/auth/register", map[string]string{
+	resp := doJSON(t, srv, http.MethodPost, "/api/auth/register", map[string]string{
 		"username": "alice",
 		"email":    "alice@example.com",
 		"password": "supersecret",
 	})
+	cookies := resp.Cookies()
 
-	resp := doJSON(t, srv, http.MethodGet, "/api/users/alice", nil)
+	resp = doJSON(t, srv, http.MethodGet, "/api/users/alice", nil, cookies...)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("got %d, want 200", resp.StatusCode)
 	}
@@ -38,7 +39,8 @@ func TestProfile_GetPublic(t *testing.T) {
 
 func TestProfile_GetPublic_NotFound(t *testing.T) {
 	srv, _ := setupAuth(t, config.ModeOpen)
-	resp := doJSON(t, srv, http.MethodGet, "/api/users/ghost", nil)
+	cookies := registerHelper(t, srv, "alice")
+	resp := doJSON(t, srv, http.MethodGet, "/api/users/ghost", nil, cookies...)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("got %d, want 404", resp.StatusCode)
 	}
@@ -287,6 +289,10 @@ func TestProfile_DeleteAccount_HappyPath(t *testing.T) {
 	srv, pool := setupAuth(t, config.ModeOpen)
 	ctx := context.Background()
 
+	// Witness user — used for profile lookups after alice anonymizes herself,
+	// since alice's own session is invalidated by the delete.
+	witnessCookies := registerHelper(t, srv, "witness")
+
 	// Register and capture the user id so we can inspect post-anonymize state.
 	resp := doJSON(t, srv, http.MethodPost, "/api/auth/register", map[string]string{
 		"username": "alice",
@@ -367,7 +373,8 @@ func TestProfile_DeleteAccount_HappyPath(t *testing.T) {
 	}
 
 	// Profile lookup 404s — anonymized users vanish from the public surface.
-	resp = doJSON(t, srv, http.MethodGet, "/api/users/alice", nil)
+	// Use the witness session because alice's own cookies were just revoked.
+	resp = doJSON(t, srv, http.MethodGet, "/api/users/alice", nil, witnessCookies...)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("anonymized profile lookup: got %d, want 404", resp.StatusCode)
 	}
@@ -428,7 +435,7 @@ func TestProfile_GetPublic_ReflectsUpdate(t *testing.T) {
 		"bio": "Mead enthusiast.",
 	}, cookies...)
 
-	resp = doJSON(t, srv, http.MethodGet, "/api/users/alice", nil)
+	resp = doJSON(t, srv, http.MethodGet, "/api/users/alice", nil, cookies...)
 	var body map[string]any
 	decode(t, resp, &body)
 	if body["bio"] != "Mead enthusiast." {

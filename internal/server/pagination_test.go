@@ -35,7 +35,7 @@ func TestPagination_Cursor_PublicRecipes(t *testing.T) {
 		if cursor != "" {
 			path += "&cursor=" + cursor
 		}
-		resp := doJSON(t, srv, http.MethodGet, path, nil)
+		resp := doJSON(t, srv, http.MethodGet, path, nil, cookies...)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("page %d: status %d", pages, resp.StatusCode)
 		}
@@ -99,7 +99,7 @@ func TestPagination_Cursor_Comments(t *testing.T) {
 		if cursor != "" {
 			path += "&cursor=" + cursor
 		}
-		resp := doJSON(t, srv, http.MethodGet, path, nil)
+		resp := doJSON(t, srv, http.MethodGet, path, nil, cookies...)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("status %d", resp.StatusCode)
 		}
@@ -131,7 +131,8 @@ func TestPagination_Cursor_Comments(t *testing.T) {
 // want a copy-pasted truncated URL to take down a request handler.
 func TestPagination_BadCursor(t *testing.T) {
 	srv, _ := setupAuth(t, config.ModeOpen)
-	resp := doJSON(t, srv, http.MethodGet, "/api/recipes?cursor=not-a-real-cursor", nil)
+	cookies := registerHelper(t, srv, "alice")
+	resp := doJSON(t, srv, http.MethodGet, "/api/recipes?cursor=not-a-real-cursor", nil, cookies...)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status %d, want 400", resp.StatusCode)
 	}
@@ -140,8 +141,9 @@ func TestPagination_BadCursor(t *testing.T) {
 // TestPagination_BadLimit — out-of-range limits must 400.
 func TestPagination_BadLimit(t *testing.T) {
 	srv, _ := setupAuth(t, config.ModeOpen)
+	cookies := registerHelper(t, srv, "alice")
 	for _, v := range []string{"0", "-1", "999", "abc"} {
-		resp := doJSON(t, srv, http.MethodGet, "/api/recipes?limit="+v, nil)
+		resp := doJSON(t, srv, http.MethodGet, "/api/recipes?limit="+v, nil, cookies...)
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("limit=%s: got %d, want 400", v, resp.StatusCode)
 		}

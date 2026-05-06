@@ -11,6 +11,11 @@ servers:
   - url: /
     description: This instance
 
+# All operations require auth by default. Public endpoints opt out with `security: []`.
+security:
+  - cookieAuth: []
+  - bearerAuth: []
+
 tags:
   - name: system
     description: Health and readiness probes
@@ -19,7 +24,7 @@ tags:
   - name: auth
     description: Registration, login, logout, current user
   - name: users
-    description: Public profiles and account settings
+    description: Profile lookup and account settings
   - name: recipes
     description: Recipe CRUD, revisions, forking, comments, likes, reminder templates
   - name: batches
@@ -68,6 +73,14 @@ components:
         minimum: 1
         maximum: 100
         default: 50
+
+  responses:
+    Unauthorized:
+      description: Not authenticated (or session expired)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
 
   schemas:
     Error:
@@ -639,6 +652,7 @@ paths:
       tags: [system]
       operationId: healthz
       summary: Liveness probe
+      security: []
       responses:
         "200":
           description: Server is alive
@@ -655,6 +669,7 @@ paths:
       tags: [system]
       operationId: readyz
       summary: Readiness probe (requires DB ping)
+      security: []
       responses:
         "200":
           description: Database reachable
@@ -679,6 +694,7 @@ paths:
       tags: [docs]
       operationId: getDocs
       summary: Redoc API documentation UI
+      security: []
       responses:
         "200":
           description: HTML page
@@ -692,6 +708,7 @@ paths:
       tags: [docs]
       operationId: getOpenAPISpec
       summary: OpenAPI 3.1 spec (this document)
+      security: []
       responses:
         "200":
           description: YAML spec
@@ -712,6 +729,7 @@ paths:
         - `open`: always allowed
         - `single_user`: allowed only while the user table is empty (bootstraps the admin)
         - `closed`: always forbidden
+      security: []
       requestBody:
         required: true
         content:
@@ -773,6 +791,7 @@ paths:
       tags: [auth]
       operationId: login
       summary: Log in with username/email and password
+      security: []
       requestBody:
         required: true
         content:
@@ -815,9 +834,6 @@ paths:
       tags: [auth]
       operationId: logout
       summary: Revoke current session
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       responses:
         "200":
           description: Session revoked
@@ -828,15 +844,14 @@ paths:
                 properties:
                   status:
                     type: string
+        "401":
+          $ref: '#/components/responses/Unauthorized'
 
   /api/auth/me:
     get:
       tags: [auth]
       operationId: getMe
       summary: Current authenticated user
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       responses:
         "200":
           description: Current user
@@ -857,7 +872,7 @@ paths:
     get:
       tags: [users]
       operationId: getProfile
-      summary: Public profile for any user
+      summary: Profile by username
       parameters:
         - name: username
           in: path
@@ -871,6 +886,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PublicProfile'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
         "404":
           description: User not found
           content:
@@ -883,9 +900,6 @@ paths:
       tags: [users]
       operationId: updateProfile
       summary: Update own profile fields (COALESCE — omitted fields unchanged)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       requestBody:
         content:
           application/json:
@@ -934,9 +948,6 @@ paths:
         admin role must be handed off first. The action is logged in
         `account_deletion_requests` so a backup-restore can be
         re-anonymized via `zymo reprocess-deletions`.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -974,9 +985,6 @@ paths:
       tags: [users]
       operationId: changePassword
       summary: Change password; rotates all sessions
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -1016,7 +1024,7 @@ paths:
     get:
       tags: [recipes]
       operationId: listRecipes
-      summary: Public recipe feed (visibility=public, newest first)
+      summary: Recipe feed (visibility=public, newest first)
       parameters:
         - $ref: '#/components/parameters/CursorParam'
         - $ref: '#/components/parameters/LimitParam'
@@ -1036,13 +1044,12 @@ paths:
                   next_cursor:
                     type: string
                     nullable: true
+        "401":
+          $ref: '#/components/responses/Unauthorized'
     post:
       tags: [recipes]
       operationId: createRecipe
       summary: Create a new recipe (mead, cider, or wine only in this build)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -1109,9 +1116,6 @@ paths:
       tags: [recipes]
       operationId: listMyRecipes
       summary: All recipes for the authenticated user (all visibilities)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/CursorParam'
         - $ref: '#/components/parameters/LimitParam'
@@ -1144,8 +1148,8 @@ paths:
       operationId: getRecipe
       summary: Get recipe with live ingredients
       description: |
-        Visibility rules: `public` or `unlisted` = anyone; `private` = owner only.
-        Non-owners get 404, not 403.
+        Visibility rules: `public` or `unlisted` = any authed user; `private`
+        = owner only. Non-owners get 404, not 403.
       parameters:
         - name: id
           in: path
@@ -1159,6 +1163,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Recipe'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
         "404":
           description: Not found or not visible
           content:
@@ -1169,9 +1175,6 @@ paths:
       tags: [recipes]
       operationId: updateRecipe
       summary: Update recipe (owner only). Always creates a new revision.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -1241,9 +1244,6 @@ paths:
       tags: [recipes]
       operationId: deleteRecipe
       summary: Delete recipe (owner only)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -1271,9 +1271,6 @@ paths:
       tags: [recipes]
       operationId: forkRecipe
       summary: Fork a recipe. Result is a private copy pinned to source's current revision.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -1336,6 +1333,8 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/RevisionSummary'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
         "404":
           description: Not found or not visible
           content:
@@ -1368,6 +1367,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RevisionDetail'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
         "404":
           description: Not found or not visible
           content:
@@ -1404,6 +1405,8 @@ paths:
                   next_cursor:
                     type: string
                     nullable: true
+        "401":
+          $ref: '#/components/responses/Unauthorized'
         "404":
           description: Not found or not visible
           content:
@@ -1414,9 +1417,6 @@ paths:
       tags: [recipes]
       operationId: createComment
       summary: Add a comment to a recipe
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -1465,9 +1465,6 @@ paths:
       tags: [recipes]
       operationId: deleteComment
       summary: Delete own comment
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -1500,9 +1497,6 @@ paths:
       tags: [recipes]
       operationId: likeRecipe
       summary: Like a recipe (idempotent)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -1528,9 +1522,6 @@ paths:
       tags: [recipes]
       operationId: unlikeRecipe
       summary: Remove like from a recipe
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -1559,9 +1550,6 @@ paths:
         `unit_mismatch` is true when the caller has an item with the same
         kind+name but a different unit, surfacing the gap that strict
         matching can't bridge.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -1614,6 +1602,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ReminderTemplate'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
         "404":
           description: Not found or not visible
           content:
@@ -1625,9 +1615,6 @@ paths:
       operationId: createReminderTemplate
       summary: Add a reminder template to a recipe (owner only)
       description: "`absolute` anchor is rejected — templates resolve against batch timestamps at materialization time."
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -1697,9 +1684,6 @@ paths:
       tags: [recipes]
       operationId: updateReminderTemplate
       summary: Update a reminder template (owner only, COALESCE)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -1767,9 +1751,6 @@ paths:
       tags: [recipes]
       operationId: deleteReminderTemplate
       summary: Delete a reminder template (owner only)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -1810,9 +1791,6 @@ paths:
       tags: [batches]
       operationId: createBatch
       summary: Create a batch (mead, cider, or wine only in this build)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -1876,9 +1854,6 @@ paths:
       tags: [batches]
       operationId: listBatches
       summary: List batches for the authenticated user (newest first by start date)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/CursorParam'
         - $ref: '#/components/parameters/LimitParam'
@@ -1910,9 +1885,6 @@ paths:
       tags: [batches]
       operationId: getBatch
       summary: Get a batch (owner only)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -1942,9 +1914,6 @@ paths:
       tags: [batches]
       operationId: updateBatch
       summary: Update batch fields (owner only, COALESCE)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2002,9 +1971,6 @@ paths:
       tags: [batches]
       operationId: deleteBatch
       summary: Delete a batch (owner only)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2032,9 +1998,6 @@ paths:
       tags: [batches]
       operationId: createReading
       summary: Record a gravity/temp/pH reading
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2091,9 +2054,6 @@ paths:
       tags: [batches]
       operationId: listReadings
       summary: List all readings for a batch
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2128,9 +2088,6 @@ paths:
       tags: [batches]
       operationId: bulkDeleteReadings
       summary: Bulk-delete readings by ID. IDs not in this batch are silently skipped.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2184,9 +2141,6 @@ paths:
       tags: [batches]
       operationId: updateReading
       summary: Update a reading (COALESCE). Fields cannot be cleared to NULL.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2243,9 +2197,6 @@ paths:
       tags: [batches]
       operationId: deleteReading
       summary: Delete a reading
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2281,9 +2232,6 @@ paths:
       description: |
         Events with kind `pitch`, `rack`, or `bottle` trigger materialization of
         matching reminder templates from the linked recipe.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2338,9 +2286,6 @@ paths:
       tags: [batches]
       operationId: listBatchEvents
       summary: List all events for a batch
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2377,9 +2322,6 @@ paths:
       tags: [batches]
       operationId: updateBatchEvent
       summary: Update a batch event (COALESCE). Re-materializes reminders if kind is pitch/rack/bottle.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2437,9 +2379,6 @@ paths:
       tags: [batches]
       operationId: deleteBatchEvent
       summary: Delete a batch event. Reminders previously materialized from a pitch/rack/bottle event are not retracted.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2472,9 +2411,6 @@ paths:
       tags: [batches]
       operationId: createTastingNote
       summary: Add a tasting note to a batch
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2534,9 +2470,6 @@ paths:
       tags: [batches]
       operationId: listTastingNotes
       summary: List tasting notes for a batch
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2573,9 +2506,6 @@ paths:
       tags: [batches]
       operationId: createReminder
       summary: Create a manual reminder for a batch
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2631,9 +2561,6 @@ paths:
       tags: [batches]
       operationId: listReminders
       summary: List reminders for a batch, ordered by fire_at ASC
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2667,9 +2594,6 @@ paths:
       tags: [batches]
       operationId: updateReminder
       summary: Update a reminder (COALESCE). Allowed statuses for manual transition — scheduled, snoozed, completed, dismissed.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2730,9 +2654,6 @@ paths:
       tags: [batches]
       operationId: deleteReminder
       summary: Cancel a reminder (sets status=cancelled). 404 if already fired or completed.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2767,9 +2688,6 @@ paths:
       tags: [notifications]
       operationId: listNotifications
       summary: In-app notification inbox (newest first)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/CursorParam'
         - $ref: '#/components/parameters/LimitParam'
@@ -2801,9 +2719,6 @@ paths:
       tags: [notifications]
       operationId: markAllNotificationsRead
       summary: Mark all unread notifications as read
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       responses:
         "204":
           description: Done
@@ -2819,9 +2734,6 @@ paths:
       tags: [notifications]
       operationId: markNotificationRead
       summary: Mark a single notification as read
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -2849,9 +2761,6 @@ paths:
       tags: [notifications]
       operationId: getNotificationPrefs
       summary: Get notification preferences (defaults if not set)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       responses:
         "200":
           description: Preferences
@@ -2869,9 +2778,6 @@ paths:
       tags: [notifications]
       operationId: updateNotificationPrefs
       summary: Upsert notification preferences (COALESCE)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       requestBody:
         content:
           application/json:
@@ -2919,6 +2825,7 @@ paths:
       operationId: getVAPIDPublicKey
       summary: VAPID public key for browser PushSubscription creation
       description: Returns 404 if `VAPID_PUBLIC_KEY` is not configured on this instance.
+      security: []
       responses:
         "200":
           description: VAPID public key
@@ -2941,9 +2848,6 @@ paths:
       tags: [push]
       operationId: subscribePush
       summary: Register a browser push subscription (upserts by endpoint)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -2991,9 +2895,6 @@ paths:
       tags: [push]
       operationId: unsubscribePush
       summary: Remove a browser push subscription
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -3028,9 +2929,6 @@ paths:
       tags: [exports]
       operationId: triggerExport
       summary: Trigger a user data export (async). Returns 409 if one is already in progress.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       requestBody:
         required: false
         content:
@@ -3066,9 +2964,6 @@ paths:
       tags: [exports]
       operationId: listExports
       summary: List exports for the authenticated user
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       responses:
         "200":
           description: Export list
@@ -3090,9 +2985,6 @@ paths:
       tags: [exports]
       operationId: getExport
       summary: Get export status
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -3124,9 +3016,6 @@ paths:
       tags: [exports]
       operationId: downloadExport
       summary: Download completed export. Single-use — the archive is deleted after a successful download and the row flips to `expired`. Container varies with the export's `format`.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -3175,9 +3064,6 @@ paths:
       tags: [admin]
       operationId: triggerAdminBackup
       summary: Trigger a pg_dump database backup (admin only, async)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       responses:
         "202":
           description: Backup queued
@@ -3201,9 +3087,6 @@ paths:
       tags: [admin]
       operationId: listAdminBackups
       summary: List all backups (admin only)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       responses:
         "200":
           description: Backup list
@@ -3231,9 +3114,6 @@ paths:
       tags: [admin]
       operationId: getAdminBackup
       summary: Get backup status (admin only)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -3271,9 +3151,6 @@ paths:
       tags: [admin]
       operationId: downloadAdminBackup
       summary: Download completed pg_dump backup (admin only). Streams directly or redirects to presigned URL.
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -3366,6 +3243,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
 
   /api/calculators/predicted-fg:
     post:
@@ -3413,6 +3292,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
 
   /api/calculators/honey-weight:
     post:
@@ -3461,6 +3342,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
 
   /api/calculators/sugar-weight:
     post:
@@ -3508,6 +3391,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
 
   /api/calculators/pitch-rate:
     post:
@@ -3562,15 +3447,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
 
   /api/inventory:
     get:
       tags: [inventory]
       operationId: listInventory
       summary: List the caller's inventory items
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       responses:
         "200":
           description: All inventory items, sorted by kind then name.
@@ -3594,9 +3478,6 @@ paths:
       tags: [inventory]
       operationId: createInventoryItem
       summary: Add an item to the caller's inventory
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -3645,9 +3526,6 @@ paths:
       tags: [inventory]
       operationId: updateInventoryItem
       summary: Update an inventory item (COALESCE PATCH semantics)
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -3701,9 +3579,6 @@ paths:
       tags: [inventory]
       operationId: deleteInventoryItem
       summary: Delete an inventory item
-      security:
-        - cookieAuth: []
-        - bearerAuth: []
       parameters:
         - name: id
           in: path

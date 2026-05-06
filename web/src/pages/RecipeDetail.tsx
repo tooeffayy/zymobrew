@@ -21,9 +21,10 @@ import {
 import { useAuth } from "../auth";
 import { ReminderTemplatesSection } from "../components/ReminderTemplatesSection";
 
-// Renders one recipe by id. Public + unlisted are visible to anyone;
-// private returns 404 to non-owners (server enforces this — we just
-// surface whatever the API tells us).
+// Renders one recipe by id. Public + unlisted are visible to any authed
+// user; private returns 404 to non-owners (server enforces this — we
+// just surface whatever the API tells us). The route is wrapped in
+// <RequireAuth>, so state.status is always "authed" here.
 export function RecipeDetail() {
   const { id = "" } = useParams<{ id: string }>();
   const { state } = useAuth();
@@ -34,8 +35,6 @@ export function RecipeDetail() {
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "delete" | "fork">(null);
-
-  const isAuthed = state.status === "authed";
 
   useEffect(() => {
     setLoading(true);
@@ -55,13 +54,11 @@ export function RecipeDetail() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  // Fetch inventory match in parallel — runs only for authed users
-  // (anon callers get a 401 from the endpoint). A failure here is
-  // non-fatal: the badges just don't render. We don't surface the
-  // error because the recipe itself loaded fine and inventory is
-  // a secondary signal.
+  // Fetch inventory match in parallel. A failure here is non-fatal: the
+  // badges just don't render. We don't surface the error because the
+  // recipe itself loaded fine and inventory is a secondary signal.
   useEffect(() => {
-    if (!id || !isAuthed) {
+    if (!id) {
       setMatch(null);
       return;
     }
@@ -75,7 +72,7 @@ export function RecipeDetail() {
         if (!cancelled) setMatch(null);
       });
     return () => { cancelled = true; };
-  }, [id, isAuthed]);
+  }, [id]);
 
   if (loading) {
     return (
@@ -102,7 +99,10 @@ export function RecipeDetail() {
 
   if (!recipe) return null;
 
-  const isOwner = state.status === "authed" && state.user.id === recipe.author_id;
+  // Behind <RequireAuth>, so state.status is always "authed"; the guard is
+  // here to narrow state.user for TypeScript.
+  if (state.status !== "authed") return null;
+  const isOwner = state.user.id === recipe.author_id;
 
   const onDelete = async () => {
     // Native confirm keeps the destructive-action surface small and
@@ -155,39 +155,37 @@ export function RecipeDetail() {
         {recipe.description && <p className="recipe-detail-desc">{recipe.description}</p>}
       </header>
 
-      {isAuthed && (
-        <div className="recipe-actions">
-          <Link
-            to={`/batches/new?recipe=${encodeURIComponent(recipe.id)}`}
-            className="action-button action-primary"
-          >
-            Brew this
+      <div className="recipe-actions">
+        <Link
+          to={`/batches/new?recipe=${encodeURIComponent(recipe.id)}`}
+          className="action-button action-primary"
+        >
+          Brew this
+        </Link>
+        {isOwner && (
+          <Link to={`/recipes/${recipe.id}/edit`} className="action-button">
+            Edit
           </Link>
-          {isOwner && (
-            <Link to={`/recipes/${recipe.id}/edit`} className="action-button">
-              Edit
-            </Link>
-          )}
+        )}
+        <button
+          type="button"
+          className="action-button"
+          onClick={onFork}
+          disabled={busy !== null}
+        >
+          {busy === "fork" ? "Forking…" : "Fork"}
+        </button>
+        {isOwner && (
           <button
             type="button"
-            className="action-button"
-            onClick={onFork}
+            className="action-button danger"
+            onClick={onDelete}
             disabled={busy !== null}
           >
-            {busy === "fork" ? "Forking…" : "Fork"}
+            {busy === "delete" ? "Deleting…" : "Delete"}
           </button>
-          {isOwner && (
-            <button
-              type="button"
-              className="action-button danger"
-              onClick={onDelete}
-              disabled={busy !== null}
-            >
-              {busy === "delete" ? "Deleting…" : "Delete"}
-            </button>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
       {actionError && <p className="error">{actionError}</p>}
 
