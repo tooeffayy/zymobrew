@@ -10,6 +10,11 @@ tasks:
       - task --list
     silent: true
 
+  kill:
+    cmds:
+      - pkill bun
+      - pkill zymo
+
   db:up:
     desc: Start the postgres container
     cmds:

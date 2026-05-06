@@ -173,28 +173,30 @@ func TestRecipe_Create_AcceptsCiderAndWine(t *testing.T) {
 
 func TestRecipe_Get_NotFound(t *testing.T) {
 	srv, _ := setupAuth(t, config.ModeOpen)
-	resp := doJSON(t, srv, http.MethodGet, "/api/recipes/00000000-0000-0000-0000-000000000000", nil)
+	cookies := registerHelper(t, srv, "alice")
+	resp := doJSON(t, srv, http.MethodGet, "/api/recipes/00000000-0000-0000-0000-000000000000", nil, cookies...)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("got %d, want 404", resp.StatusCode)
 	}
 }
 
-func TestRecipe_Get_Public_NoAuth(t *testing.T) {
+func TestRecipe_Get_Public(t *testing.T) {
 	srv, _ := setupAuth(t, config.ModeOpen)
 	resp := doJSON(t, srv, http.MethodPost, "/api/auth/register", map[string]string{
 		"username": "alice",
 		"email":    "alice@example.com",
 		"password": "supersecret",
 	})
-	cookies := resp.Cookies()
+	aliceCookies := resp.Cookies()
 
-	resp = doJSON(t, srv, http.MethodPost, "/api/recipes", recipeBody(nil), cookies...)
+	resp = doJSON(t, srv, http.MethodPost, "/api/recipes", recipeBody(nil), aliceCookies...)
 	var created map[string]any
 	decode(t, resp, &created)
 	recipeID := created["id"].(string)
 
-	// Public recipe accessible without auth.
-	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID, nil)
+	// Public recipe is readable by any authenticated user, not just the owner.
+	bobCookies := registerHelper(t, srv, "bob")
+	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID, nil, bobCookies...)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("got %d, want 200", resp.StatusCode)
 	}
@@ -227,16 +229,11 @@ func TestRecipe_Get_Private_NotOwner(t *testing.T) {
 	decode(t, resp, &created)
 	recipeID := created["id"].(string)
 
-	// Bob cannot see Alice's private recipe.
+	// Bob cannot see Alice's private recipe — 404, not 403, to avoid leaking
+	// existence.
 	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID, nil, bobCookies...)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("bob: got %d, want 404", resp.StatusCode)
-	}
-
-	// Anonymous cannot see it either.
-	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID, nil)
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("anon: got %d, want 404", resp.StatusCode)
 	}
 
 	// Alice herself can see it.
@@ -253,13 +250,20 @@ func TestRecipe_List_Public(t *testing.T) {
 		"email":    "alice@example.com",
 		"password": "supersecret",
 	})
-	cookies := resp.Cookies()
+	aliceCookies := resp.Cookies()
 
-	doJSON(t, srv, http.MethodPost, "/api/recipes", recipeBody(nil), cookies...)
+	doJSON(t, srv, http.MethodPost, "/api/recipes", recipeBody(nil), aliceCookies...)
 	doJSON(t, srv, http.MethodPost, "/api/recipes",
-		recipeBody(map[string]any{"name": "Private Mead", "visibility": "private"}), cookies...)
+		recipeBody(map[string]any{"name": "Private Mead", "visibility": "private"}), aliceCookies...)
 
-	resp = doJSON(t, srv, http.MethodGet, "/api/recipes", nil)
+	resp = doJSON(t, srv, http.MethodPost, "/api/auth/register", map[string]string{
+		"username": "bob",
+		"email":    "bob@example.com",
+		"password": "supersecret",
+	})
+	bobCookies := resp.Cookies()
+
+	resp = doJSON(t, srv, http.MethodGet, "/api/recipes", nil, bobCookies...)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("got %d", resp.StatusCode)
 	}
@@ -269,9 +273,9 @@ func TestRecipe_List_Public(t *testing.T) {
 	if !ok {
 		t.Fatal("missing recipes array")
 	}
-	// Private recipe must not appear in the public feed.
+	// Alice's private recipe must not leak into the feed shown to Bob.
 	if len(recipes) != 1 {
-		t.Errorf("public feed: got %d recipes, want 1", len(recipes))
+		t.Errorf("feed: got %d recipes, want 1", len(recipes))
 	}
 }
 
@@ -435,7 +439,7 @@ func TestRecipe_Delete_HappyPath(t *testing.T) {
 		t.Fatalf("delete: got %d", resp.StatusCode)
 	}
 
-	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID, nil)
+	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID, nil, cookies...)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("after delete: got %d, want 404", resp.StatusCode)
 	}
@@ -485,7 +489,7 @@ func TestRecipe_Revisions_List(t *testing.T) {
 	doJSON(t, srv, http.MethodPatch, "/api/recipes/"+recipeID, map[string]any{"message": "v2"}, cookies...)
 	doJSON(t, srv, http.MethodPatch, "/api/recipes/"+recipeID, map[string]any{"message": "v3"}, cookies...)
 
-	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID+"/revisions", nil)
+	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID+"/revisions", nil, cookies...)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("got %d", resp.StatusCode)
 	}
@@ -528,7 +532,7 @@ func TestRecipe_Revision_GetByNumber(t *testing.T) {
 	}, cookies...)
 
 	// Fetch revision 1 — should have original description and ingredients snapshot.
-	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID+"/revisions/1", nil)
+	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID+"/revisions/1", nil, cookies...)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("got %d", resp.StatusCode)
 	}
@@ -560,7 +564,7 @@ func TestRecipe_Revision_NotFound(t *testing.T) {
 	decode(t, resp, &created)
 	recipeID := created["id"].(string)
 
-	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID+"/revisions/99", nil)
+	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID+"/revisions/99", nil, cookies...)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("got %d, want 404", resp.StatusCode)
 	}
@@ -691,7 +695,7 @@ func TestRecipe_Fork_IncrementsForkCount(t *testing.T) {
 
 	doJSON(t, srv, http.MethodPost, "/api/recipes/"+srcID+"/fork", nil, bobCookies...)
 
-	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+srcID, nil)
+	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+srcID, nil, bobCookies...)
 	var src map[string]any
 	decode(t, resp, &src)
 	if src["fork_count"] != float64(1) {
@@ -772,7 +776,7 @@ func TestRecipe_Comments_HappyPath(t *testing.T) {
 		t.Error("missing id")
 	}
 
-	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID+"/comments", nil)
+	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID+"/comments", nil, aliceCookies...)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list comments: got %d", resp.StatusCode)
 	}
@@ -816,9 +820,11 @@ func TestRecipe_Comments_PrivateRecipe(t *testing.T) {
 	})
 	bobCookies := resp.Cookies()
 
-	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID+"/comments", nil)
+	// Bob (a non-owner) gets 404, not 403, on the comment list — visibility
+	// rule is "existence is never leaked to non-owners."
+	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID+"/comments", nil, bobCookies...)
 	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("list unauthenticated: want 404, got %d", resp.StatusCode)
+		t.Errorf("list as bob: want 404, got %d", resp.StatusCode)
 	}
 	resp = doJSON(t, srv, http.MethodPost, "/api/recipes/"+recipeID+"/comments",
 		map[string]string{"body": "sneaky"}, bobCookies...)
@@ -859,7 +865,7 @@ func TestRecipe_Comments_Delete(t *testing.T) {
 	}
 
 	// Verify the comment is gone.
-	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID+"/comments", nil)
+	resp = doJSON(t, srv, http.MethodGet, "/api/recipes/"+recipeID+"/comments", nil, aliceCookies...)
 	var list map[string]any
 	decode(t, resp, &list)
 	comments := list["comments"].([]any)

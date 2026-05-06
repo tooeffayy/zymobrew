@@ -60,17 +60,21 @@ export function App() {
           <Route
             path="/"
             element={
-              <Layout>
-                <Recipes />
-              </Layout>
+              <RequireAuth>
+                <Layout>
+                  <Recipes />
+                </Layout>
+              </RequireAuth>
             }
           />
           <Route
             path="/calculators"
             element={
-              <Layout>
-                <Calculators />
-              </Layout>
+              <RequireAuth>
+                <Layout>
+                  <Calculators />
+                </Layout>
+              </RequireAuth>
             }
           />
           <Route
@@ -86,9 +90,11 @@ export function App() {
           <Route
             path="/recipes/:id"
             element={
-              <Layout>
-                <RecipeDetail />
-              </Layout>
+              <RequireAuth>
+                <Layout>
+                  <RecipeDetail />
+                </Layout>
+              </RequireAuth>
             }
           />
           <Route

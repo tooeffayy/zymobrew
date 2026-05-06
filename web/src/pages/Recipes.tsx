@@ -2,14 +2,12 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ApiError, api, RecipeListItem, RecipePage } from "../api";
-import { useAuth } from "../auth";
 
-// Public recipe feed. GET /api/recipes is anonymous-safe (no security
-// requirement in the OpenAPI), so this page renders for both authed and
-// anon visitors. Pagination is opaque cursor + Load More button — we
-// avoid infinite scroll until we have a real reason to wire it up.
+// Recipe feed. The route is wrapped in <RequireAuth>, so this component
+// only ever renders for authed visitors. Pagination is opaque cursor +
+// Load More button — we avoid infinite scroll until we have a real reason
+// to wire it up.
 export function Recipes() {
-  const { state } = useAuth();
   const [recipes, setRecipes] = useState<RecipeListItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   // `done` distinguishes "first page hasn't loaded" from "we've reached
@@ -46,9 +44,7 @@ export function Recipes() {
       {recipes.length === 0 && done && !error && (
         <div className="empty-state">
           <p className="muted">No public recipes yet.</p>
-          {state.status === "authed" && (
-            <Link to="/recipes/new" className="empty-cta">+ Create the first one</Link>
-          )}
+          <Link to="/recipes/new" className="empty-cta">+ Create the first one</Link>
         </div>
       )}
       <ul className="recipe-list">
