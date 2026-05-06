@@ -34,7 +34,7 @@ jobs:
       TEST_DATABASE_URL: postgres://zymo:zymo@localhost:5432/zymo?sslmode=disable
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
