@@ -23,7 +23,7 @@ RUN bun run build
 # --- Go build -----------------------------------------------------------
 # go.mod pins 1.25.7; the Dockerfile must match or `go build` rejects
 # the module's go directive.
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
