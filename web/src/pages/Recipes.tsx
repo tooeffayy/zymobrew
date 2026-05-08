@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ApiError, api, RecipeListItem, RecipePage } from "../api";
+import { UnacknowledgedBanner } from "../components/UnacknowledgedBanner";
 
 // Recipe feed. The route is wrapped in <RequireAuth>, so this component
 // only ever renders for authed visitors. Pagination is opaque cursor +
@@ -39,6 +40,7 @@ export function Recipes() {
 
   return (
     <div className="page">
+      <UnacknowledgedBanner />
       <h1>Recipes</h1>
       {error && <p className="error">{error}</p>}
       {recipes.length === 0 && done && !error && (

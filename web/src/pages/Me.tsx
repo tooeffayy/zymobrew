@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 
 import { ApiError, PublicProfile, api } from "../api";
 import { useAuth } from "../auth";
+import { NotificationPrefsSection } from "../components/NotificationPrefsSection";
+import { PushSubscribeSection } from "../components/PushSubscribeSection";
 import { TempUnit, useTemperatureUnit } from "../units";
 
 // Authenticated user's profile + account controls. Three sections:
@@ -54,6 +56,8 @@ export function Me() {
             }}
           />
           <PreferencesSection />
+          <NotificationPrefsSection />
+          <PushSubscribeSection />
           <PasswordSection />
           <DangerSection
             username={state.user.username}

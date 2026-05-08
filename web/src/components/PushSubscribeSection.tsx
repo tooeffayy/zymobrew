@@ -7,14 +7,14 @@ import {
   unsubscribe,
 } from "../push";
 
-// Per-browser web-push subscription. Lives on the Notifications page
+// Per-browser web-push subscription. Rendered on the profile page
 // alongside the global delivery preferences. Two distinct knobs:
 //
 //   1. *This browser is registered* — managed here. One row per browser
 //      in push_devices on the server.
-//   2. *Push delivery is enabled* — managed in PrefsSection (PATCH
-//      /api/notifications/prefs). A global mute across all of this
-//      user's registered browsers.
+//   2. *Push delivery is enabled* — managed in NotificationPrefsSection
+//      (PATCH /api/notifications/prefs). A global mute across all of
+//      this user's registered browsers.
 //
 // Both have to be on for a reminder to actually buzz the device.
 
@@ -101,7 +101,7 @@ function PushBody({
         <div className="push-body">
           <p className="push-status push-status-off">Push isn't set up on this instance.</p>
           <p className="muted">
-            The operator hasn't configured VAPID keys. Reminders still appear in the inbox above; they just won't pop up as system notifications.
+            The operator hasn't configured VAPID keys. Reminders still appear in your inbox; they just won't pop up as system notifications.
           </p>
           <p className="muted">
             <small>To enable: run <code>zymo vapid-keys</code> and set the printed env vars.</small>
@@ -139,7 +139,7 @@ function PushBody({
         <div className="push-body">
           <p className="push-status push-status-on">Subscribed on this browser.</p>
           <p className="muted">
-            Reminders will pop up as system notifications. The "Send push notifications" toggle below mutes every registered browser at once if you need a break.
+            Reminders will pop up as system notifications. The "Send push notifications" toggle in <em>Notification preferences</em> mutes every registered browser at once if you need a break.
           </p>
           <div className="form-actions">
             <button
