@@ -7,7 +7,7 @@ require (
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
-	github.com/klauspost/compress v1.18.5
+	github.com/klauspost/compress v1.18.6
 	github.com/minio/minio-go/v7 v7.1.0
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/riverqueue/river v0.35.1
