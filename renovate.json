@@ -2,5 +2,19 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:best-practices"
-  ]
+  ],
+  "dockerfile": {
+    "managerFilePatterns": [
+      "/(^|/|\\.)([Dd]ocker|[Cc]ontainer)file$/",
+      "/(^|/)([Dd]ocker|[Cc]ontainer)file[^/]*$/"
+    ],
+    "pinDigests": true
+  },
+  "github-actions": {
+    "managerFilePatterns": [
+      "/(^|/)(workflow-templates|\\.(?:github|gitea|forgejo)/(?:workflows|actions))/.+\\.ya?ml$/",
+      "/(^|/)action\\.ya?ml$/"
+    ],
+    "pinDigests": true
+  }
 }
