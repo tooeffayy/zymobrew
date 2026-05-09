@@ -50,7 +50,7 @@ jobs:
         working-directory: web
         run: bun run build
 
-      - uses: sqlc-dev/setup-sqlc@v3
+      - uses: sqlc-dev/setup-sqlc@v5
         with:
           sqlc-version: "1.31.1"
 
