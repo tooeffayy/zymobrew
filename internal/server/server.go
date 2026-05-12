@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/time/rate"
 
+	"zymobrew/internal/apprise"
 	"zymobrew/internal/config"
 	"zymobrew/internal/queries"
 	"zymobrew/internal/ratelimit"
@@ -31,6 +32,10 @@ type Server struct {
 	backupStore storage.Store
 	handler     http.Handler
 
+	// appriseValidator enforces scheme + host policy on user-supplied
+	// Apprise URLs. Constructed once at startup from cfg.
+	appriseValidator *apprise.Validator
+
 	// Auth-path rate limiters. authIP gates /api/auth/{register,login} per
 	// client IP; loginUser additionally gates /api/auth/login per identifier
 	// so a single legitimate IP can't hammer one account.
@@ -47,6 +52,10 @@ func New(pool *pgxpool.Pool, cfg config.Config, exportStore, backupStore storage
 		backupStore: backupStore,
 		authIP:      ratelimit.New(rate.Every(2*time.Second), 10, 30*time.Minute),
 		loginUser:   ratelimit.New(rate.Every(12*time.Second), 5, 30*time.Minute),
+		appriseValidator: apprise.NewValidator(
+			cfg.AppriseAllowWebhookSchemes,
+			cfg.AppriseAllowedHostCIDRs,
+		),
 	}
 	s.handler = s.routes()
 	return s

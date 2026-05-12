@@ -17,6 +17,7 @@ import (
 	"github.com/riverqueue/river"
 	mail "github.com/wneessen/go-mail"
 
+	"zymobrew/internal/apprise"
 	"zymobrew/internal/queries"
 )
 
@@ -42,12 +43,13 @@ func (ReminderDispatchArgs) Kind() string { return "reminder_dispatcher" }
 
 type reminderDispatchWorker struct {
 	river.WorkerDefaults[ReminderDispatchArgs]
-	queries       *queries.Queries
-	vapidPub      string
-	vapidPriv     string
-	vapidSubject  string
-	appriseAPIURL string
-	smtp          SMTPConfig
+	queries          *queries.Queries
+	vapidPub         string
+	vapidPriv        string
+	vapidSubject     string
+	appriseAPIURL    string
+	appriseValidator *apprise.Validator
+	smtp             SMTPConfig
 }
 
 func (w *reminderDispatchWorker) pushConfigured() bool {
@@ -118,7 +120,16 @@ func (w *reminderDispatchWorker) Work(ctx context.Context, _ *river.Job[Reminder
 		urlPathStr := textVal(urlPath)
 
 		if w.appriseConfigured() && prefs.AppriseEnabled && prefs.AppriseUrl.Valid && prefs.AppriseUrl.String != "" {
-			w.sendApprise(ctx, prefs.AppriseUrl.String, r.Title, body)
+			// Re-validate the saved URL against current policy. Rows
+			// persisted before the SSRF fix shipped, or saved when the
+			// operator had AppriseAllowWebhookSchemes=true and later flipped
+			// it off, would otherwise keep firing. Failure is logged and
+			// dropped — the user can fix it via the prefs UI.
+			if err := w.appriseValidator.Validate(ctx, prefs.AppriseUrl.String); err != nil {
+				slog.Warn("apprise url failed policy", "user_id", r.UserID, "err", err)
+			} else {
+				w.sendApprise(ctx, prefs.AppriseUrl.String, r.Title, body)
+			}
 		}
 
 		if w.emailConfigured() && prefs.EmailEnabled {

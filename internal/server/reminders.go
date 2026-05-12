@@ -479,7 +479,7 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 		if trimmed == "" {
 			params.AppriseUrl = pgtype.Text{}
 		} else {
-			if err := validateAppriseURL(trimmed); err != nil {
+			if err := s.appriseValidator.Validate(r.Context(), trimmed); err != nil {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 				return
 			}
@@ -528,21 +528,6 @@ func parseHHMM(s string) (pgtype.Time, error) {
 	return pgtype.Time{Microseconds: micros, Valid: true}, nil
 }
 
-// validateAppriseURL rejects obviously-malformed values before they hit the
-// Apprise API. We don't enumerate the full scheme list (Apprise supports 100+);
-// the sidecar is the authority on what it accepts. Real validation comes from
-// the "send test" button.
-func validateAppriseURL(s string) error {
-	if len(s) > 2048 {
-		return fmt.Errorf("apprise_url too long")
-	}
-	i := strings.Index(s, "://")
-	if i <= 0 {
-		return fmt.Errorf("apprise_url must look like scheme://...")
-	}
-	return nil
-}
-
 // handleTestNotification sends a test message through the Apprise sidecar
 // using a URL the user supplies in the body. Used by the prefs UI to validate
 // new Apprise URLs without saving them first. Returns 503 if the operator
@@ -564,7 +549,7 @@ func (s *Server) handleTestNotification(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "apprise_url is required"})
 		return
 	}
-	if err := validateAppriseURL(url); err != nil {
+	if err := s.appriseValidator.Validate(r.Context(), url); err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		return
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
+	"zymobrew/internal/apprise"
 	"zymobrew/internal/config"
 	"zymobrew/internal/queries"
 	"zymobrew/internal/storage"
@@ -45,6 +46,10 @@ func New(pool *pgxpool.Pool, cfg config.Config, exportStore, backupStore storage
 		vapidPriv:     cfg.VAPIDPrivateKey,
 		vapidSubject:  cfg.VAPIDSubject,
 		appriseAPIURL: cfg.AppriseAPIURL,
+		appriseValidator: apprise.NewValidator(
+			cfg.AppriseAllowWebhookSchemes,
+			cfg.AppriseAllowedHostCIDRs,
+		),
 		smtp: SMTPConfig{
 			Host:     cfg.SMTPHost,
 			Port:     cfg.SMTPPort,

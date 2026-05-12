@@ -493,8 +493,13 @@ components:
           type: string
           description: |
             Per-user Apprise URL (e.g. `mailto://`, `discord://`, `tgram://`).
-            Empty string when unset. Validation is intentionally lax — the
-            sidecar is the source of truth on accepted schemes.
+            Empty string when unset. Schemes that turn the Apprise sidecar
+            into a generic webhook target (`http`, `https`, `json`, `jsons`,
+            `xml`, `xmls`, `form`, `forms`) are rejected unless the operator
+            sets `APPRISE_ALLOW_WEBHOOK_SCHEMES=true`. URLs whose host
+            resolves into a default-blocked private/loopback/IMDS range are
+            also rejected; the operator can punch holes via
+            `APPRISE_ALLOWED_HOST_CIDRS`.
         email_enabled:
           type: boolean
           description: |
@@ -2831,7 +2836,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         "422":
-          description: Invalid timezone, time format, or apprise_url
+          description: Invalid timezone, time format, or apprise_url (e.g. disallowed scheme or host in a blocked range)
           content:
             application/json:
               schema:
@@ -2874,7 +2879,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         "422":
-          description: Missing or malformed apprise_url
+          description: Missing apprise_url, or rejected by policy (disallowed scheme, host in a blocked range, or exceeds 2048 bytes)
           content:
             application/json:
               schema:
