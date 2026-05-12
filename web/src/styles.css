@@ -69,6 +69,14 @@ body {
   margin: 0;
 }
 
+/* Always reserve the vertical scrollbar's gutter so navigating between a
+   short page (no scrollbar) and a long page (scrollbar) doesn't shift the
+   content horizontally. `stable` reserves the space regardless of whether
+   the scrollbar is currently shown. */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background: var(--bg);
   color: var(--fg);
