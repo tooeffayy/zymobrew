@@ -34,6 +34,19 @@ type Config struct {
 	// is supplied by each user's notification_prefs.apprise_url.
 	AppriseAPIURL string
 
+	// SMTP delivery for users who don't want to run an Apprise sidecar.
+	// Instance-wide relay — operator sets these once; each user opts in via
+	// notification_prefs.email_enabled and reminders go to users.email.
+	// SMTPHost empty = SMTP disabled (the toggle still flips but no mail is
+	// sent). TLSMode is one of "starttls" | "tls" | "none"; default starttls
+	// is the right answer for ~all modern relays on 587.
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+	SMTPTLSMode  string
+
 	// Primary storage — used for user-export archives. The local backend
 	// roots files under StorageLocalPath; user exports specifically live
 	// under the `tmp/exports/` subtree to convey their ephemeral lifecycle.
@@ -79,6 +92,13 @@ func Load() (Config, error) {
 
 		AppriseAPIURL: strings.TrimRight(os.Getenv("APPRISE_API_URL"), "/"),
 
+		SMTPHost:     os.Getenv("SMTP_HOST"),
+		SMTPPort:     getenvInt("SMTP_PORT", 587),
+		SMTPUsername: os.Getenv("SMTP_USERNAME"),
+		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:     os.Getenv("SMTP_FROM"),
+		SMTPTLSMode:  getenv("SMTP_TLS_MODE", "starttls"),
+
 		StorageBackend:   getenv("STORAGE_BACKEND", "local"),
 		StorageLocalPath: getenv("STORAGE_LOCAL_PATH", "./data"),
 		S3Endpoint:       os.Getenv("S3_ENDPOINT"),
@@ -116,6 +136,11 @@ func Load() (Config, error) {
 	// wipe every admin backup on the next dispatcher tick.
 	if cfg.BackupRetentionDays < 1 || cfg.BackupRetentionDays > 36500 {
 		return cfg, fmt.Errorf("invalid BACKUP_RETENTION_DAYS %d (want 1..36500)", cfg.BackupRetentionDays)
+	}
+	switch cfg.SMTPTLSMode {
+	case "starttls", "tls", "none":
+	default:
+		return cfg, fmt.Errorf("invalid SMTP_TLS_MODE %q (want starttls|tls|none)", cfg.SMTPTLSMode)
 	}
 	return cfg, nil
 }

@@ -165,6 +165,7 @@ CREATE TABLE notification_prefs (
   push_enabled      BOOLEAN NOT NULL DEFAULT TRUE,
   apprise_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
   apprise_url       TEXT,
+  email_enabled     BOOLEAN NOT NULL DEFAULT FALSE,
   quiet_hours_start TIME,
   quiet_hours_end   TIME,
   timezone          TEXT NOT NULL DEFAULT 'UTC'

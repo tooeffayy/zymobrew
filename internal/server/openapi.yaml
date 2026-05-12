@@ -482,7 +482,7 @@ components:
 
     NotificationPrefs:
       type: object
-      required: [push_enabled, apprise_enabled, apprise_url, timezone]
+      required: [push_enabled, apprise_enabled, apprise_url, email_enabled, timezone]
       properties:
         push_enabled:
           type: boolean
@@ -495,6 +495,14 @@ components:
             Per-user Apprise URL (e.g. `mailto://`, `discord://`, `tgram://`).
             Empty string when unset. Validation is intentionally lax — the
             sidecar is the source of truth on accepted schemes.
+        email_enabled:
+          type: boolean
+          description: |
+            When true, the instance sends reminder emails directly via the
+            operator-configured SMTP relay (`SMTP_HOST` et al.). Destination
+            is the account email. Independent of the Apprise channel — both
+            can be enabled, or just one. No-op if the operator hasn't
+            configured SMTP.
         quiet_hours_start:
           type: string
           pattern: '^\d{2}:\d{2}$'
@@ -2798,6 +2806,8 @@ paths:
                 apprise_url:
                   type: string
                   description: Empty string clears the saved URL.
+                email_enabled:
+                  type: boolean
                 quiet_hours_start:
                   type: string
                   pattern: '^\d{2}:\d{2}$'
@@ -2877,6 +2887,51 @@ paths:
                 $ref: '#/components/schemas/Error'
         "503":
           description: APPRISE_API_URL is not configured on this instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/notifications/prefs/test-email:
+    post:
+      tags: [notifications]
+      operationId: testEmailNotification
+      summary: Send a test email through the instance's SMTP relay
+      description: |
+        Delivers a fixed test message to the caller's account email via the
+        operator-configured SMTP relay. Used by the prefs UI's "Send test
+        email" button to verify wiring before flipping `email_enabled` on.
+      responses:
+        "200":
+          description: SMTP relay accepted the test message
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Account has no email address on file
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "502":
+          description: SMTP relay refused the message or could not be reached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: SMTP is not configured on this instance
           content:
             application/json:
               schema:

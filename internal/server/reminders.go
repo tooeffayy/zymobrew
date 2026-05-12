@@ -15,7 +15,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	mail "github.com/wneessen/go-mail"
 
+	"zymobrew/internal/config"
 	"zymobrew/internal/queries"
 )
 
@@ -102,6 +104,7 @@ type notificationPrefsView struct {
 	PushEnabled     bool    `json:"push_enabled"`
 	AppriseEnabled  bool    `json:"apprise_enabled"`
 	AppriseURL      string  `json:"apprise_url"`
+	EmailEnabled    bool    `json:"email_enabled"`
 	QuietHoursStart *string `json:"quiet_hours_start,omitempty"`
 	QuietHoursEnd   *string `json:"quiet_hours_end,omitempty"`
 	Timezone        string  `json:"timezone"`
@@ -112,6 +115,7 @@ func toPrefsView(p queries.NotificationPref) notificationPrefsView {
 		PushEnabled:    p.PushEnabled,
 		AppriseEnabled: p.AppriseEnabled,
 		AppriseURL:     p.AppriseUrl.String,
+		EmailEnabled:   p.EmailEnabled,
 		Timezone:       p.Timezone,
 	}
 	if p.QuietHoursStart.Valid {
@@ -441,6 +445,7 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 		PushEnabled     *bool   `json:"push_enabled"`
 		AppriseEnabled  *bool   `json:"apprise_enabled"`
 		AppriseURL      *string `json:"apprise_url"`
+		EmailEnabled    *bool   `json:"email_enabled"`
 		QuietHoursStart *string `json:"quiet_hours_start"`
 		QuietHoursEnd   *string `json:"quiet_hours_end"`
 		Timezone        *string `json:"timezone"`
@@ -455,6 +460,7 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 		PushEnabled:     existing.PushEnabled,
 		AppriseEnabled:  existing.AppriseEnabled,
 		AppriseUrl:      existing.AppriseUrl,
+		EmailEnabled:    existing.EmailEnabled,
 		QuietHoursStart: existing.QuietHoursStart,
 		QuietHoursEnd:   existing.QuietHoursEnd,
 		Timezone:        existing.Timezone,
@@ -464,6 +470,9 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 	}
 	if req.AppriseEnabled != nil {
 		params.AppriseEnabled = *req.AppriseEnabled
+	}
+	if req.EmailEnabled != nil {
+		params.EmailEnabled = *req.EmailEnabled
 	}
 	if req.AppriseURL != nil {
 		trimmed := strings.TrimSpace(*req.AppriseURL)
@@ -592,6 +601,72 @@ func sendAppriseTest(ctx context.Context, apiURL, target string) error {
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("apprise returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// handleTestEmail sends a test email through the instance's configured SMTP
+// relay to the caller's account email. Used by the prefs UI's "Send test
+// email" button so a user can confirm delivery before flipping the toggle on
+// in earnest. 503 when SMTP isn't configured; 502 on relay error so the
+// frontend can show the underlying SMTP failure rather than a generic 500.
+func (s *Server) handleTestEmail(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.SMTPHost == "" || s.cfg.SMTPFrom == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "smtp not configured on this instance"})
+		return
+	}
+	user, _ := userFromContext(r.Context())
+	if user.Email == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "account has no email address"})
+		return
+	}
+	if err := sendEmailTest(r.Context(), s.cfg, user.Email); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// sendEmailTest dials the configured SMTP relay and sends a fixed test
+// message. Mirrors the dispatcher's sendEmail path but surfaces the error
+// rather than logging-and-dropping (the prefs UI needs feedback).
+func sendEmailTest(ctx context.Context, cfg config.Config, toAddr string) error {
+	opts := []mail.Option{
+		mail.WithPort(cfg.SMTPPort),
+		mail.WithTimeout(15 * time.Second),
+	}
+	switch cfg.SMTPTLSMode {
+	case "tls":
+		opts = append(opts, mail.WithSSL())
+	case "none":
+		opts = append(opts, mail.WithTLSPolicy(mail.NoTLS))
+	default:
+		opts = append(opts, mail.WithTLSPolicy(mail.TLSMandatory))
+	}
+	if cfg.SMTPUsername != "" {
+		opts = append(opts,
+			mail.WithSMTPAuth(mail.SMTPAuthPlain),
+			mail.WithUsername(cfg.SMTPUsername),
+			mail.WithPassword(cfg.SMTPPassword),
+		)
+	}
+	client, err := mail.NewClient(cfg.SMTPHost, opts...)
+	if err != nil {
+		return fmt.Errorf("smtp client: %w", err)
+	}
+	msg := mail.NewMsg()
+	if err := msg.From(cfg.SMTPFrom); err != nil {
+		return fmt.Errorf("smtp from: %w", err)
+	}
+	if err := msg.To(toAddr); err != nil {
+		return fmt.Errorf("smtp to: %w", err)
+	}
+	msg.Subject("Zymo test notification")
+	msg.SetBodyString(mail.TypeTextPlain, "If you can see this, your instance's SMTP relay is wired up correctly.")
+	dialCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	if err := client.DialAndSendWithContext(dialCtx, msg); err != nil {
+		return fmt.Errorf("smtp send: %w", err)
 	}
 	return nil
 }

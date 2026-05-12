@@ -45,6 +45,14 @@ func New(pool *pgxpool.Pool, cfg config.Config, exportStore, backupStore storage
 		vapidPriv:     cfg.VAPIDPrivateKey,
 		vapidSubject:  cfg.VAPIDSubject,
 		appriseAPIURL: cfg.AppriseAPIURL,
+		smtp: SMTPConfig{
+			Host:     cfg.SMTPHost,
+			Port:     cfg.SMTPPort,
+			Username: cfg.SMTPUsername,
+			Password: cfg.SMTPPassword,
+			From:     cfg.SMTPFrom,
+			TLSMode:  cfg.SMTPTLSMode,
+		},
 	})
 	river.AddWorker(workers, &userExportDispatchWorker{queries: q, store: exportStore})
 	river.AddWorker(workers, &adminBackupScheduleWorker{queries: q, store: backupStore})

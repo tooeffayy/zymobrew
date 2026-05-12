@@ -94,7 +94,13 @@ go run ./cmd/zymo serve
 | `VAPID_PUBLIC_KEY`  | *(optional)*          | VAPID public key for web-push (generate with `zymo vapid-keys`) |
 | `VAPID_PRIVATE_KEY` | *(optional)*          | VAPID private key for web-push |
 | `VAPID_SUBJECT`     | `mailto:admin@localhost` | VAPID contact (mailto: or https:) |
-| `APPRISE_API_URL`   | *(optional)*          | Base URL of an [Apprise API](https://github.com/caronc/apprise-api) sidecar (e.g. `http://apprise:8000`). Unset = external-channel delivery (email/Discord/Telegram/ntfy/…) is disabled; in-app notifications and web push are unaffected. |
+| `APPRISE_API_URL`   | *(optional)*          | Base URL of an [Apprise API](https://github.com/caronc/apprise-api) sidecar (e.g. `http://apprise:8000`). Unset = Apprise channel disabled; in-app, push, and SMTP are unaffected. |
+| `SMTP_HOST`         | *(optional)*          | SMTP relay host. Unset = direct-SMTP channel disabled (operators relying on Apprise's `mailto://` can leave it off). Required for `email_enabled` to do anything. |
+| `SMTP_PORT`         | `587`                 | SMTP relay port. 587 (submission/STARTTLS) is the right answer for almost everyone; 465 if pairing with `SMTP_TLS_MODE=tls`. |
+| `SMTP_USERNAME`     | *(optional)*          | SMTP auth username. Empty disables auth (the client connects unauthenticated — fine for local relays). |
+| `SMTP_PASSWORD`     | *(optional)*          | SMTP auth password. Required when `SMTP_USERNAME` is set. |
+| `SMTP_FROM`         | *(optional)*          | Envelope/From address (e.g. `Zymo <zymo@example.com>`). Required for SMTP to be considered configured. |
+| `SMTP_TLS_MODE`     | `starttls`            | `starttls` (issue STARTTLS, require encryption) \| `tls` (implicit TLS on connect, port 465 style) \| `none` (cleartext — local only). |
 | `STORAGE_BACKEND`     | `local`               | `local` \| `s3` — primary storage backend. Holds user-export archives under the `tmp/exports/` key prefix. |
 | `STORAGE_LOCAL_PATH`  | `./data`              | Filesystem root for the primary local backend. |
 | `S3_ENDPOINT`         | *(optional)*          | Primary S3-compatible endpoint URL (e.g. MinIO). Empty for AWS S3. |
@@ -252,19 +258,21 @@ These cross-cutting rules apply across all resources:
 
 **Validation** — gravity inputs clamped to 0.990–1.200; FG must be < OG; NaN/Inf rejected. Errors map to 400 via `errors.Is(err, calc.ErrInvalidInput)`.
 
-### Notifications + Push + Apprise
+### Notifications + Push + Apprise + Email
 
-Three delivery channels — in-app (always), web push (per-browser subscriptions), and Apprise (per-user URL, routes to email/Discord/Telegram/Matrix/ntfy/Pushover/etc. via an [Apprise API](https://github.com/caronc/apprise-api) sidecar). Apprise replaced what would have been an in-tree SMTP path: shipping one HTTP-out integration covers ~100 destinations and keeps the Zymo binary out of the MIME/STARTTLS/bounce business.
+Four delivery channels — in-app (always), web push (per-browser subscriptions), Apprise (per-user URL, routes to email/Discord/Telegram/Matrix/ntfy/Pushover/etc. via an [Apprise API](https://github.com/caronc/apprise-api) sidecar), and direct SMTP (operator-configured relay → user's account email). Apprise's `mailto://` and the SMTP channel overlap on purpose: Apprise covers exotic destinations but requires running the sidecar; SMTP is the zero-sidecar path for operators who only want email. Both can be enabled simultaneously, or just one. Each is gated per-user via its respective toggle.
 
 **In-app notifications always created** regardless of quiet hours or external-channel config.
 
-**Quiet hours** — dispatcher checks `notification_prefs.quiet_hours_*` in the user's timezone before sending push *or* Apprise. Handles midnight-wrapping windows.
+**Quiet hours** — dispatcher checks `notification_prefs.quiet_hours_*` in the user's timezone before sending push, Apprise, *or* email. Handles midnight-wrapping windows.
 
 **Push payload** — JSON `{"title": "...", "body": "...", "url_path": "..."}`. Browser service worker shows a native notification.
 
 **VAPID keys** — generate with `zymo vapid-keys`. If not set, push is silently skipped but in-app notifications still work.
 
 **Apprise** — operator sets `APPRISE_API_URL` (base URL of the sidecar, e.g. `http://apprise:8000`); each user pastes their per-account `apprise_url` (e.g. `mailto://`, `discord://`, `tgram://`) into prefs and toggles `apprise_enabled`. Dispatcher POSTs `{urls, title, body, type:"info"}` to `<APPRISE_API_URL>/notify` per due reminder. Errors logged + dropped, mirroring push semantics — the in-app row is the durable record. `POST /api/notifications/prefs/test` sends a fixed test payload for the prefs UI's "Send test" button, so users can validate URLs before saving. Apprise URLs are user-supplied secrets (mail/Telegram/Discord tokens embedded in the URL) — they aren't returned in any list endpoint, only the owner's `GET /api/notifications/prefs`.
+
+**Direct SMTP** — operator sets `SMTP_HOST`/`SMTP_FROM` (and credentials for authed relays); each user opts in via `notification_prefs.email_enabled`. Destination is `users.email` — no separate notification-address field, keeping the prefs surface small. Dispatcher dials the relay per due reminder using [`wneessen/go-mail`](https://github.com/wneessen/go-mail) with the configured TLS mode (`starttls` default; `tls` for implicit TLS on 465; `none` for local relays). PLAIN auth only when credentials are set — adequate for self-hosted relays and the major transactional SMTP providers; LOGIN/XOAUTH2 not wired until needed. Failures logged + dropped, same contract as push/Apprise. `POST /api/notifications/prefs/test-email` sends a fixed test message to the caller's account email for the prefs UI's "Send test email" button. Returns 503 if SMTP isn't configured, 502 on relay error.
 
 ### Known deferred gaps
 

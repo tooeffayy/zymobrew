@@ -25,12 +25,13 @@ WHERE user_id = $1 AND read_at IS NULL;
 SELECT * FROM notification_prefs WHERE user_id = $1;
 
 -- name: UpsertNotificationPrefs :one
-INSERT INTO notification_prefs (user_id, push_enabled, apprise_enabled, apprise_url, quiet_hours_start, quiet_hours_end, timezone)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO notification_prefs (user_id, push_enabled, apprise_enabled, apprise_url, email_enabled, quiet_hours_start, quiet_hours_end, timezone)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (user_id) DO UPDATE SET
   push_enabled      = EXCLUDED.push_enabled,
   apprise_enabled   = EXCLUDED.apprise_enabled,
   apprise_url       = EXCLUDED.apprise_url,
+  email_enabled     = EXCLUDED.email_enabled,
   quiet_hours_start = EXCLUDED.quiet_hours_start,
   quiet_hours_end   = EXCLUDED.quiet_hours_end,
   timezone          = EXCLUDED.timezone

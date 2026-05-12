@@ -147,6 +147,7 @@ func (s *Server) routes() http.Handler {
 			r.Get("/prefs", s.handleGetNotificationPrefs)
 			r.Patch("/prefs", s.handleUpdateNotificationPrefs)
 			r.Post("/prefs/test", s.handleTestNotification)
+			r.Post("/prefs/test-email", s.handleTestEmail)
 		})
 		r.Route("/push", func(r chi.Router) {
 			r.Get("/public-key", s.handleGetVAPIDPublicKey)

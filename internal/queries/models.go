@@ -528,6 +528,7 @@ type NotificationPref struct {
 	QuietHoursEnd   pgtype.Time `json:"quiet_hours_end"`
 	Timezone        string      `json:"timezone"`
 	AppriseUrl      pgtype.Text `json:"apprise_url"`
+	EmailEnabled    bool        `json:"email_enabled"`
 }
 
 type PushDevice struct {

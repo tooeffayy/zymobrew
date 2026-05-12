@@ -349,6 +349,7 @@ export interface NotificationPrefs {
   push_enabled: boolean;
   apprise_enabled: boolean;
   apprise_url: string;
+  email_enabled: boolean;
   quiet_hours_start?: string;
   quiet_hours_end?: string;
   timezone: string;

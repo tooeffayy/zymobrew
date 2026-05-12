@@ -15,9 +15,22 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/riverqueue/river"
+	mail "github.com/wneessen/go-mail"
 
 	"zymobrew/internal/queries"
 )
+
+// SMTPConfig collapses the dispatcher's SMTP knobs. Zero-value Host disables
+// the email channel — the toggle still flips in prefs, but no mail is sent
+// (mirrors the AppriseAPIURL contract).
+type SMTPConfig struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	From     string
+	TLSMode  string // "starttls" | "tls" | "none"
+}
 
 const reminderClaimBatch = 100
 
@@ -34,6 +47,7 @@ type reminderDispatchWorker struct {
 	vapidPriv     string
 	vapidSubject  string
 	appriseAPIURL string
+	smtp          SMTPConfig
 }
 
 func (w *reminderDispatchWorker) pushConfigured() bool {
@@ -42,6 +56,10 @@ func (w *reminderDispatchWorker) pushConfigured() bool {
 
 func (w *reminderDispatchWorker) appriseConfigured() bool {
 	return w.appriseAPIURL != ""
+}
+
+func (w *reminderDispatchWorker) emailConfigured() bool {
+	return w.smtp.Host != "" && w.smtp.From != ""
 }
 
 // Work claims all due reminders atomically, creates in-app notifications, and
@@ -56,9 +74,10 @@ func (w *reminderDispatchWorker) Work(ctx context.Context, _ *river.Job[Reminder
 		return nil
 	}
 
-	// Cache prefs and devices per user to avoid N+1 queries.
+	// Cache prefs, devices, and emails per user to avoid N+1 queries.
 	prefCache := map[uuid.UUID]queries.NotificationPref{}
 	devCache := map[uuid.UUID][]queries.PushDevice{}
+	emailCache := map[uuid.UUID]string{}
 
 	now := time.Now()
 
@@ -84,9 +103,9 @@ func (w *reminderDispatchWorker) Work(ctx context.Context, _ *river.Job[Reminder
 			slog.Error("create notification", "reminder_id", r.ID, "err", err)
 		}
 
-		// External channels (push, Apprise) are best-effort. If neither is
+		// External channels (push, Apprise, SMTP) are best-effort. If none is
 		// configured on this instance we can skip the prefs lookup entirely.
-		if !w.pushConfigured() && !w.appriseConfigured() {
+		if !w.pushConfigured() && !w.appriseConfigured() && !w.emailConfigured() {
 			continue
 		}
 
@@ -100,6 +119,12 @@ func (w *reminderDispatchWorker) Work(ctx context.Context, _ *river.Job[Reminder
 
 		if w.appriseConfigured() && prefs.AppriseEnabled && prefs.AppriseUrl.Valid && prefs.AppriseUrl.String != "" {
 			w.sendApprise(ctx, prefs.AppriseUrl.String, r.Title, body)
+		}
+
+		if w.emailConfigured() && prefs.EmailEnabled {
+			if addr, err := w.userEmail(ctx, r.UserID, emailCache); err == nil && addr != "" {
+				w.sendEmail(ctx, addr, r.Title, body)
+			}
 		}
 
 		if !w.pushConfigured() || !prefs.PushEnabled {
@@ -157,6 +182,69 @@ func (w *reminderDispatchWorker) sendApprise(ctx context.Context, target, title,
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		slog.Warn("apprise rejected", "status", resp.StatusCode, "body", strings.TrimSpace(string(respBody)))
 	}
+}
+
+// sendEmail dials the configured SMTP relay and delivers a plaintext message.
+// Errors are logged and dropped — the in-app notification is already written,
+// and a failed external send shouldn't surface as a job failure that would
+// retry-storm a misconfigured relay.
+func (w *reminderDispatchWorker) sendEmail(ctx context.Context, toAddr, title, body string) {
+	opts := []mail.Option{
+		mail.WithPort(w.smtp.Port),
+		mail.WithTimeout(15 * time.Second),
+	}
+	switch w.smtp.TLSMode {
+	case "tls":
+		opts = append(opts, mail.WithSSL())
+	case "none":
+		opts = append(opts, mail.WithTLSPolicy(mail.NoTLS))
+	default: // "starttls"
+		opts = append(opts, mail.WithTLSPolicy(mail.TLSMandatory))
+	}
+	if w.smtp.Username != "" {
+		// PLAIN over TLS covers the common self-hosted-relay + transactional-
+		// SMTP cases (Postmark, SendGrid, Mailgun, Postfix with SASL). Servers
+		// requiring LOGIN/XOAUTH2 specifically would need a knob; not adding
+		// one until a user actually hits that wall.
+		opts = append(opts,
+			mail.WithSMTPAuth(mail.SMTPAuthPlain),
+			mail.WithUsername(w.smtp.Username),
+			mail.WithPassword(w.smtp.Password),
+		)
+	}
+	client, err := mail.NewClient(w.smtp.Host, opts...)
+	if err != nil {
+		slog.Error("smtp client", "err", err)
+		return
+	}
+	msg := mail.NewMsg()
+	if err := msg.From(w.smtp.From); err != nil {
+		slog.Error("smtp from", "err", err)
+		return
+	}
+	if err := msg.To(toAddr); err != nil {
+		slog.Error("smtp to", "addr", toAddr, "err", err)
+		return
+	}
+	msg.Subject(title)
+	msg.SetBodyString(mail.TypeTextPlain, body)
+	dialCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	if err := client.DialAndSendWithContext(dialCtx, msg); err != nil {
+		slog.Error("smtp send", "addr", toAddr, "err", err)
+	}
+}
+
+func (w *reminderDispatchWorker) userEmail(ctx context.Context, userID uuid.UUID, cache map[uuid.UUID]string) (string, error) {
+	if v, ok := cache[userID]; ok {
+		return v, nil
+	}
+	u, err := w.queries.GetUserByID(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	cache[userID] = u.Email
+	return u.Email, nil
 }
 
 func (w *reminderDispatchWorker) userPrefs(ctx context.Context, userID uuid.UUID, cache map[uuid.UUID]queries.NotificationPref) (queries.NotificationPref, error) {

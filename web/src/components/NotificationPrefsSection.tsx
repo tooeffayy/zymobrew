@@ -3,9 +3,10 @@ import { FormEvent, useEffect, useState } from "react";
 import { ApiError, NotificationPrefs, api } from "../api";
 
 // Server-side delivery preferences (not per-browser — see PushSubscribeSection
-// for that). Push toggle, Apprise URL + toggle (delivers email/Discord/
-// Telegram/Matrix/ntfy/etc. via an Apprise sidecar), quiet-hours window,
-// and IANA timezone for interpreting that window.
+// for that). Push toggle, Apprise URL + toggle, SMTP email toggle (covers
+// the same use case as Apprise's mailto:// for users who don't want to run
+// the sidecar), quiet-hours window, and IANA timezone for interpreting that
+// window.
 export function NotificationPrefsSection() {
   const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
   const [loading, setLoading] = useState(true);
@@ -16,6 +17,7 @@ export function NotificationPrefsSection() {
   const [pushEnabled, setPushEnabled]       = useState(true);
   const [appriseEnabled, setAppriseEnabled] = useState(false);
   const [appriseUrl, setAppriseUrl]         = useState("");
+  const [emailEnabled, setEmailEnabled]     = useState(false);
   const [quietStart, setQuietStart]         = useState("");
   const [quietEnd, setQuietEnd]             = useState("");
   const [timezone, setTimezone]             = useState("");
@@ -27,6 +29,9 @@ export function NotificationPrefsSection() {
   const [testing, setTesting] = useState(false);
   const [testStatus, setTestStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
+  const [emailTesting, setEmailTesting] = useState(false);
+  const [emailTestStatus, setEmailTestStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+
   useEffect(() => {
     setLoading(true);
     api
@@ -36,6 +41,7 @@ export function NotificationPrefsSection() {
         setPushEnabled(p.push_enabled);
         setAppriseEnabled(p.apprise_enabled);
         setAppriseUrl(p.apprise_url ?? "");
+        setEmailEnabled(p.email_enabled);
         setQuietStart(p.quiet_hours_start ?? "");
         setQuietEnd(p.quiet_hours_end ?? "");
         // If the server's value is the bare default ("UTC") and the
@@ -70,6 +76,7 @@ export function NotificationPrefsSection() {
         push_enabled: pushEnabled,
         apprise_enabled: appriseEnabled,
         apprise_url: appriseUrl.trim(),
+        email_enabled: emailEnabled,
         timezone: timezone || "UTC",
       };
       if (quietStart) body.quiet_hours_start = quietStart;
@@ -99,6 +106,19 @@ export function NotificationPrefsSection() {
       setTestStatus({ ok: false, msg: e instanceof ApiError ? e.message : "test failed" });
     } finally {
       setTesting(false);
+    }
+  };
+
+  const onTestEmail = async () => {
+    setEmailTestStatus(null);
+    setEmailTesting(true);
+    try {
+      await api.post<{ ok: boolean }>("/api/notifications/prefs/test-email");
+      setEmailTestStatus({ ok: true, msg: "Test email sent. Check your inbox." });
+    } catch (e) {
+      setEmailTestStatus({ ok: false, msg: e instanceof ApiError ? e.message : "test failed" });
+    } finally {
+      setEmailTesting(false);
     }
   };
 
@@ -164,6 +184,32 @@ export function NotificationPrefsSection() {
                 </span>
               )}
             </div>
+          </label>
+
+          <label className="prefs-toggle">
+            <input
+              type="checkbox"
+              checked={emailEnabled}
+              onChange={(e) => setEmailEnabled(e.target.checked)}
+            />
+            <span>
+              <strong>Send reminder emails</strong>
+              <small className="muted">
+                Delivered to your account email via the instance's SMTP relay.
+                Requires the operator to configure <code>SMTP_HOST</code>; otherwise this toggle has no effect.
+                If you already use Apprise <code>mailto://</code> you don't need this on too.
+              </small>
+              <div className="form-actions" style={{ marginTop: "0.5rem" }}>
+                <button type="button" onClick={onTestEmail} disabled={emailTesting}>
+                  {emailTesting ? "Sending…" : "Send test email"}
+                </button>
+                {emailTestStatus && (
+                  <span className={emailTestStatus.ok ? "muted" : "error"} style={{ marginLeft: "0.75rem" }}>
+                    {emailTestStatus.msg}
+                  </span>
+                )}
+              </div>
+            </span>
           </label>
 
           <fieldset className="prefs-quiet">
