@@ -5,12 +5,16 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/riverqueue/river"
 
 	"zymobrew/internal/queries"
 	"zymobrew/internal/testutil"
@@ -106,6 +110,121 @@ func runSendPushCase(t *testing.T, status int, expectDeleted bool) {
 	}
 	if !expectDeleted && len(devs) != 1 {
 		t.Fatalf("expected device kept on %d, got %d remaining", status, len(devs))
+	}
+}
+
+// TestSendApprise_PostsExpectedPayload verifies the dispatcher POSTs the
+// expected JSON to the Apprise sidecar with the user's per-account URL.
+func TestSendApprise_PostsExpectedPayload(t *testing.T) {
+	ctx := context.Background()
+
+	var got struct {
+		URLs  string `json:"urls"`
+		Title string `json:"title"`
+		Body  string `json:"body"`
+		Type  string `json:"type"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/notify" {
+			http.Error(w, "wrong path", http.StatusNotFound)
+			return
+		}
+		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+			http.Error(w, "wrong content-type", http.StatusBadRequest)
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	w := &reminderDispatchWorker{appriseAPIURL: srv.URL}
+	w.sendApprise(ctx, "tgram://bottoken/12345", "Time to rack", "Batch FG looks stable.")
+
+	if got.URLs != "tgram://bottoken/12345" {
+		t.Errorf("urls = %q, want tgram://bottoken/12345", got.URLs)
+	}
+	if got.Title != "Time to rack" {
+		t.Errorf("title = %q", got.Title)
+	}
+	if got.Body != "Batch FG looks stable." {
+		t.Errorf("body = %q", got.Body)
+	}
+	if got.Type != "info" {
+		t.Errorf("type = %q, want info", got.Type)
+	}
+}
+
+// TestSendApprise_SwallowsRejection asserts a 4xx response from Apprise is
+// logged and dropped — the in-app notification is the durable record, so a
+// rejected external send shouldn't surface as a job failure.
+func TestSendApprise_SwallowsRejection(t *testing.T) {
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"unknown scheme"}`))
+	}))
+	defer srv.Close()
+	w := &reminderDispatchWorker{appriseAPIURL: srv.URL}
+	// Just asserting no panic, no return value to check.
+	w.sendApprise(ctx, "bogus://nope", "x", "y")
+}
+
+// TestDispatcher_SkipsAppriseWhenDisabled drives the full Work() path to
+// confirm that Apprise is *not* called when apprise_enabled=false even though
+// the URL is set.
+func TestDispatcher_SkipsAppriseWhenDisabled(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.Pool(t, ctx)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	q := queries.New(pool).WithTx(tx)
+
+	user, err := q.CreateUser(ctx, queries.CreateUserParams{
+		Username: "apprise_disabled",
+		Email:    "apprise_disabled@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if _, err := q.UpsertNotificationPrefs(ctx, queries.UpsertNotificationPrefsParams{
+		UserID:         user.ID,
+		PushEnabled:    false,
+		AppriseEnabled: false, // <-- the switch we care about
+		AppriseUrl:     pgtype.Text{String: "mailto://noop", Valid: true},
+		Timezone:       "UTC",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := q.CreateReminder(ctx, queries.CreateReminderParams{
+		UserID:      user.ID,
+		Title:       "x",
+		Description: pgtype.Text{String: "y", Valid: true},
+		FireAt:      pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	worker := &reminderDispatchWorker{queries: q, appriseAPIURL: srv.URL}
+	if err := worker.Work(ctx, &river.Job[ReminderDispatchArgs]{}); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if called {
+		t.Fatal("Apprise was called even though apprise_enabled=false")
 	}
 }
 

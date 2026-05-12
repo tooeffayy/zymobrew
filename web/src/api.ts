@@ -347,7 +347,8 @@ export interface NotificationPage {
 // pairing today, but the UI does).
 export interface NotificationPrefs {
   push_enabled: boolean;
-  email_enabled: boolean;
+  apprise_enabled: boolean;
+  apprise_url: string;
   quiet_hours_start?: string;
   quiet_hours_end?: string;
   timezone: string;

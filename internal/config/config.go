@@ -28,6 +28,12 @@ type Config struct {
 	VAPIDPrivateKey string
 	VAPIDSubject    string
 
+	// AppriseAPIURL is the base URL of an Apprise API sidecar
+	// (e.g. http://apprise:8000). Empty disables external-channel delivery
+	// — the dispatcher still creates in-app notifications. Per-user routing
+	// is supplied by each user's notification_prefs.apprise_url.
+	AppriseAPIURL string
+
 	// Primary storage — used for user-export archives. The local backend
 	// roots files under StorageLocalPath; user exports specifically live
 	// under the `tmp/exports/` subtree to convey their ephemeral lifecycle.
@@ -70,6 +76,8 @@ func Load() (Config, error) {
 		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:    getenv("VAPID_SUBJECT", "mailto:admin@localhost"),
+
+		AppriseAPIURL: strings.TrimRight(os.Getenv("APPRISE_API_URL"), "/"),
 
 		StorageBackend:   getenv("STORAGE_BACKEND", "local"),
 		StorageLocalPath: getenv("STORAGE_LOCAL_PATH", "./data"),

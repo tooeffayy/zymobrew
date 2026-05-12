@@ -1,11 +1,14 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
@@ -26,14 +29,19 @@ func (ReminderDispatchArgs) Kind() string { return "reminder_dispatcher" }
 
 type reminderDispatchWorker struct {
 	river.WorkerDefaults[ReminderDispatchArgs]
-	queries      *queries.Queries
-	vapidPub     string
-	vapidPriv    string
-	vapidSubject string
+	queries       *queries.Queries
+	vapidPub      string
+	vapidPriv     string
+	vapidSubject  string
+	appriseAPIURL string
 }
 
 func (w *reminderDispatchWorker) pushConfigured() bool {
 	return w.vapidPub != "" && w.vapidPriv != ""
+}
+
+func (w *reminderDispatchWorker) appriseConfigured() bool {
+	return w.appriseAPIURL != ""
 }
 
 // Work claims all due reminders atomically, creates in-app notifications, and
@@ -76,13 +84,25 @@ func (w *reminderDispatchWorker) Work(ctx context.Context, _ *river.Job[Reminder
 			slog.Error("create notification", "reminder_id", r.ID, "err", err)
 		}
 
-		// Push is best-effort — skip if not configured.
-		if !w.pushConfigured() {
+		// External channels (push, Apprise) are best-effort. If neither is
+		// configured on this instance we can skip the prefs lookup entirely.
+		if !w.pushConfigured() && !w.appriseConfigured() {
 			continue
 		}
 
 		prefs, err := w.userPrefs(ctx, r.UserID, prefCache)
-		if err != nil || !prefs.PushEnabled || isInQuietHours(prefs, now) {
+		if err != nil || isInQuietHours(prefs, now) {
+			continue
+		}
+
+		body := textVal(r.Description)
+		urlPathStr := textVal(urlPath)
+
+		if w.appriseConfigured() && prefs.AppriseEnabled && prefs.AppriseUrl.Valid && prefs.AppriseUrl.String != "" {
+			w.sendApprise(ctx, prefs.AppriseUrl.String, r.Title, body)
+		}
+
+		if !w.pushConfigured() || !prefs.PushEnabled {
 			continue
 		}
 
@@ -94,8 +114,8 @@ func (w *reminderDispatchWorker) Work(ctx context.Context, _ *river.Job[Reminder
 
 		payload, _ := json.Marshal(map[string]string{
 			"title":    r.Title,
-			"body":     textVal(r.Description),
-			"url_path": textVal(urlPath),
+			"body":     body,
+			"url_path": urlPathStr,
 		})
 
 		for _, dev := range devices {
@@ -106,6 +126,37 @@ func (w *reminderDispatchWorker) Work(ctx context.Context, _ *river.Job[Reminder
 		}
 	}
 	return nil
+}
+
+// sendApprise POSTs a notification to the Apprise sidecar's stateless /notify
+// endpoint, routing to the user's per-account Apprise URL. Errors are logged
+// and swallowed — the in-app notification has already been written, which is
+// the durable record.
+func (w *reminderDispatchWorker) sendApprise(ctx context.Context, target, title, body string) {
+	payload, _ := json.Marshal(map[string]any{
+		"urls":  target,
+		"title": title,
+		"body":  body,
+		"type":  "info",
+	})
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.appriseAPIURL+"/notify", bytes.NewReader(payload))
+	if err != nil {
+		slog.Error("apprise build request", "err", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		slog.Error("apprise send", "err", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		slog.Warn("apprise rejected", "status", resp.StatusCode, "body", strings.TrimSpace(string(respBody)))
+	}
 }
 
 func (w *reminderDispatchWorker) userPrefs(ctx context.Context, userID uuid.UUID, cache map[uuid.UUID]queries.NotificationPref) (queries.NotificationPref, error) {

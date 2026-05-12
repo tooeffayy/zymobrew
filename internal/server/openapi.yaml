@@ -482,12 +482,19 @@ components:
 
     NotificationPrefs:
       type: object
-      required: [push_enabled, email_enabled, timezone]
+      required: [push_enabled, apprise_enabled, apprise_url, timezone]
       properties:
         push_enabled:
           type: boolean
-        email_enabled:
+        apprise_enabled:
           type: boolean
+          description: When true and `apprise_url` is set, fires notifications through the Apprise sidecar.
+        apprise_url:
+          type: string
+          description: |
+            Per-user Apprise URL (e.g. `mailto://`, `discord://`, `tgram://`).
+            Empty string when unset. Validation is intentionally lax — the
+            sidecar is the source of truth on accepted schemes.
         quiet_hours_start:
           type: string
           pattern: '^\d{2}:\d{2}$'
@@ -2786,8 +2793,11 @@ paths:
               properties:
                 push_enabled:
                   type: boolean
-                email_enabled:
+                apprise_enabled:
                   type: boolean
+                apprise_url:
+                  type: string
+                  description: Empty string clears the saved URL.
                 quiet_hours_start:
                   type: string
                   pattern: '^\d{2}:\d{2}$'
@@ -2811,7 +2821,62 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         "422":
-          description: Invalid timezone or time format
+          description: Invalid timezone, time format, or apprise_url
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/notifications/prefs/test:
+    post:
+      tags: [notifications]
+      operationId: testNotification
+      summary: Send a test notification through the Apprise sidecar
+      description: |
+        Validates an Apprise URL by sending a fixed test payload to the
+        configured Apprise API. The URL is not persisted by this call —
+        save it via `PATCH /api/notifications/prefs` afterward.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apprise_url]
+              properties:
+                apprise_url:
+                  type: string
+      responses:
+        "200":
+          description: Apprise accepted the test notification
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Missing or malformed apprise_url
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "502":
+          description: Apprise sidecar rejected or could not be reached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: APPRISE_API_URL is not configured on this instance
           content:
             application/json:
               schema:

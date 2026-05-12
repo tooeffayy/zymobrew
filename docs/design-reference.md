@@ -163,7 +163,8 @@ CREATE INDEX ON reminders(batch_id);
 CREATE TABLE notification_prefs (
   user_id           UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   push_enabled      BOOLEAN NOT NULL DEFAULT TRUE,
-  email_enabled     BOOLEAN NOT NULL DEFAULT FALSE,
+  apprise_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
+  apprise_url       TEXT,
   quiet_hours_start TIME,
   quiet_hours_end   TIME,
   timezone          TEXT NOT NULL DEFAULT 'UTC'

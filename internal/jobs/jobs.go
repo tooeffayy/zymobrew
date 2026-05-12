@@ -40,10 +40,11 @@ func New(pool *pgxpool.Pool, cfg config.Config, exportStore, backupStore storage
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &expiredSessionsWorker{queries: q})
 	river.AddWorker(workers, &reminderDispatchWorker{
-		queries:      q,
-		vapidPub:     cfg.VAPIDPublicKey,
-		vapidPriv:    cfg.VAPIDPrivateKey,
-		vapidSubject: cfg.VAPIDSubject,
+		queries:       q,
+		vapidPub:      cfg.VAPIDPublicKey,
+		vapidPriv:     cfg.VAPIDPrivateKey,
+		vapidSubject:  cfg.VAPIDSubject,
+		appriseAPIURL: cfg.AppriseAPIURL,
 	})
 	river.AddWorker(workers, &userExportDispatchWorker{queries: q, store: exportStore})
 	river.AddWorker(workers, &adminBackupScheduleWorker{queries: q, store: backupStore})

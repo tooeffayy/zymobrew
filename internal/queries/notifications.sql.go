@@ -70,7 +70,7 @@ func (q *Queries) DeleteNotificationsForUser(ctx context.Context, userID uuid.UU
 }
 
 const getNotificationPrefs = `-- name: GetNotificationPrefs :one
-SELECT user_id, push_enabled, email_enabled, quiet_hours_start, quiet_hours_end, timezone FROM notification_prefs WHERE user_id = $1
+SELECT user_id, push_enabled, apprise_enabled, quiet_hours_start, quiet_hours_end, timezone, apprise_url FROM notification_prefs WHERE user_id = $1
 `
 
 func (q *Queries) GetNotificationPrefs(ctx context.Context, userID uuid.UUID) (NotificationPref, error) {
@@ -79,10 +79,11 @@ func (q *Queries) GetNotificationPrefs(ctx context.Context, userID uuid.UUID) (N
 	err := row.Scan(
 		&i.UserID,
 		&i.PushEnabled,
-		&i.EmailEnabled,
+		&i.AppriseEnabled,
 		&i.QuietHoursStart,
 		&i.QuietHoursEnd,
 		&i.Timezone,
+		&i.AppriseUrl,
 	)
 	return i, err
 }
@@ -169,21 +170,23 @@ func (q *Queries) MarkNotificationRead(ctx context.Context, arg MarkNotification
 }
 
 const upsertNotificationPrefs = `-- name: UpsertNotificationPrefs :one
-INSERT INTO notification_prefs (user_id, push_enabled, email_enabled, quiet_hours_start, quiet_hours_end, timezone)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO notification_prefs (user_id, push_enabled, apprise_enabled, apprise_url, quiet_hours_start, quiet_hours_end, timezone)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (user_id) DO UPDATE SET
   push_enabled      = EXCLUDED.push_enabled,
-  email_enabled     = EXCLUDED.email_enabled,
+  apprise_enabled   = EXCLUDED.apprise_enabled,
+  apprise_url       = EXCLUDED.apprise_url,
   quiet_hours_start = EXCLUDED.quiet_hours_start,
   quiet_hours_end   = EXCLUDED.quiet_hours_end,
   timezone          = EXCLUDED.timezone
-RETURNING user_id, push_enabled, email_enabled, quiet_hours_start, quiet_hours_end, timezone
+RETURNING user_id, push_enabled, apprise_enabled, quiet_hours_start, quiet_hours_end, timezone, apprise_url
 `
 
 type UpsertNotificationPrefsParams struct {
 	UserID          uuid.UUID   `json:"user_id"`
 	PushEnabled     bool        `json:"push_enabled"`
-	EmailEnabled    bool        `json:"email_enabled"`
+	AppriseEnabled  bool        `json:"apprise_enabled"`
+	AppriseUrl      pgtype.Text `json:"apprise_url"`
 	QuietHoursStart pgtype.Time `json:"quiet_hours_start"`
 	QuietHoursEnd   pgtype.Time `json:"quiet_hours_end"`
 	Timezone        string      `json:"timezone"`
@@ -193,7 +196,8 @@ func (q *Queries) UpsertNotificationPrefs(ctx context.Context, arg UpsertNotific
 	row := q.db.QueryRow(ctx, upsertNotificationPrefs,
 		arg.UserID,
 		arg.PushEnabled,
-		arg.EmailEnabled,
+		arg.AppriseEnabled,
+		arg.AppriseUrl,
 		arg.QuietHoursStart,
 		arg.QuietHoursEnd,
 		arg.Timezone,
@@ -202,10 +206,11 @@ func (q *Queries) UpsertNotificationPrefs(ctx context.Context, arg UpsertNotific
 	err := row.Scan(
 		&i.UserID,
 		&i.PushEnabled,
-		&i.EmailEnabled,
+		&i.AppriseEnabled,
 		&i.QuietHoursStart,
 		&i.QuietHoursEnd,
 		&i.Timezone,
+		&i.AppriseUrl,
 	)
 	return i, err
 }

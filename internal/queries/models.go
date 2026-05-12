@@ -523,10 +523,11 @@ type Notification struct {
 type NotificationPref struct {
 	UserID          uuid.UUID   `json:"user_id"`
 	PushEnabled     bool        `json:"push_enabled"`
-	EmailEnabled    bool        `json:"email_enabled"`
+	AppriseEnabled  bool        `json:"apprise_enabled"`
 	QuietHoursStart pgtype.Time `json:"quiet_hours_start"`
 	QuietHoursEnd   pgtype.Time `json:"quiet_hours_end"`
 	Timezone        string      `json:"timezone"`
+	AppriseUrl      pgtype.Text `json:"apprise_url"`
 }
 
 type PushDevice struct {

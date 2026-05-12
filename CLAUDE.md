@@ -94,6 +94,7 @@ go run ./cmd/zymo serve
 | `VAPID_PUBLIC_KEY`  | *(optional)*          | VAPID public key for web-push (generate with `zymo vapid-keys`) |
 | `VAPID_PRIVATE_KEY` | *(optional)*          | VAPID private key for web-push |
 | `VAPID_SUBJECT`     | `mailto:admin@localhost` | VAPID contact (mailto: or https:) |
+| `APPRISE_API_URL`   | *(optional)*          | Base URL of an [Apprise API](https://github.com/caronc/apprise-api) sidecar (e.g. `http://apprise:8000`). Unset = external-channel delivery (email/Discord/Telegram/ntfy/…) is disabled; in-app notifications and web push are unaffected. |
 | `STORAGE_BACKEND`     | `local`               | `local` \| `s3` — primary storage backend. Holds user-export archives under the `tmp/exports/` key prefix. |
 | `STORAGE_LOCAL_PATH`  | `./data`              | Filesystem root for the primary local backend. |
 | `S3_ENDPOINT`         | *(optional)*          | Primary S3-compatible endpoint URL (e.g. MinIO). Empty for AWS S3. |
@@ -251,15 +252,19 @@ These cross-cutting rules apply across all resources:
 
 **Validation** — gravity inputs clamped to 0.990–1.200; FG must be < OG; NaN/Inf rejected. Errors map to 400 via `errors.Is(err, calc.ErrInvalidInput)`.
 
-### Notifications + Push
+### Notifications + Push + Apprise
 
-**In-app notifications always created** regardless of quiet hours or push config.
+Three delivery channels — in-app (always), web push (per-browser subscriptions), and Apprise (per-user URL, routes to email/Discord/Telegram/Matrix/ntfy/Pushover/etc. via an [Apprise API](https://github.com/caronc/apprise-api) sidecar). Apprise replaced what would have been an in-tree SMTP path: shipping one HTTP-out integration covers ~100 destinations and keeps the Zymo binary out of the MIME/STARTTLS/bounce business.
 
-**Quiet hours** — dispatcher checks `notification_prefs.quiet_hours_*` in the user's timezone before sending push. Handles midnight-wrapping windows.
+**In-app notifications always created** regardless of quiet hours or external-channel config.
+
+**Quiet hours** — dispatcher checks `notification_prefs.quiet_hours_*` in the user's timezone before sending push *or* Apprise. Handles midnight-wrapping windows.
 
 **Push payload** — JSON `{"title": "...", "body": "...", "url_path": "..."}`. Browser service worker shows a native notification.
 
 **VAPID keys** — generate with `zymo vapid-keys`. If not set, push is silently skipped but in-app notifications still work.
+
+**Apprise** — operator sets `APPRISE_API_URL` (base URL of the sidecar, e.g. `http://apprise:8000`); each user pastes their per-account `apprise_url` (e.g. `mailto://`, `discord://`, `tgram://`) into prefs and toggles `apprise_enabled`. Dispatcher POSTs `{urls, title, body, type:"info"}` to `<APPRISE_API_URL>/notify` per due reminder. Errors logged + dropped, mirroring push semantics — the in-app row is the durable record. `POST /api/notifications/prefs/test` sends a fixed test payload for the prefs UI's "Send test" button, so users can validate URLs before saving. Apprise URLs are user-supplied secrets (mail/Telegram/Discord tokens embedded in the URL) — they aren't returned in any list endpoint, only the owner's `GET /api/notifications/prefs`.
 
 ### Known deferred gaps
 

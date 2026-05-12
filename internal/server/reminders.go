@@ -1,10 +1,14 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -96,7 +100,8 @@ func toNotificationView(n queries.Notification) notificationView {
 
 type notificationPrefsView struct {
 	PushEnabled     bool    `json:"push_enabled"`
-	EmailEnabled    bool    `json:"email_enabled"`
+	AppriseEnabled  bool    `json:"apprise_enabled"`
+	AppriseURL      string  `json:"apprise_url"`
 	QuietHoursStart *string `json:"quiet_hours_start,omitempty"`
 	QuietHoursEnd   *string `json:"quiet_hours_end,omitempty"`
 	Timezone        string  `json:"timezone"`
@@ -104,9 +109,10 @@ type notificationPrefsView struct {
 
 func toPrefsView(p queries.NotificationPref) notificationPrefsView {
 	v := notificationPrefsView{
-		PushEnabled:  p.PushEnabled,
-		EmailEnabled: p.EmailEnabled,
-		Timezone:     p.Timezone,
+		PushEnabled:    p.PushEnabled,
+		AppriseEnabled: p.AppriseEnabled,
+		AppriseURL:     p.AppriseUrl.String,
+		Timezone:       p.Timezone,
 	}
 	if p.QuietHoursStart.Valid {
 		h := p.QuietHoursStart.Microseconds / 3600000000
@@ -402,9 +408,9 @@ func (s *Server) handleGetNotificationPrefs(w http.ResponseWriter, r *http.Reque
 	prefs, err := s.queries.GetNotificationPrefs(r.Context(), user.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusOK, notificationPrefsView{
-			PushEnabled:  true,
-			EmailEnabled: false,
-			Timezone:     "UTC",
+			PushEnabled:    true,
+			AppriseEnabled: false,
+			Timezone:       "UTC",
 		})
 		return
 	}
@@ -425,16 +431,16 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing = queries.NotificationPref{
-			UserID:       user.ID,
-			PushEnabled:  true,
-			EmailEnabled: false,
-			Timezone:     "UTC",
+			UserID:      user.ID,
+			PushEnabled: true,
+			Timezone:    "UTC",
 		}
 	}
 
 	var req struct {
 		PushEnabled     *bool   `json:"push_enabled"`
-		EmailEnabled    *bool   `json:"email_enabled"`
+		AppriseEnabled  *bool   `json:"apprise_enabled"`
+		AppriseURL      *string `json:"apprise_url"`
 		QuietHoursStart *string `json:"quiet_hours_start"`
 		QuietHoursEnd   *string `json:"quiet_hours_end"`
 		Timezone        *string `json:"timezone"`
@@ -447,7 +453,8 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 	params := queries.UpsertNotificationPrefsParams{
 		UserID:          user.ID,
 		PushEnabled:     existing.PushEnabled,
-		EmailEnabled:    existing.EmailEnabled,
+		AppriseEnabled:  existing.AppriseEnabled,
+		AppriseUrl:      existing.AppriseUrl,
 		QuietHoursStart: existing.QuietHoursStart,
 		QuietHoursEnd:   existing.QuietHoursEnd,
 		Timezone:        existing.Timezone,
@@ -455,8 +462,20 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 	if req.PushEnabled != nil {
 		params.PushEnabled = *req.PushEnabled
 	}
-	if req.EmailEnabled != nil {
-		params.EmailEnabled = *req.EmailEnabled
+	if req.AppriseEnabled != nil {
+		params.AppriseEnabled = *req.AppriseEnabled
+	}
+	if req.AppriseURL != nil {
+		trimmed := strings.TrimSpace(*req.AppriseURL)
+		if trimmed == "" {
+			params.AppriseUrl = pgtype.Text{}
+		} else {
+			if err := validateAppriseURL(trimmed); err != nil {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+				return
+			}
+			params.AppriseUrl = pgtype.Text{String: trimmed, Valid: true}
+		}
 	}
 	if req.Timezone != nil {
 		if _, err := time.LoadLocation(*req.Timezone); err != nil {
@@ -498,4 +517,81 @@ func parseHHMM(s string) (pgtype.Time, error) {
 	}
 	micros := int64(t.Hour())*3600000000 + int64(t.Minute())*60000000
 	return pgtype.Time{Microseconds: micros, Valid: true}, nil
+}
+
+// validateAppriseURL rejects obviously-malformed values before they hit the
+// Apprise API. We don't enumerate the full scheme list (Apprise supports 100+);
+// the sidecar is the authority on what it accepts. Real validation comes from
+// the "send test" button.
+func validateAppriseURL(s string) error {
+	if len(s) > 2048 {
+		return fmt.Errorf("apprise_url too long")
+	}
+	i := strings.Index(s, "://")
+	if i <= 0 {
+		return fmt.Errorf("apprise_url must look like scheme://...")
+	}
+	return nil
+}
+
+// handleTestNotification sends a test message through the Apprise sidecar
+// using a URL the user supplies in the body. Used by the prefs UI to validate
+// new Apprise URLs without saving them first. Returns 503 if the operator
+// hasn't configured APPRISE_API_URL.
+func (s *Server) handleTestNotification(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.AppriseAPIURL == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "apprise not configured on this instance"})
+		return
+	}
+	var req struct {
+		AppriseURL string `json:"apprise_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	url := strings.TrimSpace(req.AppriseURL)
+	if url == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "apprise_url is required"})
+		return
+	}
+	if err := validateAppriseURL(url); err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := sendAppriseTest(r.Context(), s.cfg.AppriseAPIURL, url); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// sendAppriseTest POSTs a fixed "test" payload to the Apprise API. Kept
+// separate from the dispatcher's send path so this handler doesn't have to
+// reach into internal/jobs. The dispatcher has its own copy of the wire format
+// for the same reason — packages stay loosely coupled.
+func sendAppriseTest(ctx context.Context, apiURL, target string) error {
+	payload, _ := json.Marshal(map[string]any{
+		"urls":  target,
+		"title": "Zymo test notification",
+		"body":  "If you can see this, your Apprise URL is wired up correctly.",
+		"type":  "info",
+	})
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL+"/notify", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("apprise: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("apprise returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
 }
