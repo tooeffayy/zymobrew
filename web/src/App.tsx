@@ -158,7 +158,7 @@ export function App() {
             }
           />
           <Route
-            path="/me"
+            path="/me/*"
             element={
               <RequireAuth>
                 <Layout>

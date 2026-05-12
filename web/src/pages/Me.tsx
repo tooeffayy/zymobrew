@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
 import { ApiError, PublicProfile, api } from "../api";
 import { useAuth } from "../auth";
@@ -7,19 +7,21 @@ import { NotificationPrefsSection } from "../components/NotificationPrefsSection
 import { PushSubscribeSection } from "../components/PushSubscribeSection";
 import { TempUnit, useTemperatureUnit } from "../units";
 
-// Authenticated user's profile + account controls. Three sections:
+// Authenticated user's profile + account controls. Three tabs, each a
+// nested route under /me so the tab state is in the URL — refresh-safe and
+// linkable from elsewhere (e.g. the bell menu deep-links to
+// /me/notifications when there's nothing to surface in-app):
 //
-//   1. Profile — editable display name / bio / avatar URL, read-only
-//      identifiers. Saves via PATCH /api/users/me.
-//   2. Password — current + new + confirm. POST /api/users/me/password
-//      rotates every other session.
-//   3. Danger zone — account deletion, password-confirmed.
-//      DELETE /api/users/me anonymizes in place; the server clears the
-//      cookie and we flip the auth context to anon and redirect.
+//   /me/profile        — About you (display name / bio / avatar) +
+//                        device preferences (temperature unit).
+//   /me/notifications  — Delivery preferences (push / Apprise / email,
+//                        quiet hours, timezone) + per-browser push
+//                        subscribe.
+//   /me/security       — Password change + danger zone (account delete).
 //
-// We only fetch the editable fields (bio, avatar_url, created_at) here —
-// the AuthContext's PublicUser carries id/username/email/display_name
-// already, so nothing in the layout flickers while this loads.
+// Naked /me redirects to /me/profile. The page chrome (heading + tab bar)
+// is shared; each tab supplies its own sections via <Outlet>'s replacement
+// here, a nested <Routes>.
 
 export function Me() {
   const { state, updateUser, setAnon } = useAuth();
@@ -40,35 +42,94 @@ export function Me() {
   return (
     <div className="page profile-page">
       <h1>Profile</h1>
+      <nav className="profile-tabs" aria-label="Profile sections">
+        <NavLink to="profile">Profile</NavLink>
+        <NavLink to="notifications">Notifications</NavLink>
+        <NavLink to="security">Security</NavLink>
+      </nav>
+
       {loadError && <p className="error">{loadError}</p>}
       {!loadError && !profile && <p className="muted">Loading…</p>}
       {profile && (
-        <>
-          <ProfileSection
-            profile={profile}
-            email={state.user.email}
-            onUpdated={(p) => {
-              setProfile(p);
-              updateUser({
-                ...state.user,
-                display_name: p.display_name ?? "",
-              });
-            }}
+        <Routes>
+          <Route index element={<Navigate to="profile" replace />} />
+          <Route
+            path="profile"
+            element={
+              <ProfileTab
+                profile={profile}
+                email={state.user.email}
+                onUpdated={(p) => {
+                  setProfile(p);
+                  updateUser({
+                    ...state.user,
+                    display_name: p.display_name ?? "",
+                  });
+                }}
+              />
+            }
           />
-          <PreferencesSection />
-          <NotificationPrefsSection />
-          <PushSubscribeSection />
-          <PasswordSection />
-          <DangerSection
-            username={state.user.username}
-            onDeleted={() => {
-              setAnon();
-              navigate("/login", { replace: true });
-            }}
+          <Route path="notifications" element={<NotificationsTab />} />
+          <Route
+            path="security"
+            element={
+              <SecurityTab
+                username={state.user.username}
+                onDeleted={() => {
+                  setAnon();
+                  navigate("/login", { replace: true });
+                }}
+              />
+            }
           />
-        </>
+          {/* Unknown tab → bounce back to the default. */}
+          <Route path="*" element={<Navigate to="profile" replace />} />
+        </Routes>
       )}
     </div>
+  );
+}
+
+// --- Tabs -----------------------------------------------------------------
+
+function ProfileTab({
+  profile,
+  email,
+  onUpdated,
+}: {
+  profile: PublicProfile;
+  email: string;
+  onUpdated: (p: PublicProfile) => void;
+}) {
+  return (
+    <>
+      <ProfileSection profile={profile} email={email} onUpdated={onUpdated} />
+      <PreferencesSection />
+    </>
+  );
+}
+
+function NotificationsTab() {
+  return (
+    <>
+      <NotificationPrefsSection />
+      <PushSubscribeSection />
+    </>
+  );
+}
+
+function SecurityTab({
+  username,
+  onDeleted,
+}: {
+  username: string;
+  onDeleted: () => void;
+}) {
+  return (
+    <>
+      <PasswordSection />
+      <DangerSection username={username} onDeleted={onDeleted} />
+    </>
   );
 }
 
