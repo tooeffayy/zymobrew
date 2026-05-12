@@ -43,16 +43,21 @@ export function Me() {
     <div className="page profile-page">
       <h1>Profile</h1>
       <nav className="profile-tabs" aria-label="Profile sections">
-        <NavLink to="profile">Profile</NavLink>
-        <NavLink to="notifications">Notifications</NavLink>
-        <NavLink to="security">Security</NavLink>
+        {/* Absolute paths intentional: with a parent splat route ("/me/*")
+            react-router v6 resolves relative `to` against the current URL,
+            so clicking "notifications" from /me/profile would append rather
+            than replace the trailing segment. Absolute paths sidestep the
+            issue. */}
+        <NavLink to="/me/profile">Profile</NavLink>
+        <NavLink to="/me/notifications">Notifications</NavLink>
+        <NavLink to="/me/security">Security</NavLink>
       </nav>
 
       {loadError && <p className="error">{loadError}</p>}
       {!loadError && !profile && <p className="muted">Loading…</p>}
       {profile && (
         <Routes>
-          <Route index element={<Navigate to="profile" replace />} />
+          <Route index element={<Navigate to="/me/profile" replace />} />
           <Route
             path="profile"
             element={
@@ -83,7 +88,7 @@ export function Me() {
             }
           />
           {/* Unknown tab → bounce back to the default. */}
-          <Route path="*" element={<Navigate to="profile" replace />} />
+          <Route path="*" element={<Navigate to="/me/profile" replace />} />
         </Routes>
       )}
     </div>
