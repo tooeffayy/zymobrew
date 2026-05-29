@@ -24,8 +24,63 @@ services:
       DATABASE_URL: postgres://zymo:zymo@postgres:5432/zymo?sslmode=disable
       LISTEN_ADDR: ":8080"
       INSTANCE_MODE: single_user
+      # Resolves to the apprise service below if it's running (start with
+      # `docker compose --profile apprise up`). When the apprise service is
+      # not running the host won't resolve and the dispatcher logs+drops —
+      # same contract as APPRISE_API_URL being unset.
+      APPRISE_API_URL: http://apprise:8000
+      # Punch-hole for self-hosted destinations on the docker bridge
+      # network (e.g. the gotify sidecar). Compose picks subnets from
+      # 172.16.0.0/12 by default; this broad range covers any default
+      # network. Narrow it if you pin the compose network to a specific
+      # subnet. Without this, gotify://gotify/<token> is rejected by the
+      # SSRF guard.
+      APPRISE_ALLOWED_HOST_CIDRS: "172.16.0.0/12"
     ports:
       - "8080:8080"
 
+  # Opt-in Apprise sidecar — covers ~100 destinations (Discord, Telegram,
+  # ntfy, Pushover, Matrix, mail, Gotify, …) via a single HTTP-out
+  # integration. Profiled so the default dev loop (`task db:up`) doesn't
+  # pull it; bring it up with `docker compose --profile apprise up -d`.
+  apprise:
+    image: caronc/apprise:latest
+    profiles: ["apprise"]
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8000/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Opt-in Gotify server — self-hosted push-notification receiver, paired
+  # with the apprise sidecar via gotify:// URLs. First run creates
+  # admin/admin; log in at http://localhost:8001 to change the password
+  # and create an Application (the token goes in the Apprise URL).
+  #
+  # IMPORTANT: a self-hosted Gotify lives on a private address (RFC1918
+  # inside the compose network, or 127.0.0.1 on the host), which zymo's
+  # SSRF guard blocks by default. Set APPRISE_ALLOWED_HOST_CIDRS on the
+  # app service (see below) to permit it.
+  gotify:
+    image: gotify/server:latest
+    profiles: ["gotify"]
+    ports:
+      - "8001:80"
+    environment:
+      GOTIFY_DEFAULTUSER_PASS: admin
+      GOTIFY_SERVER_PORT: 80
+    volumes:
+      - zymo-gotify-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   zymo-pg-data:
+  zymo-gotify-data:

@@ -38,6 +38,26 @@ tasks:
     cmds:
       - docker compose exec postgres psql -U zymo -d zymo
 
+  apprise:up:
+    desc: Start the Apprise sidecar (notification fan-out for dev/testing)
+    cmds:
+      - docker compose --profile apprise up -d apprise
+
+  apprise:down:
+    desc: Stop the Apprise sidecar
+    cmds:
+      - docker compose --profile apprise stop apprise
+
+  gotify:up:
+    desc: Start the Gotify server (paired with apprise via gotify:// URLs)
+    cmds:
+      - docker compose --profile gotify up -d gotify
+
+  gotify:down:
+    desc: Stop the Gotify server (data preserved)
+    cmds:
+      - docker compose --profile gotify stop gotify
+
   migrate:
     desc: Apply pending migrations
     deps: [ db:up ]
