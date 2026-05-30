@@ -13,6 +13,7 @@ require (
 	github.com/riverqueue/river v0.35.1
 	github.com/riverqueue/river/riverdriver/riverdatabasesql v0.35.1
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.35.1
+	github.com/wneessen/go-mail v0.7.3
 	golang.org/x/crypto v0.51.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -46,7 +47,6 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tinylib/msgp v1.6.1 // indirect
-	github.com/wneessen/go-mail v0.7.3 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.uber.org/goleak v1.3.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
