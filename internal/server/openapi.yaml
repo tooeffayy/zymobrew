@@ -482,7 +482,7 @@ components:
 
     NotificationPrefs:
       type: object
-      required: [push_enabled, apprise_enabled, apprise_url, email_enabled, timezone]
+      required: [push_enabled, apprise_enabled, apprise_url, email_enabled]
       properties:
         push_enabled:
           type: boolean
@@ -511,14 +511,23 @@ components:
         quiet_hours_start:
           type: string
           pattern: '^\d{2}:\d{2}$'
-          description: "HH:MM in user's timezone"
+          description: "HH:MM in the user's timezone (set under `/api/me/prefs`)"
         quiet_hours_end:
           type: string
           pattern: '^\d{2}:\d{2}$'
-          description: "HH:MM in user's timezone"
+          description: "HH:MM in the user's timezone (set under `/api/me/prefs`)"
+
+    UserPrefs:
+      type: object
+      required: [degree_units, timezone]
+      properties:
+        degree_units:
+          type: string
+          enum: [C, F]
+          description: Temperature display unit. Storage is always Celsius; this controls render + input.
         timezone:
           type: string
-          description: IANA timezone identifier
+          description: IANA timezone identifier. Drives quiet-hours interpretation and scheduling.
 
     ReminderTemplate:
       type: object
@@ -2819,9 +2828,6 @@ paths:
                 quiet_hours_end:
                   type: string
                   pattern: '^\d{2}:\d{2}$'
-                timezone:
-                  type: string
-                  description: IANA timezone identifier
       responses:
         "200":
           description: Updated preferences
@@ -2836,7 +2842,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         "422":
-          description: Invalid timezone, time format, or apprise_url (e.g. disallowed scheme or host in a blocked range)
+          description: Invalid time format or apprise_url (e.g. disallowed scheme or host in a blocked range)
           content:
             application/json:
               schema:
@@ -3177,6 +3183,60 @@ paths:
                 $ref: '#/components/schemas/Error'
         "409":
           description: Export not yet complete, or already downloaded / expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/me/prefs:
+    get:
+      tags: [users]
+      operationId: getUserPrefs
+      summary: Get the caller's preferences (defaults when no row saved yet)
+      responses:
+        "200":
+          description: Preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPrefs'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags: [users]
+      operationId: updateUserPrefs
+      summary: Upsert the caller's preferences (COALESCE — omitted fields preserved)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                degree_units:
+                  type: string
+                  enum: [C, F]
+                timezone:
+                  type: string
+                  description: IANA timezone identifier
+      responses:
+        "200":
+          description: Updated preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPrefs'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Invalid degree_units value or unknown IANA timezone
           content:
             application/json:
               schema:

@@ -41,7 +41,7 @@ internal/migrate      goose runner + River migrator (uses embedded migrations)
 internal/queries      sqlc generated type-safe code (Go only)
 internal/queries/sql  sqlc query source files (*.sql)
 internal/ratelimit    in-memory token-bucket limiter (per-IP, per-identifier)
-internal/server       chi HTTP router — /healthz, /readyz, /docs, /api/openapi.yaml, /api/auth/*, /api/users/*, /api/recipes/*, /api/batches/*, /api/notifications/*, /api/push/*, /api/users/me/exports/*, /api/admin/backups/*, /api/calculators/*, plus SPA fallback for non-/api/* routes
+internal/server       chi HTTP router — /healthz, /readyz, /docs, /api/openapi.yaml, /api/auth/*, /api/users/*, /api/me/prefs, /api/recipes/*, /api/batches/*, /api/notifications/*, /api/push/*, /api/users/me/exports/*, /api/admin/backups/*, /api/calculators/*, plus SPA fallback for non-/api/* routes
 web/                  React + Vite + TS frontend; built to web/dist/ and embedded via //go:embed
 internal/selftest     runtime smoke tests for `zymo selftest`
 internal/storage      Store interface + local + S3 backends (Put/Get/Delete/PresignGet)
@@ -165,7 +165,7 @@ go test ./...
 
 **What gets cleared** (one tx, see `internal/account.Anonymize`):
 - `users` row: username → `deleted-<id>`, email → `deleted-<id>@deleted.invalid` (RFC 2606 reserved TLD), `password_hash`/`display_name`/`bio`/`avatar_url`/`deletion_*` → NULL, `deleted_at` set.
-- Wiped: `sessions`, `push_devices`, `notifications`, `notification_prefs`, `user_exports` (rows + blobs).
+- Wiped: `sessions`, `push_devices`, `notifications`, `notification_prefs`, `user_prefs`, `user_exports` (rows + blobs).
 - Retained: recipes, recipe_revisions, recipe_comments, recipe_likes, follows, batches, readings, events, tasting_notes, reminders. Author renders as the `deleted-<id>` placeholder.
 
 **Guards**: refuses if `is_admin = true` (must hand off first); requires password confirmation in body.
@@ -266,7 +266,7 @@ Four delivery channels — in-app (always), web push (per-browser subscriptions)
 
 **In-app notifications always created** regardless of quiet hours or external-channel config.
 
-**Quiet hours** — dispatcher checks `notification_prefs.quiet_hours_*` in the user's timezone before sending push, Apprise, *or* email. Handles midnight-wrapping windows.
+**Quiet hours** — dispatcher checks `notification_prefs.quiet_hours_*` in the user's timezone (read from `user_prefs.timezone`) before sending push, Apprise, *or* email. Handles midnight-wrapping windows.
 
 **Push payload** — JSON `{"title": "...", "body": "...", "url_path": "..."}`. Browser service worker shows a native notification.
 
@@ -369,7 +369,7 @@ River runs in-process. Queue state in `river_*` tables. `migrate.Up` runs goose 
 - **DB poll dispatcher** (every minute) — chosen over queue-at-creation because reminders are frequently edited/cancelled.
 - **Atomic claim** before dispatch prevents double-send.
 - **In-app notifications always created**; push/email gated by prefs.
-- **Quiet hours respect user timezone** — store TZ on prefs, never compute against UTC.
+- **Quiet hours respect user timezone** — TZ lives on `user_prefs` (alongside `degree_units`), never compute against UTC.
 - **Smart reminders**: no reading in N days → gravity check nudge; stable gravity across 3+ readings → racking suggestion; stage → `aging` → auto-schedule milestones.
 
 ---

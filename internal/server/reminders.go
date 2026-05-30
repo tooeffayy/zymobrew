@@ -107,7 +107,6 @@ type notificationPrefsView struct {
 	EmailEnabled    bool    `json:"email_enabled"`
 	QuietHoursStart *string `json:"quiet_hours_start,omitempty"`
 	QuietHoursEnd   *string `json:"quiet_hours_end,omitempty"`
-	Timezone        string  `json:"timezone"`
 }
 
 func toPrefsView(p queries.NotificationPref) notificationPrefsView {
@@ -116,7 +115,6 @@ func toPrefsView(p queries.NotificationPref) notificationPrefsView {
 		AppriseEnabled: p.AppriseEnabled,
 		AppriseURL:     p.AppriseUrl.String,
 		EmailEnabled:   p.EmailEnabled,
-		Timezone:       p.Timezone,
 	}
 	if p.QuietHoursStart.Valid {
 		h := p.QuietHoursStart.Microseconds / 3600000000
@@ -414,7 +412,6 @@ func (s *Server) handleGetNotificationPrefs(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusOK, notificationPrefsView{
 			PushEnabled:    true,
 			AppriseEnabled: false,
-			Timezone:       "UTC",
 		})
 		return
 	}
@@ -437,7 +434,6 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 		existing = queries.NotificationPref{
 			UserID:      user.ID,
 			PushEnabled: true,
-			Timezone:    "UTC",
 		}
 	}
 
@@ -448,7 +444,6 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 		EmailEnabled    *bool   `json:"email_enabled"`
 		QuietHoursStart *string `json:"quiet_hours_start"`
 		QuietHoursEnd   *string `json:"quiet_hours_end"`
-		Timezone        *string `json:"timezone"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
@@ -463,7 +458,6 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 		EmailEnabled:    existing.EmailEnabled,
 		QuietHoursStart: existing.QuietHoursStart,
 		QuietHoursEnd:   existing.QuietHoursEnd,
-		Timezone:        existing.Timezone,
 	}
 	if req.PushEnabled != nil {
 		params.PushEnabled = *req.PushEnabled
@@ -485,13 +479,6 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 			}
 			params.AppriseUrl = pgtype.Text{String: trimmed, Valid: true}
 		}
-	}
-	if req.Timezone != nil {
-		if _, err := time.LoadLocation(*req.Timezone); err != nil {
-			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid timezone"})
-			return
-		}
-		params.Timezone = *req.Timezone
 	}
 	if req.QuietHoursStart != nil {
 		t, err := parseHHMM(*req.QuietHoursStart)

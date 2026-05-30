@@ -5,18 +5,18 @@ import { ApiError, PublicProfile, api } from "../api";
 import { useAuth } from "../auth";
 import { NotificationPrefsSection } from "../components/NotificationPrefsSection";
 import { PushSubscribeSection } from "../components/PushSubscribeSection";
-import { TempUnit, useTemperatureUnit } from "../units";
+import { TempUnit, usePreferences } from "../units";
 
-// Authenticated user's profile + account controls. Three tabs, each a
+// Authenticated user's profile + account controls. Four tabs, each a
 // nested route under /me so the tab state is in the URL — refresh-safe and
 // linkable from elsewhere (e.g. the bell menu deep-links to
 // /me/notifications when there's nothing to surface in-app):
 //
-//   /me/profile        — About you (display name / bio / avatar) +
-//                        device preferences (temperature unit).
+//   /me/profile        — About you (display name / bio / avatar).
+//   /me/preferences    — Temperature unit + timezone (server-side, applies
+//                        across every browser the user signs in from).
 //   /me/notifications  — Delivery preferences (push / Apprise / email,
-//                        quiet hours, timezone) + per-browser push
-//                        subscribe.
+//                        quiet hours) + per-browser push subscribe.
 //   /me/security       — Password change + danger zone (account delete).
 //
 // Naked /me redirects to /me/profile. The page chrome (heading + tab bar)
@@ -49,6 +49,7 @@ export function Me() {
             than replace the trailing segment. Absolute paths sidestep the
             issue. */}
         <NavLink to="/me/profile">Profile</NavLink>
+        <NavLink to="/me/preferences">Preferences</NavLink>
         <NavLink to="/me/notifications">Notifications</NavLink>
         <NavLink to="/me/security">Security</NavLink>
       </nav>
@@ -74,6 +75,7 @@ export function Me() {
               />
             }
           />
+          <Route path="preferences" element={<PreferencesTab />} />
           <Route path="notifications" element={<NotificationsTab />} />
           <Route
             path="security"
@@ -106,11 +108,12 @@ function ProfileTab({
   email: string;
   onUpdated: (p: PublicProfile) => void;
 }) {
+  return <ProfileSection profile={profile} email={email} onUpdated={onUpdated} />;
+}
+
+function PreferencesTab() {
   return (
-    <>
-      <ProfileSection profile={profile} email={email} onUpdated={onUpdated} />
-      <PreferencesSection />
-    </>
+    <PreferencesSection />
   );
 }
 
@@ -245,19 +248,63 @@ function ProfileSection({
 
 // --- Preferences ----------------------------------------------------------
 
-// Display-only preferences kept in localStorage. The server stores
-// canonical units (Celsius); the toggle just swaps how readings are
-// rendered + interpreted on input. Per-device by design — same brewer
-// might run metric on their phone and imperial on their laptop.
-function PreferencesSection() {
-  const [tempUnit, setTempUnit] = useTemperatureUnit();
+// Pulled once at module load — `Intl.supportedValuesOf` is the full IANA
+// list as known to the browser's ICU build. Feature-detected because the
+// API only landed in Chrome 99 / Safari 15.4 / Firefox 93; older browsers
+// fall through to a plain text input (server still validates).
+const IANA_TIMEZONES: readonly string[] =
+  typeof Intl !== "undefined" && "supportedValuesOf" in Intl
+    ? Intl.supportedValuesOf("timeZone")
+    : [];
 
-  const choose = (u: TempUnit) => () => setTempUnit(u);
+// Account-wide preferences (server-side). Temperature unit auto-saves on
+// click — the radio's checked state mirrors whatever the provider last
+// accepted, so a failed PATCH visibly snaps back. Timezone is text input
+// (with autocomplete) and has intermediate invalid states, so it keeps an
+// explicit Save button.
+function PreferencesSection() {
+  const { tempUnit, timezone: savedTimezone, setTempUnit, setTimezone } = usePreferences();
+
+  const [tempUnitError, setTempUnitError] = useState<string | null>(null);
+  const choose = (u: TempUnit) => async () => {
+    setTempUnitError(null);
+    try {
+      await setTempUnit(u);
+    } catch (e) {
+      setTempUnitError(e instanceof ApiError ? e.message : "save failed");
+    }
+  };
+
+  const [tz, setTz] = useState(savedTimezone);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  // Re-sync the form-local timezone whenever the provider's value changes
+  // (first load, or a successful save replaces it).
+  useEffect(() => {
+    setTz(savedTimezone);
+  }, [savedTimezone]);
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaveError(null);
+    setSaved(false);
+    setSaving(true);
+    try {
+      await setTimezone(tz || "UTC");
+      setSaved(true);
+    } catch (e) {
+      setSaveError(e instanceof ApiError ? e.message : "save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <section className="recipe-section">
       <h2>Preferences</h2>
-      <div className="profile-form">
+      <form className="profile-form" onSubmit={onSubmit}>
         <fieldset className="field">
           <legend>Temperature unit</legend>
           <div className="radio-group">
@@ -286,8 +333,39 @@ function PreferencesSection() {
             Affects how temperatures are shown and entered. Stored values are
             always Celsius — flipping back and forth is lossless.
           </span>
+          {tempUnitError && <p className="error">{tempUnitError}</p>}
         </fieldset>
-      </div>
+        <label className="field">
+          <span>Timezone</span>
+          <input
+            type="text"
+            value={tz}
+            onChange={(e) => setTz(e.target.value)}
+            placeholder="America/Los_Angeles"
+            list="iana-timezones"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+          />
+          {IANA_TIMEZONES.length > 0 && (
+            <datalist id="iana-timezones">
+              {IANA_TIMEZONES.map((z) => <option key={z} value={z} />)}
+            </datalist>
+          )}
+          <small className="muted">
+            IANA name (e.g. <code>Europe/Berlin</code>). Start typing to filter; used to interpret quiet hours.
+          </small>
+        </label>
+
+        {saveError && <p className="error">{saveError}</p>}
+        {saved && tz === savedTimezone && <p className="muted">Saved.</p>}
+
+        <div className="form-actions">
+          <button type="submit" disabled={saving || tz === savedTimezone}>
+            {saving ? "Saving…" : "Save timezone"}
+          </button>
+        </div>
+      </form>
     </section>
   );
 }

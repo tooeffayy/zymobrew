@@ -71,6 +71,7 @@ type Querier interface {
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
 	DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error
 	DeleteUserExportsForUser(ctx context.Context, userID uuid.UUID) error
+	DeleteUserPrefsForUser(ctx context.Context, userID uuid.UUID) error
 	// ExpireUserExportByID flips one completed export to expired, race-safe.
 	// Only the row that was actually 'complete' returns a row; concurrent
 	// downloaders that lose the race get pgx.ErrNoRows and skip the disk delete.
@@ -98,6 +99,7 @@ type Querier interface {
 	GetUserCredentialByEmail(ctx context.Context, email string) (GetUserCredentialByEmailRow, error)
 	GetUserCredentialByUsername(ctx context.Context, username string) (GetUserCredentialByUsernameRow, error)
 	GetUserExport(ctx context.Context, arg GetUserExportParams) (UserExport, error)
+	GetUserPrefs(ctx context.Context, userID uuid.UUID) (UserPref, error)
 	IncrementForkCount(ctx context.Context, id uuid.UUID) error
 	LikeRecipe(ctx context.Context, arg LikeRecipeParams) error
 	ListAdminBackups(ctx context.Context) ([]AdminBackup, error)
@@ -180,6 +182,10 @@ type Querier interface {
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpsertNotificationPrefs(ctx context.Context, arg UpsertNotificationPrefsParams) (NotificationPref, error)
 	UpsertPushDevice(ctx context.Context, arg UpsertPushDeviceParams) (PushDevice, error)
+	// Upsert with partial overwrite: NULL values fall back to defaults on
+	// INSERT and to the existing value on UPDATE (COALESCE pattern matching
+	// the rest of the PATCH endpoints).
+	UpsertUserPrefs(ctx context.Context, arg UpsertUserPrefsParams) (UserPref, error)
 }
 
 var _ Querier = (*Queries)(nil)

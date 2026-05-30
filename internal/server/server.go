@@ -170,6 +170,11 @@ func (s *Server) routes() http.Handler {
 			r.Get("/{id}", s.handleGetExport)
 			r.Get("/{id}/download", s.handleDownloadExport)
 		})
+		r.Route("/me/prefs", func(r chi.Router) {
+			r.Use(s.requireAuth)
+			r.Get("/", s.handleGetUserPrefs)
+			r.Patch("/", s.handleUpdateUserPrefs)
+		})
 		r.Route("/calculators", func(r chi.Router) {
 			r.Use(s.requireAuth)
 			r.Post("/abv", s.handleCalcABV)

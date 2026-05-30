@@ -9,6 +9,8 @@
 // `{error: string}` message when present, falling back to the status
 // text. Pages catch and render — no global error boundary yet.
 
+import { TempUnit } from "./units";
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -62,9 +64,9 @@ function isErrorShape(v: unknown): v is { error: string } {
 }
 
 export const api = {
-  get:    <T>(path: string)                 => request<T>("GET",    path),
-  post:   <T>(path: string, body?: unknown) => request<T>("POST",   path, body),
-  patch:  <T>(path: string, body?: unknown) => request<T>("PATCH",  path, body),
+  get: <T>(path: string) => request<T>("GET", path),
+  post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
+  patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
   // DELETE accepts a body for endpoints that demand confirmation in the
   // payload (e.g. password-confirmed account deletion).
   delete: <T>(path: string, body?: unknown) => request<T>("DELETE", path, body),
@@ -343,8 +345,8 @@ export interface NotificationPage {
 }
 
 // Mirrors notificationPrefsView. quiet_hours_* are HH:MM strings in the
-// user's timezone; either both set or neither (server doesn't enforce
-// pairing today, but the UI does).
+// user's timezone (which now lives on UserPreferences); either both set or
+// neither (server doesn't enforce pairing today, but the UI does).
 export interface NotificationPrefs {
   push_enabled: boolean;
   apprise_enabled: boolean;
@@ -352,7 +354,6 @@ export interface NotificationPrefs {
   email_enabled: boolean;
   quiet_hours_start?: string;
   quiet_hours_end?: string;
-  timezone: string;
 }
 
 // --- Inventory types ------------------------------------------------------
@@ -419,4 +420,9 @@ export interface Recipe {
   ingredients: Ingredient[];
   created_at: string;
   updated_at: string;
+}
+
+export interface UserPreferences {
+  degree_units: TempUnit;
+  timezone: string;
 }

@@ -526,7 +526,6 @@ type NotificationPref struct {
 	AppriseEnabled  bool        `json:"apprise_enabled"`
 	QuietHoursStart pgtype.Time `json:"quiet_hours_start"`
 	QuietHoursEnd   pgtype.Time `json:"quiet_hours_end"`
-	Timezone        string      `json:"timezone"`
 	AppriseUrl      pgtype.Text `json:"apprise_url"`
 	EmailEnabled    bool        `json:"email_enabled"`
 }
@@ -715,4 +714,10 @@ type UserImport struct {
 	Error          pgtype.Text        `json:"error"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+}
+
+type UserPref struct {
+	UserID      uuid.UUID `json:"user_id"`
+	DegreeUnits string    `json:"degree_units"`
+	Timezone    string    `json:"timezone"`
 }

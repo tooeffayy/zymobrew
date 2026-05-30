@@ -76,8 +76,9 @@ func (w *reminderDispatchWorker) Work(ctx context.Context, _ *river.Job[Reminder
 		return nil
 	}
 
-	// Cache prefs, devices, and emails per user to avoid N+1 queries.
+	// Cache prefs, timezone, devices, and emails per user to avoid N+1 queries.
 	prefCache := map[uuid.UUID]queries.NotificationPref{}
+	tzCache := map[uuid.UUID]string{}
 	devCache := map[uuid.UUID][]queries.PushDevice{}
 	emailCache := map[uuid.UUID]string{}
 
@@ -112,7 +113,11 @@ func (w *reminderDispatchWorker) Work(ctx context.Context, _ *river.Job[Reminder
 		}
 
 		prefs, err := w.userPrefs(ctx, r.UserID, prefCache)
-		if err != nil || isInQuietHours(prefs, now) {
+		if err != nil {
+			continue
+		}
+		tz := w.userTimezone(ctx, r.UserID, tzCache)
+		if isInQuietHours(prefs, tz, now) {
 			continue
 		}
 
@@ -265,10 +270,25 @@ func (w *reminderDispatchWorker) userPrefs(ctx context.Context, userID uuid.UUID
 	p, err := w.queries.GetNotificationPrefs(ctx, userID)
 	if err != nil {
 		// No prefs row = defaults: push enabled, no quiet hours.
-		p = queries.NotificationPref{UserID: userID, PushEnabled: true, Timezone: "UTC"}
+		p = queries.NotificationPref{UserID: userID, PushEnabled: true}
 	}
 	cache[userID] = p
 	return p, nil
+}
+
+// userTimezone resolves the IANA timezone for quiet-hours interpretation.
+// Cached per-tick alongside the other per-user lookups.
+func (w *reminderDispatchWorker) userTimezone(ctx context.Context, userID uuid.UUID, cache map[uuid.UUID]string) string {
+	if tz, ok := cache[userID]; ok {
+		return tz
+	}
+	up, err := w.queries.GetUserPrefs(ctx, userID)
+	tz := "UTC"
+	if err == nil && up.Timezone != "" {
+		tz = up.Timezone
+	}
+	cache[userID] = tz
+	return tz
 }
 
 func (w *reminderDispatchWorker) userDevices(ctx context.Context, userID uuid.UUID, cache map[uuid.UUID][]queries.PushDevice) ([]queries.PushDevice, error) {
@@ -322,11 +342,11 @@ func (w *reminderDispatchWorker) sendPush(ctx context.Context, dev queries.PushD
 // isInQuietHours reports whether now (in the user's timezone) falls within
 // the configured quiet hours window. Handles windows that wrap midnight
 // (e.g. 22:00–06:00).
-func isInQuietHours(prefs queries.NotificationPref, now time.Time) bool {
+func isInQuietHours(prefs queries.NotificationPref, timezone string, now time.Time) bool {
 	if !prefs.QuietHoursStart.Valid || !prefs.QuietHoursEnd.Valid {
 		return false
 	}
-	loc, err := time.LoadLocation(prefs.Timezone)
+	loc, err := time.LoadLocation(timezone)
 	if err != nil {
 		return false
 	}

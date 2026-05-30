@@ -209,7 +209,6 @@ func TestDispatcher_SkipsAppriseWhenDisabled(t *testing.T) {
 		PushEnabled:    false,
 		AppriseEnabled: false, // <-- the switch we care about
 		AppriseUrl:     pgtype.Text{String: "mailto://noop", Valid: true},
-		Timezone:       "UTC",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +325,6 @@ func TestDispatcher_SkipsEmailWhenDisabled(t *testing.T) {
 		UserID:       user.ID,
 		PushEnabled:  false,
 		EmailEnabled: false, // <-- the switch we care about
-		Timezone:     "UTC",
 	}); err != nil {
 		t.Fatal(err)
 	}

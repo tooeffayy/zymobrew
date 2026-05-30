@@ -5,10 +5,9 @@ import { ApiError, NotificationPrefs, api } from "../api";
 // Server-side delivery preferences (not per-browser — see PushSubscribeSection
 // for that). Push toggle, Apprise URL + toggle, SMTP email toggle (covers
 // the same use case as Apprise's mailto:// for users who don't want to run
-// the sidecar), quiet-hours window, and IANA timezone for interpreting that
-// window.
+// the sidecar), and quiet-hours window. Timezone lives on UserPreferences
+// (see /me/preferences) since it applies beyond just notifications.
 export function NotificationPrefsSection() {
-  const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -20,7 +19,6 @@ export function NotificationPrefsSection() {
   const [emailEnabled, setEmailEnabled]     = useState(false);
   const [quietStart, setQuietStart]         = useState("");
   const [quietEnd, setQuietEnd]             = useState("");
-  const [timezone, setTimezone]             = useState("");
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -37,21 +35,12 @@ export function NotificationPrefsSection() {
     api
       .get<NotificationPrefs>("/api/notifications/prefs")
       .then((p) => {
-        setPrefs(p);
         setPushEnabled(p.push_enabled);
         setAppriseEnabled(p.apprise_enabled);
         setAppriseUrl(p.apprise_url ?? "");
         setEmailEnabled(p.email_enabled);
         setQuietStart(p.quiet_hours_start ?? "");
         setQuietEnd(p.quiet_hours_end ?? "");
-        // If the server's value is the bare default ("UTC") and the
-        // browser knows a real timezone, prefill that — saves the user
-        // typing it on first save. They can still change it.
-        const fallback =
-          p.timezone === "UTC"
-            ? Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
-            : p.timezone;
-        setTimezone(fallback);
       })
       .catch((e) => setLoadError(e instanceof ApiError ? e.message : "failed to load preferences"))
       .finally(() => setLoading(false));
@@ -77,12 +66,10 @@ export function NotificationPrefsSection() {
         apprise_enabled: appriseEnabled,
         apprise_url: appriseUrl.trim(),
         email_enabled: emailEnabled,
-        timezone: timezone || "UTC",
       };
       if (quietStart) body.quiet_hours_start = quietStart;
       if (quietEnd)   body.quiet_hours_end   = quietEnd;
-      const updated = await api.patch<NotificationPrefs>("/api/notifications/prefs", body);
-      setPrefs(updated);
+      await api.patch<NotificationPrefs>("/api/notifications/prefs", body);
       setSaved(true);
     } catch (e) {
       setSaveError(e instanceof ApiError ? e.message : "save failed");
@@ -215,7 +202,7 @@ export function NotificationPrefsSection() {
           <fieldset className="prefs-quiet">
             <legend>Quiet hours</legend>
             <p className="muted prefs-help">
-              During these hours, in-app notifications still appear but push delivery is suppressed.
+              During these hours (in the timezone set under <a href="/me/preferences">Preferences</a>), in-app notifications still appear but push delivery is suppressed.
             </p>
             <div className="prefs-quiet-row">
               <label className="field">
@@ -246,22 +233,6 @@ export function NotificationPrefsSection() {
             </div>
           </fieldset>
 
-          <label className="field">
-            <span>Timezone</span>
-            <input
-              type="text"
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              placeholder="America/Los_Angeles"
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-            />
-            <small className="muted">
-              IANA name (e.g. <code>Europe/Berlin</code>). Used to interpret quiet hours.
-            </small>
-          </label>
-
           {saveError && <p className="error">{saveError}</p>}
           {saved    && <p className="muted">Saved.</p>}
 
@@ -270,12 +241,6 @@ export function NotificationPrefsSection() {
               {saving ? "Saving…" : "Save preferences"}
             </button>
           </div>
-
-          {prefs && prefs.timezone !== timezone && (
-            <p className="muted prefs-help">
-              Currently saved as <code>{prefs.timezone}</code>.
-            </p>
-          )}
         </form>
       )}
     </section>
