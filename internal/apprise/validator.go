@@ -120,6 +120,16 @@ func (v *Validator) Validate(ctx context.Context, raw string) error {
 // way no SSRF reaches the network.
 func (v *Validator) checkHost(ctx context.Context, host string) error {
 	if addr, err := netip.ParseAddr(host); err == nil {
+		// Reject any literal carrying an IPv6 zone identifier (the %zone
+		// suffix) outright. A zone only has meaning for scoped (loopback /
+		// link-local) interfaces — never a legitimate remote notification
+		// destination — and netip.Prefix.Contains returns false for any
+		// zone-bearing address, so letting it through would sail past every
+		// blocked-range check below while the kernel still dials the scoped
+		// interface.
+		if addr.Zone() != "" {
+			return fmt.Errorf("%w: host %q carries an IPv6 zone identifier, which is not a valid destination", ErrInvalid, host)
+		}
 		return v.checkAddr(addr.Unmap(), host)
 	}
 	resolveCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -144,6 +154,10 @@ func (v *Validator) checkHost(ctx context.Context, host string) error {
 }
 
 func (v *Validator) checkAddr(addr netip.Addr, host string) error {
+	// Callers pass zone-free addresses: literal submissions with a zone are
+	// rejected in checkHost, and DNS results (netip.AddrFromSlice) never carry
+	// one. So Prefix.Contains below behaves as intended.
+	//
 	// Punch-hole list wins: an operator that explicitly trusts a CIDR can
 	// route Apprise destinations into it even if it falls in default-blocked
 	// space.

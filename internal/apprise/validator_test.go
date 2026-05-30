@@ -114,6 +114,25 @@ func TestValidate_BlocksLiteralIPv6Ranges(t *testing.T) {
 	}
 }
 
+// TestValidate_BlocksZoneScopedIPv6 is a regression test: netip.Prefix.Contains
+// returns false for any address carrying an IPv6 zone identifier, so a literal
+// like ::1%lo0 / fe80::1%eth0 would slip past every blocked-range check. We
+// reject zone-bearing literals outright. The %25 is the URL-encoding of the %
+// zone delimiter, which url.Parse + Hostname() decode back to a bare %.
+func TestValidate_BlocksZoneScopedIPv6(t *testing.T) {
+	v := NewValidator(true, nil)
+	cases := []string{
+		"ntfy://[::1%25lo0]/x",     // loopback, scoped to lo0
+		"ntfy://[fe80::1%25eth0]/x", // link-local, scoped to eth0
+		"http://[::1%25lo0]/x",     // same, generic-webhook scheme
+	}
+	for _, raw := range cases {
+		if err := v.Validate(context.Background(), raw); err == nil {
+			t.Errorf("%s: expected rejection of zone-scoped address, got nil", raw)
+		}
+	}
+}
+
 // TestValidate_AllowsCIDROverride verifies the admin punch-hole list: an
 // operator who runs an internal ntfy server at 10.42.0.10 can permit it
 // without disabling the wider block.
