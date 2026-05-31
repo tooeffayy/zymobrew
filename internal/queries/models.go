@@ -490,6 +490,17 @@ type Device struct {
 	LastSeenAt   pgtype.Timestamptz `json:"last_seen_at"`
 }
 
+type EmailChangeRequest struct {
+	ID               uuid.UUID          `json:"id"`
+	UserID           uuid.UUID          `json:"user_id"`
+	NewEmail         string             `json:"new_email"`
+	OldEmail         string             `json:"old_email"`
+	ConfirmTokenHash string             `json:"confirm_token_hash"`
+	CancelTokenHash  string             `json:"cancel_token_hash"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+}
+
 type Follow struct {
 	FollowerID uuid.UUID          `json:"follower_id"`
 	FollowedID uuid.UUID          `json:"followed_id"`

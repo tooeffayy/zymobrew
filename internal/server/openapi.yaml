@@ -1118,6 +1118,137 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/users/me/email:
+    post:
+      tags: [users]
+      operationId: changeEmail
+      summary: Request an email change (re-auth + emailed confirmation)
+      description: >
+        Re-authenticates with the current password and records a pending email
+        change. Does NOT change the email immediately: a confirmation link is
+        mailed to the new address (the change lands only when that link is
+        followed) and a cancel link is mailed to the old address. Requires SMTP
+        to be configured on the instance.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, email]
+              properties:
+                current_password:
+                  type: string
+                email:
+                  type: string
+                  format: email
+      responses:
+        "202":
+          description: Change requested; confirmation email sent to the new address
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: pending }
+                  email: { type: string, format: email }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Current password incorrect
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Email already taken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "502":
+          description: SMTP relay error sending the confirmation email
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: SMTP not configured on this instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/email/confirm:
+    post:
+      tags: [auth]
+      operationId: confirmEmailChange
+      summary: Confirm a pending email change (token from the new address)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "200":
+          description: Email changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicUser'
+        "400":
+          description: Invalid or expired link
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Email was claimed by another account before confirmation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/email/cancel:
+    post:
+      tags: [auth]
+      operationId: cancelEmailChange
+      summary: Cancel a pending email change (token from the old address)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "200":
+          description: Change cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: cancelled }
+        "400":
+          description: Invalid or expired link
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   # --- Recipes -----------------------------------------------------------------
 
   /api/recipes:

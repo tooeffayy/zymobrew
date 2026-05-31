@@ -39,9 +39,17 @@ type Server struct {
 
 	// Auth-path rate limiters. authIP gates /api/auth/{register,login} per
 	// client IP; loginUser additionally gates /api/auth/login per identifier
-	// so a single legitimate IP can't hammer one account.
-	authIP    *ratelimit.Limiter
-	loginUser *ratelimit.Limiter
+	// so a single legitimate IP can't hammer one account. emailChange caps
+	// email-change initiations per user — it sends mail to a caller-supplied
+	// address, so an unbounded endpoint is a spam amplifier; the same cap
+	// also bounds online password-brute-force through the re-auth step.
+	authIP      *ratelimit.Limiter
+	loginUser   *ratelimit.Limiter
+	emailChange *ratelimit.Limiter
+
+	// sendMail delivers transactional email (email-change links, prefs test
+	// message). Defaults to sendEmailSMTP; tests override it via export_test.go.
+	sendMail mailSender
 }
 
 func New(pool *pgxpool.Pool, cfg config.Config, exportStore, backupStore storage.Store) *Server {
@@ -53,10 +61,15 @@ func New(pool *pgxpool.Pool, cfg config.Config, exportStore, backupStore storage
 		backupStore: backupStore,
 		authIP:      ratelimit.New(rate.Every(2*time.Second), 10, 30*time.Minute),
 		loginUser:   ratelimit.New(rate.Every(12*time.Second), 5, 30*time.Minute),
+		// Burst 5 then ~1 every 2 min: tolerates a password fat-finger or a
+		// retypo'd address, while capping spray-to-arbitrary-address and
+		// online password guessing to ~30/hr per account.
+		emailChange: ratelimit.New(rate.Every(2*time.Minute), 5, 30*time.Minute),
 		appriseValidator: apprise.NewValidator(
 			cfg.AppriseAllowWebhookSchemes,
 			cfg.AppriseAllowedHostCIDRs,
 		),
+		sendMail: sendEmailSMTP,
 	}
 	s.handler = s.routes()
 	return s
@@ -85,12 +98,19 @@ func (s *Server) routes() http.Handler {
 			})
 			r.With(s.requireAuth).Post("/logout", s.handleLogout)
 			r.With(s.requireAuth).Get("/me", s.handleMe)
+			// Email-change confirm/cancel are token-gated capabilities, not
+			// session-gated — the link may be opened on a device where the
+			// user isn't logged in (and the cancel link must work for the
+			// legitimate owner of a hijacked session). Public by design.
+			r.With(s.ipRateLimit(s.authIP)).Post("/email/confirm", s.handleConfirmEmailChange)
+			r.With(s.ipRateLimit(s.authIP)).Post("/email/cancel", s.handleCancelEmailChange)
 		})
 		r.Route("/users", func(r chi.Router) {
 			r.Use(s.requireAuth)
 			r.Patch("/me", s.handleUpdateProfile)
 			r.Delete("/me", s.handleDeleteAccount)
 			r.Post("/me/password", s.handleChangePassword)
+			r.Post("/me/email", s.handleChangeEmail)
 			r.Get("/{username}", s.handleGetProfile)
 		})
 		r.Route("/recipes", func(r chi.Router) {

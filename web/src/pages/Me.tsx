@@ -108,7 +108,12 @@ function ProfileTab({
   email: string;
   onUpdated: (p: PublicProfile) => void;
 }) {
-  return <ProfileSection profile={profile} email={email} onUpdated={onUpdated} />;
+  return (
+    <>
+      <ProfileSection profile={profile} email={email} onUpdated={onUpdated} />
+      <EmailSection email={email} />
+    </>
+  );
 }
 
 function PreferencesTab() {
@@ -239,6 +244,102 @@ function ProfileSection({
         <div className="form-actions">
           <button type="submit" disabled={busy || !dirty}>
             {busy ? "Saving…" : "Save profile"}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+// --- Email ----------------------------------------------------------------
+
+// Change the account email. The change is verified, not immediate: it
+// re-authenticates with the current password, then emails a confirmation link
+// to the NEW address (the switch lands only when that link is clicked) and a
+// cancel link to the OLD address. Email doubles as a login identifier, so a
+// confirmed change also changes how you sign in.
+function EmailSection({ email }: { email: string }) {
+  const [next, setNext] = useState(email);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pendingFor, setPendingFor] = useState<string | null>(null);
+
+  // Re-baseline when the upstream email changes (post-confirm / account switch).
+  useEffect(() => setNext(email), [email]);
+
+  const dirty = next.trim() !== email && next.trim() !== "";
+  const ready = dirty && password.length > 0;
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setPendingFor(null);
+    setBusy(true);
+    try {
+      const res = await api.post<{ status: string; email: string }>(
+        "/api/users/me/email",
+        { current_password: password, email: next.trim() },
+      );
+      setPendingFor(res.email);
+      setPassword("");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        setError("That password is incorrect.");
+      } else if (e instanceof ApiError && e.status === 409) {
+        setError("That email is already in use by another account.");
+      } else if (e instanceof ApiError && e.status === 503) {
+        setError("Email isn't configured on this instance, so it can't be changed here.");
+      } else if (e instanceof ApiError && e.status === 502) {
+        setError("Couldn't send the confirmation email — check the SMTP relay.");
+      } else {
+        setError(e instanceof Error ? e.message : "request failed");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="recipe-section">
+      <h2>Email</h2>
+      <p className="muted">
+        Used for sign-in and notification delivery. Changing it sends a
+        confirmation link to the new address — your email won't change until
+        you open it. We'll also notify your current address.
+      </p>
+      <form className="profile-form" onSubmit={onSubmit}>
+        <label className="field">
+          <span>New email address</span>
+          <input
+            type="email"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            placeholder="you@example.com"
+          />
+        </label>
+        <label className="field">
+          <span>Current password</span>
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <span className="field-help muted">
+            Required to confirm it's really you.
+          </span>
+        </label>
+        {error && <p className="error">{error}</p>}
+        {pendingFor && !error && (
+          <p className="muted">
+            Confirmation sent to <strong>{pendingFor}</strong>. Open the link
+            there to finish the change.
+          </p>
+        )}
+        <div className="form-actions">
+          <button type="submit" disabled={busy || !ready}>
+            {busy ? "Sending…" : "Send confirmation"}
           </button>
         </div>
       </form>

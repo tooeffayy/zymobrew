@@ -15,9 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	mail "github.com/wneessen/go-mail"
 
-	"zymobrew/internal/config"
 	"zymobrew/internal/queries"
 )
 
@@ -592,53 +590,12 @@ func (s *Server) handleTestEmail(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "account has no email address"})
 		return
 	}
-	if err := sendEmailTest(r.Context(), s.cfg, user.Email); err != nil {
+	if err := s.sendMail(r.Context(), s.cfg, user.Email,
+		"Zymo test notification",
+		"If you can see this, your instance's SMTP relay is wired up correctly.",
+	); err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-// sendEmailTest dials the configured SMTP relay and sends a fixed test
-// message. Mirrors the dispatcher's sendEmail path but surfaces the error
-// rather than logging-and-dropping (the prefs UI needs feedback).
-func sendEmailTest(ctx context.Context, cfg config.Config, toAddr string) error {
-	opts := []mail.Option{
-		mail.WithPort(cfg.SMTPPort),
-		mail.WithTimeout(15 * time.Second),
-	}
-	switch cfg.SMTPTLSMode {
-	case "tls":
-		opts = append(opts, mail.WithSSL())
-	case "none":
-		opts = append(opts, mail.WithTLSPolicy(mail.NoTLS))
-	default:
-		opts = append(opts, mail.WithTLSPolicy(mail.TLSMandatory))
-	}
-	if cfg.SMTPUsername != "" {
-		opts = append(opts,
-			mail.WithSMTPAuth(mail.SMTPAuthPlain),
-			mail.WithUsername(cfg.SMTPUsername),
-			mail.WithPassword(cfg.SMTPPassword),
-		)
-	}
-	client, err := mail.NewClient(cfg.SMTPHost, opts...)
-	if err != nil {
-		return fmt.Errorf("smtp client: %w", err)
-	}
-	msg := mail.NewMsg()
-	if err := msg.From(cfg.SMTPFrom); err != nil {
-		return fmt.Errorf("smtp from: %w", err)
-	}
-	if err := msg.To(toAddr); err != nil {
-		return fmt.Errorf("smtp to: %w", err)
-	}
-	msg.Subject("Zymo test notification")
-	msg.SetBodyString(mail.TypeTextPlain, "If you can see this, your instance's SMTP relay is wired up correctly.")
-	dialCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	if err := client.DialAndSendWithContext(dialCtx, msg); err != nil {
-		return fmt.Errorf("smtp send: %w", err)
-	}
-	return nil
 }

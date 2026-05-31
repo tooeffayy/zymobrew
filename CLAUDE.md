@@ -41,7 +41,7 @@ internal/migrate      goose runner + River migrator (uses embedded migrations)
 internal/queries      sqlc generated type-safe code (Go only)
 internal/queries/sql  sqlc query source files (*.sql)
 internal/ratelimit    in-memory token-bucket limiter (per-IP, per-identifier)
-internal/server       chi HTTP router — /healthz, /readyz, /docs, /api/openapi.yaml, /api/auth/*, /api/users/*, /api/me/prefs, /api/recipes/*, /api/batches/*, /api/notifications/*, /api/push/*, /api/users/me/exports/*, /api/admin/backups/*, /api/calculators/*, plus SPA fallback for non-/api/* routes
+internal/server       chi HTTP router — /healthz, /readyz, /docs, /api/openapi.yaml, /api/auth/* (incl. public email/confirm + email/cancel), /api/users/*, /api/me/prefs, /api/recipes/*, /api/batches/*, /api/notifications/*, /api/push/*, /api/users/me/exports/*, /api/admin/backups/*, /api/calculators/*, plus SPA fallback for non-/api/* routes
 web/                  React + Vite + TS frontend; built to web/dist/ and embedded via //go:embed
 internal/selftest     runtime smoke tests for `zymo selftest`
 internal/storage      Store interface + local + S3 backends (Put/Get/Delete/PresignGet)
@@ -91,6 +91,7 @@ go run ./cmd/zymo serve
 | `INSTANCE_MODE`   | `single_user`           | `single_user` \| `closed` \| `open` |
 | `AUTO_MIGRATE`    | `true`                  | Apply pending migrations on `serve` startup |
 | `COOKIE_SECURE`   | `false`                 | Set true in production behind TLS |
+| `BASE_URL`        | *(empty)*               | Public origin (e.g. `https://zymo.example.com`) for absolute links in outbound email (email-change confirm/cancel). Empty = derive from request Host (scheme from `COOKIE_SECURE`); set explicitly behind a proxy so a spoofed Host can't redirect a confirmation link. |
 | `VAPID_PUBLIC_KEY`  | *(optional)*          | VAPID public key for web-push (generate with `zymo vapid-keys`) |
 | `VAPID_PRIVATE_KEY` | *(optional)*          | VAPID private key for web-push |
 | `VAPID_SUBJECT`     | `mailto:admin@localhost` | VAPID contact (mailto: or https:) |
@@ -159,13 +160,23 @@ go test ./...
 - **Login timing**: always runs argon2 (against a dummy hash if user not found) to prevent username enumeration by timing. See `auth.DummyHash`.
 - **Cookie security**: `COOKIE_SECURE=true` for production. CSRF currently SameSite=Lax; CSRF tokens deferred until cross-origin frontends exist.
 
+### Email change (verified)
+
+`POST /api/users/me/email` does **not** mutate `users.email` directly. It re-authenticates with the current password (a valid session alone must not be able to swap the account's recovery/identity anchor), then writes a row to `email_change_requests` and mails two links:
+- **Confirm** → the NEW address. The switch lands only when this link is followed, proving the address is real and controlled by the requester.
+- **Cancel** → the OLD address. Lets the legitimate owner abort a change they didn't start (the tripwire against a hijacked session).
+
+Both are independent 32-byte tokens stored only as SHA-256 hashes (`auth.NewSessionToken`/`HashSessionToken`, same scheme as sessions). Confirm/cancel are handled by the **public, token-gated** `POST /api/auth/email/{confirm,cancel}` (`security: []`) — the link may be opened where the user isn't logged in, and the token is the sole capability. The SPA landing pages (`/email/confirm`, `/email/cancel`) run the mutation on an explicit click, not on mount, so a link prefetcher can't auto-confirm.
+
+Details: requires SMTP configured (`503` otherwise — the flow is email-driven); one active request per user (a new request deletes any prior); confirm-mail send failure rolls the request back (`502`); old-address notice is best-effort. Uniqueness is checked at request time (`409`) and **re-checked at confirm** (another account could claim the address in between). Requests carry a 24h TTL; expired rows are inert (lookups filter on `expires_at`) and swept hourly by the `expired_sessions_gc` job. `BASE_URL` builds the absolute link (falls back to request Host — set it behind a proxy to defeat Host spoofing). Anonymization deletes the user's `email_change_requests` rows.
+
 ## Account Deletion (anonymization)
 
 `DELETE /api/users/me` strips PII from the user row in place rather than hard-deleting it. The blocking FKs (`recipe_revisions.author_id`, `admin_audit_log.admin_id`) point at *the user row*, not its PII — so anonymization preserves audit/history integrity while satisfying GDPR (Recital 26: anonymized data is no longer personal data).
 
 **What gets cleared** (one tx, see `internal/account.Anonymize`):
 - `users` row: username → `deleted-<id>`, email → `deleted-<id>@deleted.invalid` (RFC 2606 reserved TLD), `password_hash`/`display_name`/`bio`/`avatar_url`/`deletion_*` → NULL, `deleted_at` set.
-- Wiped: `sessions`, `push_devices`, `notifications`, `notification_prefs`, `user_prefs`, `user_exports` (rows + blobs).
+- Wiped: `sessions`, `push_devices`, `notifications`, `notification_prefs`, `user_prefs`, `user_exports` (rows + blobs), `email_change_requests`.
 - Retained: recipes, recipe_revisions, recipe_comments, recipe_likes, follows, batches, readings, events, tasting_notes, reminders. Author renders as the `deleted-<id>` placeholder.
 
 **Guards**: refuses if `is_admin = true` (must hand off first); requires password confirmation in body.
@@ -192,10 +203,11 @@ Two layers, in-memory token buckets (`internal/ratelimit`). Per-process — acce
 
 | Layer | Where | Burst | Refill | Keyed by |
 |---|---|---|---|---|
-| IP gate | middleware on `/api/auth/{register,login}` | 10 | 1 / 2s | `r.RemoteAddr` (post chi `RealIP`) |
+| IP gate | middleware on `/api/auth/{register,login}` + `/api/auth/email/{confirm,cancel}` | 10 | 1 / 2s | `r.RemoteAddr` (post chi `RealIP`) |
 | Per-identifier gate | inside `handleLogin` after body decode | 5 | 1 / 12s | `strings.ToLower(req.Identifier)` |
+| Email-change gate | inside `handleChangeEmail`, before re-auth | 5 | 1 / 2min | `user.ID` |
 
-Either trip returns 429 with `Retry-After: 60`. Eviction is lazy — no background goroutine.
+Either trip returns 429 with `Retry-After: 60`. Eviction is lazy — no background goroutine. The email-change gate reuses the IP gate's limiter on the public confirm/cancel endpoints; the per-user gate (`emailChange`) caps initiations because that endpoint mails a caller-supplied address (spam-amplifier defense) and also bounds online password-guessing through the re-auth step.
 
 ## API Reference
 
@@ -213,7 +225,7 @@ These cross-cutting rules apply across all resources:
 
 **Brew-type guard** — only `mead`, `cider`, and `wine` are accepted at the API surface (`allowedBrewTypes` in `internal/server/batches.go`). The `brew_type` ENUM in Postgres also includes `beer` and `kombucha`, but those need flow logic (mash/boil for beer, F1/F2 for kombucha) that ships in Phases 6-7.
 
-**Auth** — every `/api/*` route requires auth except `/api/auth/register`, `/api/auth/login`, and `/api/push/public-key`. Outside `/api`, `/healthz`, `/readyz`, `/docs`, and `/api/openapi.yaml` are also public. `/api/admin/*` additionally requires `users.is_admin = true` (`requireAdmin` middleware → 403). The OpenAPI spec encodes this as a global `security:` default with `security: []` overrides on the public endpoints; new routes inherit the default and don't need a per-operation `security:` block. See Auth section for session mechanics.
+**Auth** — every `/api/*` route requires auth except `/api/auth/register`, `/api/auth/login`, `/api/auth/email/confirm`, `/api/auth/email/cancel`, and `/api/push/public-key`. Outside `/api`, `/healthz`, `/readyz`, `/docs`, and `/api/openapi.yaml` are also public. `/api/admin/*` additionally requires `users.is_admin = true` (`requireAdmin` middleware → 403). The OpenAPI spec encodes this as a global `security:` default with `security: []` overrides on the public endpoints; new routes inherit the default and don't need a per-operation `security:` block. See Auth section for session mechanics.
 
 **Cursor pagination** — list endpoints (`/api/recipes`, `/api/recipes/mine`, `/api/recipes/{id}/comments`, `/api/batches`, `/api/notifications`) use opaque keyset cursors via `?cursor=&limit=` (default 50, max 100). Responses are `{<plural>: [...], next_cursor: string|null}`. Helpers: `internal/cursor` encodes `(timestamp, uuid)` as base64-url JSON; `internal/server/pagination.go` parses query params and produces `next_cursor`. SQL queries use `WHERE (sort_key, id) < (cursor_ts, cursor_id) OR cursor_ts IS NULL` with the IS-NULL guard required because Postgres row comparisons return NULL when any side is NULL. Other lists (readings, events, exports, admin backups, reminders) are naturally bounded or deferred — see "Known deferred gaps".
 
@@ -321,7 +333,7 @@ River runs in-process. Queue state in `river_*` tables. `migrate.Up` runs goose 
 
 | Job | Schedule | Purpose |
 |---|---|---|
-| `expired_sessions_gc` | every hour, `RunOnStart: true` | `DELETE FROM sessions WHERE expires_at < now()` |
+| `expired_sessions_gc` | every hour, `RunOnStart: true` | `DELETE FROM sessions WHERE expires_at < now()`; also sweeps expired `email_change_requests` |
 | `reminder_dispatcher` | every minute | Atomically claims due reminders (`FOR UPDATE SKIP LOCKED`), creates in-app `notifications` rows |
 | `user_export_dispatcher` | every minute | Claims pending `user_exports` (`FOR UPDATE SKIP LOCKED`), builds the archive (zip / tar.gz / zstd per row), writes to the primary store under `tmp/exports/`, marks complete. Also expires + deletes blobs of past-`expires_at` exports as a safety net (primary cleanup is post-download in `handleDownloadExport`). |
 | `admin_backup_dispatcher` | every minute | Claims pending `admin_backups` (`FOR UPDATE SKIP LOCKED`), streams `pg_dump --format=custom` into storage. Also hard-deletes rows + blobs past `BACKUP_RETENTION_DAYS`. |

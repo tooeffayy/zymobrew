@@ -32,6 +32,7 @@ type Querier interface {
 	CreateAdminBackup(ctx context.Context, storageBackend string) (AdminBackup, error)
 	CreateBatch(ctx context.Context, arg CreateBatchParams) (Batch, error)
 	CreateBatchEvent(ctx context.Context, arg CreateBatchEventParams) (BatchEvent, error)
+	CreateEmailChangeRequest(ctx context.Context, arg CreateEmailChangeRequestParams) (EmailChangeRequest, error)
 	CreateForkedRecipe(ctx context.Context, arg CreateForkedRecipeParams) (Recipe, error)
 	CreateInventoryItem(ctx context.Context, arg CreateInventoryItemParams) (InventoryItem, error)
 	CreateNotification(ctx context.Context, arg CreateNotificationParams) (Notification, error)
@@ -55,7 +56,13 @@ type Querier interface {
 	DeleteAllInventoryForUser(ctx context.Context, userID uuid.UUID) error
 	DeleteBatch(ctx context.Context, arg DeleteBatchParams) (int64, error)
 	DeleteBatchEvent(ctx context.Context, arg DeleteBatchEventParams) (int64, error)
+	DeleteEmailChangeRequest(ctx context.Context, id uuid.UUID) error
+	// DeleteEmailChangeRequestsForUser clears any pending requests for a user.
+	// Called before inserting a fresh request (one active change at a time) and
+	// as part of account anonymization.
+	DeleteEmailChangeRequestsForUser(ctx context.Context, userID uuid.UUID) error
 	DeleteExpiredAdminBackups(ctx context.Context, dollar_1 int32) ([]pgtype.Text, error)
+	DeleteExpiredEmailChangeRequests(ctx context.Context) error
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteInventoryItem(ctx context.Context, arg DeleteInventoryItemParams) (int64, error)
 	DeleteNotificationPrefsForUser(ctx context.Context, userID uuid.UUID) error
@@ -84,6 +91,13 @@ type Querier interface {
 	GetAdminBackup(ctx context.Context, id uuid.UUID) (AdminBackup, error)
 	GetBatchEvent(ctx context.Context, arg GetBatchEventParams) (BatchEvent, error)
 	GetBatchForUser(ctx context.Context, arg GetBatchForUserParams) (Batch, error)
+	// GetEmailChangeRequestByCancelHash returns a still-valid (unexpired) pending
+	// request matching the cancel-token hash.
+	GetEmailChangeRequestByCancelHash(ctx context.Context, cancelTokenHash string) (EmailChangeRequest, error)
+	// GetEmailChangeRequestByConfirmHash returns a still-valid (unexpired)
+	// pending request matching the confirm-token hash. Expired rows are treated
+	// as absent so a stale link can't be replayed.
+	GetEmailChangeRequestByConfirmHash(ctx context.Context, confirmTokenHash string) (EmailChangeRequest, error)
 	GetInventoryItemForUser(ctx context.Context, arg GetInventoryItemForUserParams) (InventoryItem, error)
 	GetNotificationPrefs(ctx context.Context, userID uuid.UUID) (NotificationPref, error)
 	GetPendingUserExport(ctx context.Context, userID uuid.UUID) (UserExport, error)
@@ -179,6 +193,7 @@ type Querier interface {
 	UpdateReminder(ctx context.Context, arg UpdateReminderParams) (Reminder, error)
 	UpdateReminderTemplate(ctx context.Context, arg UpdateReminderTemplateParams) (RecipeReminderTemplate, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
+	UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (User, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpsertNotificationPrefs(ctx context.Context, arg UpsertNotificationPrefsParams) (NotificationPref, error)
 	UpsertPushDevice(ctx context.Context, arg UpsertPushDeviceParams) (PushDevice, error)

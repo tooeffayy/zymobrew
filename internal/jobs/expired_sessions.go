@@ -16,12 +16,17 @@ type ExpiredSessionsArgs struct{}
 func (ExpiredSessionsArgs) Kind() string { return "expired_sessions_gc" }
 
 // expiredSessionsWorker deletes session rows whose expires_at is in the
-// past. Scheduled hourly; cheap and idempotent.
+// past, plus any expired pending email-change requests. Scheduled hourly;
+// cheap and idempotent. (Expired email-change rows are already inert —
+// lookups filter on expires_at — so this is housekeeping, not correctness.)
 type expiredSessionsWorker struct {
 	river.WorkerDefaults[ExpiredSessionsArgs]
 	queries *queries.Queries
 }
 
 func (w *expiredSessionsWorker) Work(ctx context.Context, _ *river.Job[ExpiredSessionsArgs]) error {
-	return w.queries.DeleteExpiredSessions(ctx)
+	if err := w.queries.DeleteExpiredSessions(ctx); err != nil {
+		return err
+	}
+	return w.queries.DeleteExpiredEmailChangeRequests(ctx)
 }

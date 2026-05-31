@@ -17,6 +17,7 @@ const BatchDetail = lazy(() =>
 );
 import { Batches } from "./pages/Batches";
 import { Calculators } from "./pages/Calculators";
+import { EmailCancel, EmailConfirm } from "./pages/EmailChange";
 import { Inventory } from "./pages/Inventory";
 import { Login } from "./pages/Login";
 import { Me } from "./pages/Me";
@@ -65,6 +66,10 @@ export function App() {
               </RedirectIfAuthed>
             }
           />
+          {/* Email-change landing pages render bare and work without a
+              session — the token in the query string is the capability. */}
+          <Route path="/email/confirm" element={<EmailConfirm />} />
+          <Route path="/email/cancel" element={<EmailCancel />} />
           {/* Everything else gets the chrome. */}
           <Route
             path="/"

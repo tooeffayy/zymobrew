@@ -42,6 +42,11 @@ WHERE deleted_at IS NULL;
 UPDATE users SET password_hash = $1
 WHERE id = $2 AND deleted_at IS NULL;
 
+-- name: UpdateUserEmail :one
+UPDATE users SET email = $1
+WHERE id = $2 AND deleted_at IS NULL
+RETURNING *;
+
 -- name: UpdateUser :one
 UPDATE users SET
   display_name = COALESCE(sqlc.narg('display_name'), display_name),

@@ -19,11 +19,19 @@ const (
 )
 
 type Config struct {
-	DatabaseURL     string
-	ListenAddr      string
-	InstanceMode    InstanceMode
-	AutoMigrate     bool
-	CookieSecure    bool
+	DatabaseURL  string
+	ListenAddr   string
+	InstanceMode InstanceMode
+	AutoMigrate  bool
+	CookieSecure bool
+
+	// BaseURL is the instance's public origin (e.g. https://zymo.example.com),
+	// used to build absolute links in outbound email (currently the
+	// email-change confirm/cancel links). Trailing slash trimmed. Empty =
+	// derive from the incoming request's Host (scheme inferred from
+	// CookieSecure); set it explicitly behind a proxy so a spoofed Host header
+	// can't redirect a confirmation link to an attacker's domain.
+	BaseURL         string
 	VAPIDPublicKey  string
 	VAPIDPrivateKey string
 	VAPIDSubject    string
@@ -103,6 +111,7 @@ func Load() (Config, error) {
 		InstanceMode:    InstanceMode(getenv("INSTANCE_MODE", string(ModeSingleUser))),
 		AutoMigrate:     getenvBool("AUTO_MIGRATE", true),
 		CookieSecure:    getenvBool("COOKIE_SECURE", false),
+		BaseURL:         strings.TrimRight(os.Getenv("BASE_URL"), "/"),
 		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:    getenv("VAPID_SUBJECT", "mailto:admin@localhost"),
