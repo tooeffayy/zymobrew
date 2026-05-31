@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -186,6 +187,7 @@ func (s *Server) routes() http.Handler {
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(s.requireAuth)
 			r.Use(s.requireAdmin)
+			r.Get("/config", s.handleAdminConfig)
 			r.Route("/backups", func(r chi.Router) {
 				r.Post("/", s.handleTriggerAdminBackup)
 				r.Get("/", s.handleListAdminBackups)
@@ -273,7 +275,10 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.pool.Ping(r.Context()); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "db unavailable", "error": err.Error()})
+		// readyz is public; keep the body opaque so a failing probe can't leak
+		// DB host/port to an unauthenticated caller. The detail goes to logs.
+		slog.Error("readyz db ping failed", "err", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "db unavailable"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

@@ -591,6 +591,77 @@ components:
           default: zip
           description: Archive format. Defaults to `zip` if omitted.
 
+    AdminConfig:
+      type: object
+      description: |
+        Non-sensitive config summary. Secrets are never present as values —
+        true secrets are reported as `*_set` booleans and the S3 access key
+        ID is tail-masked (e.g. `••••WXYZ`).
+      required:
+        - instance_mode
+        - auto_migrate
+        - cookie_secure
+        - push_configured
+        - apprise_configured
+        - email_configured
+        - apprise_allow_webhook_schemes
+        - apprise_allowed_host_cidr_count
+        - storage_backend
+        - backup_backend
+        - backup_retention_days
+        - trusted_proxy_count
+        - database_url_set
+        - vapid_private_key_set
+        - smtp_password_set
+        - s3_secret_key_set
+      properties:
+        instance_mode:
+          type: string
+          enum: [single_user, closed, open]
+        auto_migrate:
+          type: boolean
+        cookie_secure:
+          type: boolean
+        push_configured:
+          type: boolean
+          description: VAPID public + private keys both set.
+        apprise_configured:
+          type: boolean
+          description: APPRISE_API_URL set.
+        email_configured:
+          type: boolean
+          description: SMTP_HOST + SMTP_FROM both set.
+        apprise_allow_webhook_schemes:
+          type: boolean
+        apprise_allowed_host_cidr_count:
+          type: integer
+        smtp_tls_mode:
+          type: string
+          enum: [starttls, tls, none]
+          description: Present only when email is configured.
+        storage_backend:
+          type: string
+          enum: [local, s3]
+        backup_backend:
+          type: string
+          enum: [local, s3]
+          description: Resolved value, including the BACKUP_*→STORAGE_* fallback.
+        backup_retention_days:
+          type: integer
+        trusted_proxy_count:
+          type: integer
+        database_url_set:
+          type: boolean
+        vapid_private_key_set:
+          type: boolean
+        smtp_password_set:
+          type: boolean
+        s3_secret_key_set:
+          type: boolean
+        s3_access_key_masked:
+          type: string
+          description: S3 access key ID behind a fixed-width tail mask. Omitted when unset.
+
     AdminBackup:
       type: object
       required: [id, status, storage_backend, created_at]
@@ -3243,6 +3314,36 @@ paths:
                 $ref: '#/components/schemas/Error'
 
   # --- Admin -------------------------------------------------------------------
+
+  /api/admin/config:
+    get:
+      tags: [admin]
+      operationId: getAdminConfig
+      summary: Effective instance configuration summary (admin only)
+      description: |
+        Non-sensitive view of the running config: instance mode, which
+        delivery channels are configured, storage backends, and retention.
+        Secrets are never returned — true secrets surface only as `*_set`
+        booleans; the S3 access key ID is tail-masked.
+      responses:
+        "200":
+          description: Config summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminConfig'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/admin/backups:
     post:
