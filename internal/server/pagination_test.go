@@ -3,6 +3,7 @@ package server_test
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"zymobrew/internal/config"
 )
@@ -146,6 +147,142 @@ func TestPagination_BadLimit(t *testing.T) {
 		resp := doJSON(t, srv, http.MethodGet, "/api/recipes?limit="+v, nil, cookies...)
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("limit=%s: got %d, want 400", v, resp.StatusCode)
+		}
+	}
+}
+
+// TestPagination_Cursor_Readings seeds N readings with strictly increasing
+// taken_at timestamps and pages through with limit=2, confirming the ASC
+// keyset cursor returns every row exactly once in chronological order.
+func TestPagination_Cursor_Readings(t *testing.T) {
+	srv, _ := setupAuth(t, config.ModeOpen)
+	cookies := registerHelper(t, srv, "alice")
+
+	resp := doJSON(t, srv, http.MethodPost, "/api/batches", map[string]any{"name": "Pagination Mead"}, cookies...)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("seed batch: got %d", resp.StatusCode)
+	}
+	batchID := decodeMap(t, resp)["id"].(string)
+
+	const total = 5
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < total; i++ {
+		resp := doJSON(t, srv, http.MethodPost, "/api/batches/"+batchID+"/readings", map[string]any{
+			"taken_at": base.Add(time.Duration(i) * time.Hour).Format(time.RFC3339),
+			"gravity":  1.100 - float64(i)*0.01,
+		}, cookies...)
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("seed reading %d: got %d", i, resp.StatusCode)
+		}
+	}
+
+	var takenAts []string
+	seen := map[string]bool{}
+	cursor := ""
+	pages := 0
+	for {
+		path := "/api/batches/" + batchID + "/readings?limit=2"
+		if cursor != "" {
+			path += "&cursor=" + cursor
+		}
+		resp := doJSON(t, srv, http.MethodGet, path, nil, cookies...)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("list readings: got %d", resp.StatusCode)
+		}
+		page := decodeMap(t, resp)
+		readings, _ := page["readings"].([]any)
+		for _, rd := range readings {
+			m := rd.(map[string]any)
+			id := m["id"].(string)
+			if seen[id] {
+				t.Fatalf("duplicate reading %s across pages", id)
+			}
+			seen[id] = true
+			takenAts = append(takenAts, m["taken_at"].(string))
+		}
+		pages++
+		nc, ok := page["next_cursor"].(string)
+		if !ok {
+			break
+		}
+		cursor = nc
+	}
+
+	if len(takenAts) != total {
+		t.Fatalf("got %d readings, want %d", len(takenAts), total)
+	}
+	if pages != 3 {
+		t.Errorf("pages = %d, want 3 (5 rows / limit=2)", pages)
+	}
+	// ASC (oldest first): timestamps must come back strictly increasing.
+	for i := 1; i < len(takenAts); i++ {
+		if takenAts[i] <= takenAts[i-1] {
+			t.Errorf("position %d: taken_at %q not after %q", i, takenAts[i], takenAts[i-1])
+		}
+	}
+}
+
+// TestPagination_Cursor_Events mirrors the readings test for the batch_events
+// list, which shares the ASC keyset machinery.
+func TestPagination_Cursor_Events(t *testing.T) {
+	srv, _ := setupAuth(t, config.ModeOpen)
+	cookies := registerHelper(t, srv, "alice")
+
+	resp := doJSON(t, srv, http.MethodPost, "/api/batches", map[string]any{"name": "Event Mead"}, cookies...)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("seed batch: got %d", resp.StatusCode)
+	}
+	batchID := decodeMap(t, resp)["id"].(string)
+
+	const total = 5
+	base := time.Date(2026, 2, 1, 9, 0, 0, 0, time.UTC)
+	for i := 0; i < total; i++ {
+		resp := doJSON(t, srv, http.MethodPost, "/api/batches/"+batchID+"/events", map[string]any{
+			"occurred_at": base.Add(time.Duration(i) * time.Hour).Format(time.RFC3339),
+			"kind":        "note",
+			"title":       "event " + ordinal(i),
+		}, cookies...)
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("seed event %d: got %d", i, resp.StatusCode)
+		}
+	}
+
+	var occurredAts []string
+	seen := map[string]bool{}
+	cursor := ""
+	for {
+		path := "/api/batches/" + batchID + "/events?limit=2"
+		if cursor != "" {
+			path += "&cursor=" + cursor
+		}
+		resp := doJSON(t, srv, http.MethodGet, path, nil, cookies...)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("list events: got %d", resp.StatusCode)
+		}
+		page := decodeMap(t, resp)
+		events, _ := page["events"].([]any)
+		for _, ev := range events {
+			m := ev.(map[string]any)
+			id := m["id"].(string)
+			if seen[id] {
+				t.Fatalf("duplicate event %s across pages", id)
+			}
+			seen[id] = true
+			occurredAts = append(occurredAts, m["occurred_at"].(string))
+		}
+		nc, ok := page["next_cursor"].(string)
+		if !ok {
+			break
+		}
+		cursor = nc
+	}
+
+	if len(occurredAts) != total {
+		t.Fatalf("got %d events, want %d", len(occurredAts), total)
+	}
+	for i := 1; i < len(occurredAts); i++ {
+		if occurredAts[i] <= occurredAts[i-1] {
+			t.Errorf("position %d: occurred_at %q not after %q", i, occurredAts[i], occurredAts[i-1])
 		}
 	}
 }

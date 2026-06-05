@@ -117,9 +117,21 @@ type Querier interface {
 	IncrementForkCount(ctx context.Context, id uuid.UUID) error
 	LikeRecipe(ctx context.Context, arg LikeRecipeParams) error
 	ListAdminBackups(ctx context.Context) ([]AdminBackup, error)
+	// Unbounded chronological list for the user-export job, which must capture
+	// every event regardless of page size. Not exposed over HTTP — the API uses
+	// the paginated ListBatchEventsForBatch.
+	ListAllBatchEventsForBatch(ctx context.Context, batchID uuid.UUID) ([]BatchEvent, error)
 	ListAllBatchesForUser(ctx context.Context, brewerID uuid.UUID) ([]Batch, error)
+	// Unbounded chronological list for the user-export job, which must capture
+	// every reading regardless of page size. Not exposed over HTTP — the API
+	// uses the paginated ListReadingsForBatch.
+	ListAllReadingsForBatch(ctx context.Context, batchID uuid.UUID) ([]Reading, error)
 	ListAllRecipesForAuthor(ctx context.Context, authorID uuid.UUID) ([]Recipe, error)
-	ListBatchEventsForBatch(ctx context.Context, batchID uuid.UUID) ([]BatchEvent, error)
+	// Keyset pagination, ascending (chronological) so the journal reads
+	// oldest-first. Comparison is `>` (next page = rows after the cursor row);
+	// occurred_at is NOT NULL so the sort key needs no COALESCE guard — only
+	// the cursor params are nullable (NULL = first page).
+	ListBatchEventsForBatch(ctx context.Context, arg ListBatchEventsForBatchParams) ([]BatchEvent, error)
 	ListBatchReminders(ctx context.Context, arg ListBatchRemindersParams) ([]Reminder, error)
 	// Sort key is COALESCE(started_at, created_at) — pre-pitch batches sort
 	// by when the planning row was created, post-pitch by when fermentation
@@ -143,7 +155,12 @@ type Querier interface {
 	// the comparison alone for the first page).
 	ListPublicRecipes(ctx context.Context, arg ListPublicRecipesParams) ([]Recipe, error)
 	ListPushDevicesForUser(ctx context.Context, userID uuid.UUID) ([]PushDevice, error)
-	ListReadingsForBatch(ctx context.Context, batchID uuid.UUID) ([]Reading, error)
+	// Keyset pagination, ascending (chronological) so the chart and table get
+	// readings oldest-first. Unlike the DESC list endpoints the comparison is
+	// `>`: the next page is the rows *after* the cursor row. taken_at is NOT
+	// NULL so no COALESCE guard is needed on the sort key — only the cursor
+	// params themselves are nullable (NULL = first page).
+	ListReadingsForBatch(ctx context.Context, arg ListReadingsForBatchParams) ([]Reading, error)
 	// Comments paginate ASC (oldest first) so a thread reads top-to-bottom;
 	// inverted comparison vs the DESC lists above.
 	ListRecipeComments(ctx context.Context, arg ListRecipeCommentsParams) ([]ListRecipeCommentsRow, error)

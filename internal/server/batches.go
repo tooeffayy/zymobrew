@@ -463,7 +463,16 @@ func (s *Server) handleListReadings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
-	rows, err := s.queries.ListReadingsForBatch(r.Context(), batchID)
+	p, ok := parseListPagination(w, r)
+	if !ok {
+		return
+	}
+	rows, err := s.queries.ListReadingsForBatch(r.Context(), queries.ListReadingsForBatchParams{
+		BatchID:  batchID,
+		CursorTs: p.CursorTs,
+		CursorID: p.CursorID,
+		LimitN:   p.Limit,
+	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
 		return
@@ -472,7 +481,11 @@ func (s *Server) handleListReadings(w http.ResponseWriter, r *http.Request) {
 	for _, rd := range rows {
 		views = append(views, toReadingView(rd))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"readings": views})
+	next := nextCursor(len(rows), p.Limit, func() (time.Time, uuid.UUID) {
+		last := rows[len(rows)-1]
+		return last.TakenAt.Time, last.ID
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"readings": views, "next_cursor": nullableCursor(next)})
 }
 
 type updateReadingRequest struct {
@@ -827,7 +840,16 @@ func (s *Server) handleListBatchEvents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
-	rows, err := s.queries.ListBatchEventsForBatch(r.Context(), batchID)
+	p, ok := parseListPagination(w, r)
+	if !ok {
+		return
+	}
+	rows, err := s.queries.ListBatchEventsForBatch(r.Context(), queries.ListBatchEventsForBatchParams{
+		BatchID:  batchID,
+		CursorTs: p.CursorTs,
+		CursorID: p.CursorID,
+		LimitN:   p.Limit,
+	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
 		return
@@ -836,7 +858,11 @@ func (s *Server) handleListBatchEvents(w http.ResponseWriter, r *http.Request) {
 	for _, e := range rows {
 		views = append(views, toEventView(e))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": views})
+	next := nextCursor(len(rows), p.Limit, func() (time.Time, uuid.UUID) {
+		last := rows[len(rows)-1]
+		return last.OccurredAt.Time, last.ID
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"events": views, "next_cursor": nullableCursor(next)})
 }
 
 // updateEventRequest uses pointer fields so omitted vs explicitly-set

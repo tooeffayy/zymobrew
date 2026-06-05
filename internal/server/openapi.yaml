@@ -2284,25 +2284,37 @@ paths:
     get:
       tags: [batches]
       operationId: listReadings
-      summary: List all readings for a batch
+      summary: List readings for a batch (oldest first, keyset-paginated)
       parameters:
         - name: id
           in: path
           required: true
           schema:
             $ref: '#/components/schemas/UUID'
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
       responses:
         "200":
-          description: Readings
+          description: Reading page. `next_cursor` is null when there are no more pages.
           content:
             application/json:
               schema:
                 type: object
+                required: [readings, next_cursor]
                 properties:
                   readings:
                     type: array
                     items:
                       $ref: '#/components/schemas/Reading'
+                  next_cursor:
+                    type: string
+                    nullable: true
+        "400":
+          description: Invalid cursor or limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Not authenticated
           content:
@@ -2516,25 +2528,37 @@ paths:
     get:
       tags: [batches]
       operationId: listBatchEvents
-      summary: List all events for a batch
+      summary: List events for a batch (oldest first, keyset-paginated)
       parameters:
         - name: id
           in: path
           required: true
           schema:
             $ref: '#/components/schemas/UUID'
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
       responses:
         "200":
-          description: Events
+          description: Event page. `next_cursor` is null when there are no more pages.
           content:
             application/json:
               schema:
                 type: object
+                required: [events, next_cursor]
                 properties:
                   events:
                     type: array
                     items:
                       $ref: '#/components/schemas/BatchEvent'
+                  next_cursor:
+                    type: string
+                    nullable: true
+        "400":
+          description: Invalid cursor or limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         "401":
           description: Not authenticated
           content:

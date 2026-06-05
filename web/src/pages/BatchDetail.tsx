@@ -5,15 +5,15 @@ import {
   ApiError,
   Batch,
   BatchEvent,
-  BatchEventPage,
   BatchStage,
   EventKind,
   Reading,
-  ReadingPage,
   Reminder,
   TastingNote,
   TastingNotePage,
   api,
+  fetchAllBatchEvents,
+  fetchAllReadings,
 } from "../api";
 import { Modal } from "../components/Modal";
 import { ReadingsChart } from "../components/ReadingsChart";
@@ -51,17 +51,19 @@ export function BatchDetail() {
 
   const refetch = useCallback(async () => {
     try {
+      // Readings and events are keyset-paginated server-side; the chart and
+      // journal need every row, so fetchAll* walk the cursor to exhaustion.
       const [b, rems, evs, rds, tns] = await Promise.all([
         api.get<Batch>(`/api/batches/${encodeURIComponent(id)}`),
         api.get<Reminder[]>(`/api/batches/${encodeURIComponent(id)}/reminders`),
-        api.get<BatchEventPage>(`/api/batches/${encodeURIComponent(id)}/events`),
-        api.get<ReadingPage>(`/api/batches/${encodeURIComponent(id)}/readings`),
+        fetchAllBatchEvents(id),
+        fetchAllReadings(id),
         api.get<TastingNotePage>(`/api/batches/${encodeURIComponent(id)}/tasting-notes`),
       ]);
       setBatch(b);
       setReminders(rems);
-      setEvents(evs.events);
-      setReadings(rds.readings);
+      setEvents(evs);
+      setReadings(rds);
       setTastingNotes(tns.tasting_notes);
       setLoadError(null);
     } catch (e: unknown) {
