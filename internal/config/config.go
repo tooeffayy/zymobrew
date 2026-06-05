@@ -19,14 +19,58 @@ const (
 )
 
 type Config struct {
-	DatabaseURL     string
-	ListenAddr      string
-	InstanceMode    InstanceMode
-	AutoMigrate     bool
-	CookieSecure    bool
+	DatabaseURL  string
+	ListenAddr   string
+	InstanceMode InstanceMode
+	AutoMigrate  bool
+	CookieSecure bool
+
+	// BaseURL is the instance's public origin (e.g. https://zymo.example.com),
+	// used to build absolute links in outbound email (currently the
+	// email-change confirm/cancel links). Trailing slash trimmed. Empty =
+	// derive from the incoming request's Host (scheme inferred from
+	// CookieSecure); set it explicitly behind a proxy so a spoofed Host header
+	// can't redirect a confirmation link to an attacker's domain.
+	BaseURL         string
 	VAPIDPublicKey  string
 	VAPIDPrivateKey string
 	VAPIDSubject    string
+
+	// AppriseAPIURL is the base URL of an Apprise API sidecar
+	// (e.g. http://apprise:8000). Empty disables external-channel delivery
+	// — the dispatcher still creates in-app notifications. Per-user routing
+	// is supplied by each user's notification_prefs.apprise_url.
+	AppriseAPIURL string
+
+	// AppriseAllowWebhookSchemes opts the instance into accepting Apprise
+	// URLs whose scheme is a generic webhook target — http, https, json,
+	// jsons, xml, xmls, form, forms. These let the caller fully control the
+	// outbound URL the Apprise sidecar fetches, which is an SSRF primitive
+	// when the sidecar shares a network with internal services. Off by
+	// default; flip on only when the operator trusts every authenticated
+	// user not to weaponize the sidecar.
+	AppriseAllowWebhookSchemes bool
+
+	// AppriseAllowedHostCIDRs lets the operator punch holes in the default
+	// internal-range block — addresses falling into these prefixes are
+	// allowed past the host check (e.g. an in-cluster ntfy server at
+	// 10.42.0.10/32). Empty = no holes; the full default-blocked set
+	// applies. See internal/apprise.defaultBlockedHostCIDRs for the
+	// canonical set.
+	AppriseAllowedHostCIDRs []netip.Prefix
+
+	// SMTP delivery for users who don't want to run an Apprise sidecar.
+	// Instance-wide relay — operator sets these once; each user opts in via
+	// notification_prefs.email_enabled and reminders go to users.email.
+	// SMTPHost empty = SMTP disabled (the toggle still flips but no mail is
+	// sent). TLSMode is one of "starttls" | "tls" | "none"; default starttls
+	// is the right answer for ~all modern relays on 587.
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+	SMTPTLSMode  string
 
 	// Primary storage — used for user-export archives. The local backend
 	// roots files under StorageLocalPath; user exports specifically live
@@ -67,9 +111,20 @@ func Load() (Config, error) {
 		InstanceMode:    InstanceMode(getenv("INSTANCE_MODE", string(ModeSingleUser))),
 		AutoMigrate:     getenvBool("AUTO_MIGRATE", true),
 		CookieSecure:    getenvBool("COOKIE_SECURE", false),
+		BaseURL:         strings.TrimRight(os.Getenv("BASE_URL"), "/"),
 		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:    getenv("VAPID_SUBJECT", "mailto:admin@localhost"),
+
+		AppriseAPIURL:              strings.TrimRight(os.Getenv("APPRISE_API_URL"), "/"),
+		AppriseAllowWebhookSchemes: getenvBool("APPRISE_ALLOW_WEBHOOK_SCHEMES", false),
+
+		SMTPHost:     os.Getenv("SMTP_HOST"),
+		SMTPPort:     getenvInt("SMTP_PORT", 587),
+		SMTPUsername: os.Getenv("SMTP_USERNAME"),
+		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:     os.Getenv("SMTP_FROM"),
+		SMTPTLSMode:  getenv("SMTP_TLS_MODE", "starttls"),
 
 		StorageBackend:   getenv("STORAGE_BACKEND", "local"),
 		StorageLocalPath: getenv("STORAGE_LOCAL_PATH", "./data"),
@@ -98,6 +153,11 @@ func Load() (Config, error) {
 		return cfg, err
 	}
 	cfg.TrustedProxies = prefixes
+	allowedHostCIDRs, err := parseCIDRList("APPRISE_ALLOWED_HOST_CIDRS", os.Getenv("APPRISE_ALLOWED_HOST_CIDRS"))
+	if err != nil {
+		return cfg, err
+	}
+	cfg.AppriseAllowedHostCIDRs = allowedHostCIDRs
 	switch cfg.InstanceMode {
 	case ModeSingleUser, ModeClosed, ModeOpen:
 	default:
@@ -108,6 +168,11 @@ func Load() (Config, error) {
 	// wipe every admin backup on the next dispatcher tick.
 	if cfg.BackupRetentionDays < 1 || cfg.BackupRetentionDays > 36500 {
 		return cfg, fmt.Errorf("invalid BACKUP_RETENTION_DAYS %d (want 1..36500)", cfg.BackupRetentionDays)
+	}
+	switch cfg.SMTPTLSMode {
+	case "starttls", "tls", "none":
+	default:
+		return cfg, fmt.Errorf("invalid SMTP_TLS_MODE %q (want starttls|tls|none)", cfg.SMTPTLSMode)
 	}
 	return cfg, nil
 }
@@ -184,6 +249,14 @@ func getenvInt(key string, def int) int {
 // "10.0.0.0/8,fd00::/8"). Empty input → empty slice (trust nothing). A bare
 // IP is accepted and treated as a /32 or /128.
 func parseTrustedProxies(raw string) ([]netip.Prefix, error) {
+	return parseCIDRList("TRUSTED_PROXIES", raw)
+}
+
+// parseCIDRList parses the shared "comma-separated CIDRs, bare IPs treated
+// as /32 or /128" format used by both TRUSTED_PROXIES and the Apprise
+// punch-hole list. envName is folded into error messages so the operator
+// knows which knob to fix.
+func parseCIDRList(envName, raw string) ([]netip.Prefix, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, nil
@@ -198,14 +271,14 @@ func parseTrustedProxies(raw string) ([]netip.Prefix, error) {
 		if strings.Contains(p, "/") {
 			pre, err := netip.ParsePrefix(p)
 			if err != nil {
-				return nil, fmt.Errorf("TRUSTED_PROXIES: invalid CIDR %q: %w", p, err)
+				return nil, fmt.Errorf("%s: invalid CIDR %q: %w", envName, p, err)
 			}
 			out = append(out, pre)
 			continue
 		}
 		addr, err := netip.ParseAddr(p)
 		if err != nil {
-			return nil, fmt.Errorf("TRUSTED_PROXIES: invalid address %q: %w", p, err)
+			return nil, fmt.Errorf("%s: invalid address %q: %w", envName, p, err)
 		}
 		out = append(out, netip.PrefixFrom(addr, addr.BitLen()))
 	}

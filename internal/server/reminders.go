@@ -1,10 +1,14 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -96,17 +100,19 @@ func toNotificationView(n queries.Notification) notificationView {
 
 type notificationPrefsView struct {
 	PushEnabled     bool    `json:"push_enabled"`
+	AppriseEnabled  bool    `json:"apprise_enabled"`
+	AppriseURL      string  `json:"apprise_url"`
 	EmailEnabled    bool    `json:"email_enabled"`
 	QuietHoursStart *string `json:"quiet_hours_start,omitempty"`
 	QuietHoursEnd   *string `json:"quiet_hours_end,omitempty"`
-	Timezone        string  `json:"timezone"`
 }
 
 func toPrefsView(p queries.NotificationPref) notificationPrefsView {
 	v := notificationPrefsView{
-		PushEnabled:  p.PushEnabled,
-		EmailEnabled: p.EmailEnabled,
-		Timezone:     p.Timezone,
+		PushEnabled:    p.PushEnabled,
+		AppriseEnabled: p.AppriseEnabled,
+		AppriseURL:     p.AppriseUrl.String,
+		EmailEnabled:   p.EmailEnabled,
 	}
 	if p.QuietHoursStart.Valid {
 		h := p.QuietHoursStart.Microseconds / 3600000000
@@ -402,9 +408,8 @@ func (s *Server) handleGetNotificationPrefs(w http.ResponseWriter, r *http.Reque
 	prefs, err := s.queries.GetNotificationPrefs(r.Context(), user.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusOK, notificationPrefsView{
-			PushEnabled:  true,
-			EmailEnabled: false,
-			Timezone:     "UTC",
+			PushEnabled:    true,
+			AppriseEnabled: false,
 		})
 		return
 	}
@@ -425,19 +430,18 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing = queries.NotificationPref{
-			UserID:       user.ID,
-			PushEnabled:  true,
-			EmailEnabled: false,
-			Timezone:     "UTC",
+			UserID:      user.ID,
+			PushEnabled: true,
 		}
 	}
 
 	var req struct {
 		PushEnabled     *bool   `json:"push_enabled"`
+		AppriseEnabled  *bool   `json:"apprise_enabled"`
+		AppriseURL      *string `json:"apprise_url"`
 		EmailEnabled    *bool   `json:"email_enabled"`
 		QuietHoursStart *string `json:"quiet_hours_start"`
 		QuietHoursEnd   *string `json:"quiet_hours_end"`
-		Timezone        *string `json:"timezone"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
@@ -447,23 +451,32 @@ func (s *Server) handleUpdateNotificationPrefs(w http.ResponseWriter, r *http.Re
 	params := queries.UpsertNotificationPrefsParams{
 		UserID:          user.ID,
 		PushEnabled:     existing.PushEnabled,
+		AppriseEnabled:  existing.AppriseEnabled,
+		AppriseUrl:      existing.AppriseUrl,
 		EmailEnabled:    existing.EmailEnabled,
 		QuietHoursStart: existing.QuietHoursStart,
 		QuietHoursEnd:   existing.QuietHoursEnd,
-		Timezone:        existing.Timezone,
 	}
 	if req.PushEnabled != nil {
 		params.PushEnabled = *req.PushEnabled
 	}
+	if req.AppriseEnabled != nil {
+		params.AppriseEnabled = *req.AppriseEnabled
+	}
 	if req.EmailEnabled != nil {
 		params.EmailEnabled = *req.EmailEnabled
 	}
-	if req.Timezone != nil {
-		if _, err := time.LoadLocation(*req.Timezone); err != nil {
-			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid timezone"})
-			return
+	if req.AppriseURL != nil {
+		trimmed := strings.TrimSpace(*req.AppriseURL)
+		if trimmed == "" {
+			params.AppriseUrl = pgtype.Text{}
+		} else {
+			if err := s.appriseValidator.Validate(r.Context(), trimmed); err != nil {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+				return
+			}
+			params.AppriseUrl = pgtype.Text{String: trimmed, Valid: true}
 		}
-		params.Timezone = *req.Timezone
 	}
 	if req.QuietHoursStart != nil {
 		t, err := parseHHMM(*req.QuietHoursStart)
@@ -498,4 +511,91 @@ func parseHHMM(s string) (pgtype.Time, error) {
 	}
 	micros := int64(t.Hour())*3600000000 + int64(t.Minute())*60000000
 	return pgtype.Time{Microseconds: micros, Valid: true}, nil
+}
+
+// handleTestNotification sends a test message through the Apprise sidecar
+// using a URL the user supplies in the body. Used by the prefs UI to validate
+// new Apprise URLs without saving them first. Returns 503 if the operator
+// hasn't configured APPRISE_API_URL.
+func (s *Server) handleTestNotification(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.AppriseAPIURL == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "apprise not configured on this instance"})
+		return
+	}
+	var req struct {
+		AppriseURL string `json:"apprise_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	url := strings.TrimSpace(req.AppriseURL)
+	if url == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "apprise_url is required"})
+		return
+	}
+	if err := s.appriseValidator.Validate(r.Context(), url); err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := sendAppriseTest(r.Context(), s.cfg.AppriseAPIURL, url); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// sendAppriseTest POSTs a fixed "test" payload to the Apprise API. Kept
+// separate from the dispatcher's send path so this handler doesn't have to
+// reach into internal/jobs. The dispatcher has its own copy of the wire format
+// for the same reason — packages stay loosely coupled.
+func sendAppriseTest(ctx context.Context, apiURL, target string) error {
+	payload, _ := json.Marshal(map[string]any{
+		"urls":  target,
+		"title": "Zymo test notification",
+		"body":  "If you can see this, your Apprise URL is wired up correctly.",
+		"type":  "info",
+	})
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL+"/notify", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("apprise: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("apprise returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// handleTestEmail sends a test email through the instance's configured SMTP
+// relay to the caller's account email. Used by the prefs UI's "Send test
+// email" button so a user can confirm delivery before flipping the toggle on
+// in earnest. 503 when SMTP isn't configured; 502 on relay error so the
+// frontend can show the underlying SMTP failure rather than a generic 500.
+func (s *Server) handleTestEmail(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.SMTPHost == "" || s.cfg.SMTPFrom == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "smtp not configured on this instance"})
+		return
+	}
+	user, _ := userFromContext(r.Context())
+	if user.Email == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "account has no email address"})
+		return
+	}
+	if err := s.sendMail(r.Context(), s.cfg, user.Email,
+		"Zymo test notification",
+		"If you can see this, your instance's SMTP relay is wired up correctly.",
+	); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

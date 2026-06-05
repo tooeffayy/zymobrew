@@ -88,6 +88,16 @@ func TestProfile_Update_HappyPath(t *testing.T) {
 	}
 }
 
+func TestProfile_ChangeEmail_RequiresAuth(t *testing.T) {
+	srv, _ := setupAuth(t, config.ModeOpen)
+	resp := doJSON(t, srv, http.MethodPost, "/api/users/me/email", map[string]string{
+		"email": "new@example.com",
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("unauth: got %d, want 401", resp.StatusCode)
+	}
+}
+
 func TestProfile_Update_RequiresAuth(t *testing.T) {
 	srv, _ := setupAuth(t, config.ModeOpen)
 	resp := doJSON(t, srv, http.MethodPatch, "/api/users/me", map[string]string{

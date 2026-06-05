@@ -51,6 +51,12 @@ func Anonymize(ctx context.Context, pool *pgxpool.Pool, q *queries.Queries, expo
 	if err := qtx.DeleteNotificationPrefsForUser(ctx, userID); err != nil {
 		return fmt.Errorf("delete notification prefs: %w", err)
 	}
+	if err := qtx.DeleteUserPrefsForUser(ctx, userID); err != nil {
+		return fmt.Errorf("delete user prefs: %w", err)
+	}
+	if err := qtx.DeleteEmailChangeRequestsForUser(ctx, userID); err != nil {
+		return fmt.Errorf("delete email change requests: %w", err)
+	}
 	if err := qtx.DeleteUserExportsForUser(ctx, userID); err != nil {
 		return fmt.Errorf("delete user exports: %w", err)
 	}

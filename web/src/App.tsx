@@ -1,15 +1,23 @@
+import { Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthProvider, RequireAdmin, RequireAuth, useAuth } from "./auth";
 import { AuthLayout } from "./components/AuthLayout";
 import { Layout } from "./components/Layout";
 import { NotificationsProvider } from "./notifications";
+import { PreferencesProvider } from "./units";
 import { AdminBackups } from "./pages/AdminBackups";
 import { BatchCreate } from "./pages/BatchCreate";
-import { BatchDetail } from "./pages/BatchDetail";
 import { BatchEdit } from "./pages/BatchEdit";
+
+// BatchDetail pulls in Recharts (~150-200 KB raw). Splitting it keeps that
+// out of the main bundle until a user actually opens a batch.
+const BatchDetail = lazy(() =>
+  import("./pages/BatchDetail").then((m) => ({ default: m.BatchDetail })),
+);
 import { Batches } from "./pages/Batches";
 import { Calculators } from "./pages/Calculators";
+import { EmailCancel, EmailConfirm } from "./pages/EmailChange";
 import { Inventory } from "./pages/Inventory";
 import { Login } from "./pages/Login";
 import { Me } from "./pages/Me";
@@ -33,7 +41,9 @@ export function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <PreferencesProvider>
         <NotificationsProvider>
+        <Suspense fallback={null}>
         <Routes>
           {/* Auth screens render bare — no header, no nav, just the card. */}
           <Route
@@ -56,6 +66,10 @@ export function App() {
               </RedirectIfAuthed>
             }
           />
+          {/* Email-change landing pages render bare and work without a
+              session — the token in the query string is the capability. */}
+          <Route path="/email/confirm" element={<EmailConfirm />} />
+          <Route path="/email/cancel" element={<EmailCancel />} />
           {/* Everything else gets the chrome. */}
           <Route
             path="/"
@@ -158,7 +172,7 @@ export function App() {
             }
           />
           <Route
-            path="/me"
+            path="/me/*"
             element={
               <RequireAuth>
                 <Layout>
@@ -197,7 +211,9 @@ export function App() {
               already serves index.html for any non-/api/* path. */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
         </NotificationsProvider>
+        </PreferencesProvider>
       </AuthProvider>
     </BrowserRouter>
   );

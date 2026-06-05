@@ -15,6 +15,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
+	"zymobrew/internal/apprise"
 	"zymobrew/internal/config"
 	"zymobrew/internal/queries"
 	"zymobrew/internal/storage"
@@ -40,10 +41,23 @@ func New(pool *pgxpool.Pool, cfg config.Config, exportStore, backupStore storage
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &expiredSessionsWorker{queries: q})
 	river.AddWorker(workers, &reminderDispatchWorker{
-		queries:      q,
-		vapidPub:     cfg.VAPIDPublicKey,
-		vapidPriv:    cfg.VAPIDPrivateKey,
-		vapidSubject: cfg.VAPIDSubject,
+		queries:       q,
+		vapidPub:      cfg.VAPIDPublicKey,
+		vapidPriv:     cfg.VAPIDPrivateKey,
+		vapidSubject:  cfg.VAPIDSubject,
+		appriseAPIURL: cfg.AppriseAPIURL,
+		appriseValidator: apprise.NewValidator(
+			cfg.AppriseAllowWebhookSchemes,
+			cfg.AppriseAllowedHostCIDRs,
+		),
+		smtp: SMTPConfig{
+			Host:     cfg.SMTPHost,
+			Port:     cfg.SMTPPort,
+			Username: cfg.SMTPUsername,
+			Password: cfg.SMTPPassword,
+			From:     cfg.SMTPFrom,
+			TLSMode:  cfg.SMTPTLSMode,
+		},
 	})
 	river.AddWorker(workers, &userExportDispatchWorker{queries: q, store: exportStore})
 	river.AddWorker(workers, &adminBackupScheduleWorker{queries: q, store: backupStore})

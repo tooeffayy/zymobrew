@@ -482,23 +482,52 @@ components:
 
     NotificationPrefs:
       type: object
-      required: [push_enabled, email_enabled, timezone]
+      required: [push_enabled, apprise_enabled, apprise_url, email_enabled]
       properties:
         push_enabled:
           type: boolean
+        apprise_enabled:
+          type: boolean
+          description: When true and `apprise_url` is set, fires notifications through the Apprise sidecar.
+        apprise_url:
+          type: string
+          description: |
+            Per-user Apprise URL (e.g. `mailto://`, `discord://`, `tgram://`).
+            Empty string when unset. Schemes that turn the Apprise sidecar
+            into a generic webhook target (`http`, `https`, `json`, `jsons`,
+            `xml`, `xmls`, `form`, `forms`) are rejected unless the operator
+            sets `APPRISE_ALLOW_WEBHOOK_SCHEMES=true`. URLs whose host
+            resolves into a default-blocked private/loopback/IMDS range are
+            also rejected; the operator can punch holes via
+            `APPRISE_ALLOWED_HOST_CIDRS`.
         email_enabled:
           type: boolean
+          description: |
+            When true, the instance sends reminder emails directly via the
+            operator-configured SMTP relay (`SMTP_HOST` et al.). Destination
+            is the account email. Independent of the Apprise channel — both
+            can be enabled, or just one. No-op if the operator hasn't
+            configured SMTP.
         quiet_hours_start:
           type: string
           pattern: '^\d{2}:\d{2}$'
-          description: "HH:MM in user's timezone"
+          description: "HH:MM in the user's timezone (set under `/api/me/prefs`)"
         quiet_hours_end:
           type: string
           pattern: '^\d{2}:\d{2}$'
-          description: "HH:MM in user's timezone"
+          description: "HH:MM in the user's timezone (set under `/api/me/prefs`)"
+
+    UserPrefs:
+      type: object
+      required: [degree_units, timezone]
+      properties:
+        degree_units:
+          type: string
+          enum: [C, F]
+          description: Temperature display unit. Storage is always Celsius; this controls render + input.
         timezone:
           type: string
-          description: IANA timezone identifier
+          description: IANA timezone identifier. Drives quiet-hours interpretation and scheduling.
 
     ReminderTemplate:
       type: object
@@ -561,6 +590,77 @@ components:
           enum: [zip, tar.gz, zstd]
           default: zip
           description: Archive format. Defaults to `zip` if omitted.
+
+    AdminConfig:
+      type: object
+      description: |
+        Non-sensitive config summary. Secrets are never present as values —
+        true secrets are reported as `*_set` booleans and the S3 access key
+        ID is tail-masked (e.g. `••••WXYZ`).
+      required:
+        - instance_mode
+        - auto_migrate
+        - cookie_secure
+        - push_configured
+        - apprise_configured
+        - email_configured
+        - apprise_allow_webhook_schemes
+        - apprise_allowed_host_cidr_count
+        - storage_backend
+        - backup_backend
+        - backup_retention_days
+        - trusted_proxy_count
+        - database_url_set
+        - vapid_private_key_set
+        - smtp_password_set
+        - s3_secret_key_set
+      properties:
+        instance_mode:
+          type: string
+          enum: [single_user, closed, open]
+        auto_migrate:
+          type: boolean
+        cookie_secure:
+          type: boolean
+        push_configured:
+          type: boolean
+          description: VAPID public + private keys both set.
+        apprise_configured:
+          type: boolean
+          description: APPRISE_API_URL set.
+        email_configured:
+          type: boolean
+          description: SMTP_HOST + SMTP_FROM both set.
+        apprise_allow_webhook_schemes:
+          type: boolean
+        apprise_allowed_host_cidr_count:
+          type: integer
+        smtp_tls_mode:
+          type: string
+          enum: [starttls, tls, none]
+          description: Present only when email is configured.
+        storage_backend:
+          type: string
+          enum: [local, s3]
+        backup_backend:
+          type: string
+          enum: [local, s3]
+          description: Resolved value, including the BACKUP_*→STORAGE_* fallback.
+        backup_retention_days:
+          type: integer
+        trusted_proxy_count:
+          type: integer
+        database_url_set:
+          type: boolean
+        vapid_private_key_set:
+          type: boolean
+        smtp_password_set:
+          type: boolean
+        s3_secret_key_set:
+          type: boolean
+        s3_access_key_masked:
+          type: string
+          description: S3 access key ID behind a fixed-width tail mask. Omitted when unset.
 
     AdminBackup:
       type: object
@@ -1013,6 +1113,137 @@ paths:
                 $ref: '#/components/schemas/Error'
         "401":
           description: Current password incorrect
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/users/me/email:
+    post:
+      tags: [users]
+      operationId: changeEmail
+      summary: Request an email change (re-auth + emailed confirmation)
+      description: >
+        Re-authenticates with the current password and records a pending email
+        change. Does NOT change the email immediately: a confirmation link is
+        mailed to the new address (the change lands only when that link is
+        followed) and a cancel link is mailed to the old address. Requires SMTP
+        to be configured on the instance.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, email]
+              properties:
+                current_password:
+                  type: string
+                email:
+                  type: string
+                  format: email
+      responses:
+        "202":
+          description: Change requested; confirmation email sent to the new address
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: pending }
+                  email: { type: string, format: email }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: Current password incorrect
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Email already taken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "502":
+          description: SMTP relay error sending the confirmation email
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: SMTP not configured on this instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/email/confirm:
+    post:
+      tags: [auth]
+      operationId: confirmEmailChange
+      summary: Confirm a pending email change (token from the new address)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "200":
+          description: Email changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicUser'
+        "400":
+          description: Invalid or expired link
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Email was claimed by another account before confirmation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/email/cancel:
+    post:
+      tags: [auth]
+      operationId: cancelEmailChange
+      summary: Cancel a pending email change (token from the old address)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "200":
+          description: Change cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: cancelled }
+        "400":
+          description: Invalid or expired link
           content:
             application/json:
               schema:
@@ -2786,6 +3017,11 @@ paths:
               properties:
                 push_enabled:
                   type: boolean
+                apprise_enabled:
+                  type: boolean
+                apprise_url:
+                  type: string
+                  description: Empty string clears the saved URL.
                 email_enabled:
                   type: boolean
                 quiet_hours_start:
@@ -2794,9 +3030,6 @@ paths:
                 quiet_hours_end:
                   type: string
                   pattern: '^\d{2}:\d{2}$'
-                timezone:
-                  type: string
-                  description: IANA timezone identifier
       responses:
         "200":
           description: Updated preferences
@@ -2811,7 +3044,107 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         "422":
-          description: Invalid timezone or time format
+          description: Invalid time format or apprise_url (e.g. disallowed scheme or host in a blocked range)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/notifications/prefs/test:
+    post:
+      tags: [notifications]
+      operationId: testNotification
+      summary: Send a test notification through the Apprise sidecar
+      description: |
+        Validates an Apprise URL by sending a fixed test payload to the
+        configured Apprise API. The URL is not persisted by this call —
+        save it via `PATCH /api/notifications/prefs` afterward.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apprise_url]
+              properties:
+                apprise_url:
+                  type: string
+      responses:
+        "200":
+          description: Apprise accepted the test notification
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Missing apprise_url, or rejected by policy (disallowed scheme, host in a blocked range, or exceeds 2048 bytes)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "502":
+          description: Apprise sidecar rejected or could not be reached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: APPRISE_API_URL is not configured on this instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/notifications/prefs/test-email:
+    post:
+      tags: [notifications]
+      operationId: testEmailNotification
+      summary: Send a test email through the instance's SMTP relay
+      description: |
+        Delivers a fixed test message to the caller's account email via the
+        operator-configured SMTP relay. Used by the prefs UI's "Send test
+        email" button to verify wiring before flipping `email_enabled` on.
+      responses:
+        "200":
+          description: SMTP relay accepted the test message
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Account has no email address on file
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "502":
+          description: SMTP relay refused the message or could not be reached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: SMTP is not configured on this instance
           content:
             application/json:
               schema:
@@ -3057,7 +3390,91 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/me/prefs:
+    get:
+      tags: [users]
+      operationId: getUserPrefs
+      summary: Get the caller's preferences (defaults when no row saved yet)
+      responses:
+        "200":
+          description: Preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPrefs'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags: [users]
+      operationId: updateUserPrefs
+      summary: Upsert the caller's preferences (COALESCE — omitted fields preserved)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                degree_units:
+                  type: string
+                  enum: [C, F]
+                timezone:
+                  type: string
+                  description: IANA timezone identifier
+      responses:
+        "200":
+          description: Updated preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPrefs'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: Invalid degree_units value or unknown IANA timezone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   # --- Admin -------------------------------------------------------------------
+
+  /api/admin/config:
+    get:
+      tags: [admin]
+      operationId: getAdminConfig
+      summary: Effective instance configuration summary (admin only)
+      description: |
+        Non-sensitive view of the running config: instance mode, which
+        delivery channels are configured, storage backends, and retention.
+        Secrets are never returned — true secrets surface only as `*_set`
+        booleans; the S3 access key ID is tail-masked.
+      responses:
+        "200":
+          description: Config summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminConfig'
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/admin/backups:
     post:

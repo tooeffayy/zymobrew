@@ -1,25 +1,27 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
 import { ApiError, PublicProfile, api } from "../api";
 import { useAuth } from "../auth";
 import { NotificationPrefsSection } from "../components/NotificationPrefsSection";
 import { PushSubscribeSection } from "../components/PushSubscribeSection";
-import { TempUnit, useTemperatureUnit } from "../units";
+import { TempUnit, usePreferences } from "../units";
 
-// Authenticated user's profile + account controls. Three sections:
+// Authenticated user's profile + account controls. Four tabs, each a
+// nested route under /me so the tab state is in the URL — refresh-safe and
+// linkable from elsewhere (e.g. the bell menu deep-links to
+// /me/notifications when there's nothing to surface in-app):
 //
-//   1. Profile — editable display name / bio / avatar URL, read-only
-//      identifiers. Saves via PATCH /api/users/me.
-//   2. Password — current + new + confirm. POST /api/users/me/password
-//      rotates every other session.
-//   3. Danger zone — account deletion, password-confirmed.
-//      DELETE /api/users/me anonymizes in place; the server clears the
-//      cookie and we flip the auth context to anon and redirect.
+//   /me/profile        — About you (display name / bio / avatar).
+//   /me/preferences    — Temperature unit + timezone (server-side, applies
+//                        across every browser the user signs in from).
+//   /me/notifications  — Delivery preferences (push / Apprise / email,
+//                        quiet hours) + per-browser push subscribe.
+//   /me/security       — Password change + danger zone (account delete).
 //
-// We only fetch the editable fields (bio, avatar_url, created_at) here —
-// the AuthContext's PublicUser carries id/username/email/display_name
-// already, so nothing in the layout flickers while this loads.
+// Naked /me redirects to /me/profile. The page chrome (heading + tab bar)
+// is shared; each tab supplies its own sections via <Outlet>'s replacement
+// here, a nested <Routes>.
 
 export function Me() {
   const { state, updateUser, setAnon } = useAuth();
@@ -40,35 +42,107 @@ export function Me() {
   return (
     <div className="page profile-page">
       <h1>Profile</h1>
+      <nav className="profile-tabs" aria-label="Profile sections">
+        {/* Absolute paths intentional: with a parent splat route ("/me/*")
+            react-router v6 resolves relative `to` against the current URL,
+            so clicking "notifications" from /me/profile would append rather
+            than replace the trailing segment. Absolute paths sidestep the
+            issue. */}
+        <NavLink to="/me/profile">Profile</NavLink>
+        <NavLink to="/me/preferences">Preferences</NavLink>
+        <NavLink to="/me/notifications">Notifications</NavLink>
+        <NavLink to="/me/security">Security</NavLink>
+      </nav>
+
       {loadError && <p className="error">{loadError}</p>}
       {!loadError && !profile && <p className="muted">Loading…</p>}
       {profile && (
-        <>
-          <ProfileSection
-            profile={profile}
-            email={state.user.email}
-            onUpdated={(p) => {
-              setProfile(p);
-              updateUser({
-                ...state.user,
-                display_name: p.display_name ?? "",
-              });
-            }}
+        <Routes>
+          <Route index element={<Navigate to="/me/profile" replace />} />
+          <Route
+            path="profile"
+            element={
+              <ProfileTab
+                profile={profile}
+                email={state.user.email}
+                onUpdated={(p) => {
+                  setProfile(p);
+                  updateUser({
+                    ...state.user,
+                    display_name: p.display_name ?? "",
+                  });
+                }}
+              />
+            }
           />
-          <PreferencesSection />
-          <NotificationPrefsSection />
-          <PushSubscribeSection />
-          <PasswordSection />
-          <DangerSection
-            username={state.user.username}
-            onDeleted={() => {
-              setAnon();
-              navigate("/login", { replace: true });
-            }}
+          <Route path="preferences" element={<PreferencesTab />} />
+          <Route path="notifications" element={<NotificationsTab />} />
+          <Route
+            path="security"
+            element={
+              <SecurityTab
+                username={state.user.username}
+                onDeleted={() => {
+                  setAnon();
+                  navigate("/login", { replace: true });
+                }}
+              />
+            }
           />
-        </>
+          {/* Unknown tab → bounce back to the default. */}
+          <Route path="*" element={<Navigate to="/me/profile" replace />} />
+        </Routes>
       )}
     </div>
+  );
+}
+
+// --- Tabs -----------------------------------------------------------------
+
+function ProfileTab({
+  profile,
+  email,
+  onUpdated,
+}: {
+  profile: PublicProfile;
+  email: string;
+  onUpdated: (p: PublicProfile) => void;
+}) {
+  return (
+    <>
+      <ProfileSection profile={profile} email={email} onUpdated={onUpdated} />
+      <EmailSection email={email} />
+    </>
+  );
+}
+
+function PreferencesTab() {
+  return (
+    <PreferencesSection />
+  );
+}
+
+function NotificationsTab() {
+  return (
+    <>
+      <NotificationPrefsSection />
+      <PushSubscribeSection />
+    </>
+  );
+}
+
+function SecurityTab({
+  username,
+  onDeleted,
+}: {
+  username: string;
+  onDeleted: () => void;
+}) {
+  return (
+    <>
+      <PasswordSection />
+      <DangerSection username={username} onDeleted={onDeleted} />
+    </>
   );
 }
 
@@ -177,21 +251,161 @@ function ProfileSection({
   );
 }
 
+// --- Email ----------------------------------------------------------------
+
+// Change the account email. The change is verified, not immediate: it
+// re-authenticates with the current password, then emails a confirmation link
+// to the NEW address (the switch lands only when that link is clicked) and a
+// cancel link to the OLD address. Email doubles as a login identifier, so a
+// confirmed change also changes how you sign in.
+function EmailSection({ email }: { email: string }) {
+  const [next, setNext] = useState(email);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pendingFor, setPendingFor] = useState<string | null>(null);
+
+  // Re-baseline when the upstream email changes (post-confirm / account switch).
+  useEffect(() => setNext(email), [email]);
+
+  const dirty = next.trim() !== email && next.trim() !== "";
+  const ready = dirty && password.length > 0;
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setPendingFor(null);
+    setBusy(true);
+    try {
+      const res = await api.post<{ status: string; email: string }>(
+        "/api/users/me/email",
+        { current_password: password, email: next.trim() },
+      );
+      setPendingFor(res.email);
+      setPassword("");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        setError("That password is incorrect.");
+      } else if (e instanceof ApiError && e.status === 409) {
+        setError("That email is already in use by another account.");
+      } else if (e instanceof ApiError && e.status === 503) {
+        setError("Email isn't configured on this instance, so it can't be changed here.");
+      } else if (e instanceof ApiError && e.status === 502) {
+        setError("Couldn't send the confirmation email — check the SMTP relay.");
+      } else {
+        setError(e instanceof Error ? e.message : "request failed");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="recipe-section">
+      <h2>Email</h2>
+      <p className="muted">
+        Used for sign-in and notification delivery. Changing it sends a
+        confirmation link to the new address — your email won't change until
+        you open it. We'll also notify your current address.
+      </p>
+      <form className="profile-form" onSubmit={onSubmit}>
+        <label className="field">
+          <span>New email address</span>
+          <input
+            type="email"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            placeholder="you@example.com"
+          />
+        </label>
+        <label className="field">
+          <span>Current password</span>
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <span className="field-help muted">
+            Required to confirm it's really you.
+          </span>
+        </label>
+        {error && <p className="error">{error}</p>}
+        {pendingFor && !error && (
+          <p className="muted">
+            Confirmation sent to <strong>{pendingFor}</strong>. Open the link
+            there to finish the change.
+          </p>
+        )}
+        <div className="form-actions">
+          <button type="submit" disabled={busy || !ready}>
+            {busy ? "Sending…" : "Send confirmation"}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
 // --- Preferences ----------------------------------------------------------
 
-// Display-only preferences kept in localStorage. The server stores
-// canonical units (Celsius); the toggle just swaps how readings are
-// rendered + interpreted on input. Per-device by design — same brewer
-// might run metric on their phone and imperial on their laptop.
-function PreferencesSection() {
-  const [tempUnit, setTempUnit] = useTemperatureUnit();
+// Pulled once at module load — `Intl.supportedValuesOf` is the full IANA
+// list as known to the browser's ICU build. Feature-detected because the
+// API only landed in Chrome 99 / Safari 15.4 / Firefox 93; older browsers
+// fall through to a plain text input (server still validates).
+const IANA_TIMEZONES: readonly string[] =
+  typeof Intl !== "undefined" && "supportedValuesOf" in Intl
+    ? Intl.supportedValuesOf("timeZone")
+    : [];
 
-  const choose = (u: TempUnit) => () => setTempUnit(u);
+// Account-wide preferences (server-side). Temperature unit auto-saves on
+// click — the radio's checked state mirrors whatever the provider last
+// accepted, so a failed PATCH visibly snaps back. Timezone is text input
+// (with autocomplete) and has intermediate invalid states, so it keeps an
+// explicit Save button.
+function PreferencesSection() {
+  const { tempUnit, timezone: savedTimezone, setTempUnit, setTimezone } = usePreferences();
+
+  const [tempUnitError, setTempUnitError] = useState<string | null>(null);
+  const choose = (u: TempUnit) => async () => {
+    setTempUnitError(null);
+    try {
+      await setTempUnit(u);
+    } catch (e) {
+      setTempUnitError(e instanceof ApiError ? e.message : "save failed");
+    }
+  };
+
+  const [tz, setTz] = useState(savedTimezone);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  // Re-sync the form-local timezone whenever the provider's value changes
+  // (first load, or a successful save replaces it).
+  useEffect(() => {
+    setTz(savedTimezone);
+  }, [savedTimezone]);
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaveError(null);
+    setSaved(false);
+    setSaving(true);
+    try {
+      await setTimezone(tz || "UTC");
+      setSaved(true);
+    } catch (e) {
+      setSaveError(e instanceof ApiError ? e.message : "save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <section className="recipe-section">
       <h2>Preferences</h2>
-      <div className="profile-form">
+      <form className="profile-form" onSubmit={onSubmit}>
         <fieldset className="field">
           <legend>Temperature unit</legend>
           <div className="radio-group">
@@ -220,8 +434,39 @@ function PreferencesSection() {
             Affects how temperatures are shown and entered. Stored values are
             always Celsius — flipping back and forth is lossless.
           </span>
+          {tempUnitError && <p className="error">{tempUnitError}</p>}
         </fieldset>
-      </div>
+        <label className="field">
+          <span>Timezone</span>
+          <input
+            type="text"
+            value={tz}
+            onChange={(e) => setTz(e.target.value)}
+            placeholder="America/Los_Angeles"
+            list="iana-timezones"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+          />
+          {IANA_TIMEZONES.length > 0 && (
+            <datalist id="iana-timezones">
+              {IANA_TIMEZONES.map((z) => <option key={z} value={z} />)}
+            </datalist>
+          )}
+          <small className="muted">
+            IANA name (e.g. <code>Europe/Berlin</code>). Start typing to filter; used to interpret quiet hours.
+          </small>
+        </label>
+
+        {saveError && <p className="error">{saveError}</p>}
+        {saved && tz === savedTimezone && <p className="muted">Saved.</p>}
+
+        <div className="form-actions">
+          <button type="submit" disabled={saving || tz === savedTimezone}>
+            {saving ? "Saving…" : "Save timezone"}
+          </button>
+        </div>
+      </form>
     </section>
   );
 }

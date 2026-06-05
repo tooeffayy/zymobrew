@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/time/rate"
 
+	"zymobrew/internal/apprise"
 	"zymobrew/internal/config"
 	"zymobrew/internal/queries"
 	"zymobrew/internal/ratelimit"
@@ -31,11 +33,23 @@ type Server struct {
 	backupStore storage.Store
 	handler     http.Handler
 
+	// appriseValidator enforces scheme + host policy on user-supplied
+	// Apprise URLs. Constructed once at startup from cfg.
+	appriseValidator *apprise.Validator
+
 	// Auth-path rate limiters. authIP gates /api/auth/{register,login} per
 	// client IP; loginUser additionally gates /api/auth/login per identifier
-	// so a single legitimate IP can't hammer one account.
-	authIP    *ratelimit.Limiter
-	loginUser *ratelimit.Limiter
+	// so a single legitimate IP can't hammer one account. emailChange caps
+	// email-change initiations per user — it sends mail to a caller-supplied
+	// address, so an unbounded endpoint is a spam amplifier; the same cap
+	// also bounds online password-brute-force through the re-auth step.
+	authIP      *ratelimit.Limiter
+	loginUser   *ratelimit.Limiter
+	emailChange *ratelimit.Limiter
+
+	// sendMail delivers transactional email (email-change links, prefs test
+	// message). Defaults to sendEmailSMTP; tests override it via export_test.go.
+	sendMail mailSender
 }
 
 func New(pool *pgxpool.Pool, cfg config.Config, exportStore, backupStore storage.Store) *Server {
@@ -47,6 +61,15 @@ func New(pool *pgxpool.Pool, cfg config.Config, exportStore, backupStore storage
 		backupStore: backupStore,
 		authIP:      ratelimit.New(rate.Every(2*time.Second), 10, 30*time.Minute),
 		loginUser:   ratelimit.New(rate.Every(12*time.Second), 5, 30*time.Minute),
+		// Burst 5 then ~1 every 2 min: tolerates a password fat-finger or a
+		// retypo'd address, while capping spray-to-arbitrary-address and
+		// online password guessing to ~30/hr per account.
+		emailChange: ratelimit.New(rate.Every(2*time.Minute), 5, 30*time.Minute),
+		appriseValidator: apprise.NewValidator(
+			cfg.AppriseAllowWebhookSchemes,
+			cfg.AppriseAllowedHostCIDRs,
+		),
+		sendMail: sendEmailSMTP,
 	}
 	s.handler = s.routes()
 	return s
@@ -75,12 +98,19 @@ func (s *Server) routes() http.Handler {
 			})
 			r.With(s.requireAuth).Post("/logout", s.handleLogout)
 			r.With(s.requireAuth).Get("/me", s.handleMe)
+			// Email-change confirm/cancel are token-gated capabilities, not
+			// session-gated — the link may be opened on a device where the
+			// user isn't logged in (and the cancel link must work for the
+			// legitimate owner of a hijacked session). Public by design.
+			r.With(s.ipRateLimit(s.authIP)).Post("/email/confirm", s.handleConfirmEmailChange)
+			r.With(s.ipRateLimit(s.authIP)).Post("/email/cancel", s.handleCancelEmailChange)
 		})
 		r.Route("/users", func(r chi.Router) {
 			r.Use(s.requireAuth)
 			r.Patch("/me", s.handleUpdateProfile)
 			r.Delete("/me", s.handleDeleteAccount)
 			r.Post("/me/password", s.handleChangePassword)
+			r.Post("/me/email", s.handleChangeEmail)
 			r.Get("/{username}", s.handleGetProfile)
 		})
 		r.Route("/recipes", func(r chi.Router) {
@@ -146,6 +176,8 @@ func (s *Server) routes() http.Handler {
 			r.Post("/{id}/read", s.handleMarkNotificationRead)
 			r.Get("/prefs", s.handleGetNotificationPrefs)
 			r.Patch("/prefs", s.handleUpdateNotificationPrefs)
+			r.Post("/prefs/test", s.handleTestNotification)
+			r.Post("/prefs/test-email", s.handleTestEmail)
 		})
 		r.Route("/push", func(r chi.Router) {
 			r.Get("/public-key", s.handleGetVAPIDPublicKey)
@@ -159,6 +191,11 @@ func (s *Server) routes() http.Handler {
 			r.Get("/{id}", s.handleGetExport)
 			r.Get("/{id}/download", s.handleDownloadExport)
 		})
+		r.Route("/me/prefs", func(r chi.Router) {
+			r.Use(s.requireAuth)
+			r.Get("/", s.handleGetUserPrefs)
+			r.Patch("/", s.handleUpdateUserPrefs)
+		})
 		r.Route("/calculators", func(r chi.Router) {
 			r.Use(s.requireAuth)
 			r.Post("/abv", s.handleCalcABV)
@@ -170,6 +207,7 @@ func (s *Server) routes() http.Handler {
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(s.requireAuth)
 			r.Use(s.requireAdmin)
+			r.Get("/config", s.handleAdminConfig)
 			r.Route("/backups", func(r chi.Router) {
 				r.Post("/", s.handleTriggerAdminBackup)
 				r.Get("/", s.handleListAdminBackups)
@@ -257,7 +295,10 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.pool.Ping(r.Context()); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "db unavailable", "error": err.Error()})
+		// readyz is public; keep the body opaque so a failing probe can't leak
+		// DB host/port to an unauthenticated caller. The detail goes to logs.
+		slog.Error("readyz db ping failed", "err", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "db unavailable"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

@@ -102,7 +102,7 @@ export function Notifications() {
       </header>
 
       <p className="muted">
-        Manage delivery preferences and per-browser push on your <Link to="/me">profile page</Link>.
+        Manage delivery preferences and per-browser push under <Link to="/me/notifications">profile → notifications</Link>.
       </p>
 
       {error && <p className="error">{error}</p>}

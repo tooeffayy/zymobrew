@@ -41,7 +41,7 @@ internal/migrate      goose runner + River migrator (uses embedded migrations)
 internal/queries      sqlc generated type-safe code (Go only)
 internal/queries/sql  sqlc query source files (*.sql)
 internal/ratelimit    in-memory token-bucket limiter (per-IP, per-identifier)
-internal/server       chi HTTP router — /healthz, /readyz, /docs, /api/openapi.yaml, /api/auth/*, /api/users/*, /api/recipes/*, /api/batches/*, /api/notifications/*, /api/push/*, /api/users/me/exports/*, /api/admin/backups/*, /api/calculators/*, plus SPA fallback for non-/api/* routes
+internal/server       chi HTTP router — /healthz, /readyz, /docs, /api/openapi.yaml, /api/auth/* (incl. public email/confirm + email/cancel), /api/users/*, /api/me/prefs, /api/recipes/*, /api/batches/*, /api/notifications/*, /api/push/*, /api/users/me/exports/*, /api/admin/backups/*, /api/calculators/*, plus SPA fallback for non-/api/* routes
 web/                  React + Vite + TS frontend; built to web/dist/ and embedded via //go:embed
 internal/selftest     runtime smoke tests for `zymo selftest`
 internal/storage      Store interface + local + S3 backends (Put/Get/Delete/PresignGet)
@@ -91,9 +91,19 @@ go run ./cmd/zymo serve
 | `INSTANCE_MODE`   | `single_user`           | `single_user` \| `closed` \| `open` |
 | `AUTO_MIGRATE`    | `true`                  | Apply pending migrations on `serve` startup |
 | `COOKIE_SECURE`   | `false`                 | Set true in production behind TLS |
+| `BASE_URL`        | *(empty)*               | Public origin (e.g. `https://zymo.example.com`) for absolute links in outbound email (email-change confirm/cancel). Empty = derive from request Host (scheme from `COOKIE_SECURE`); set explicitly behind a proxy so a spoofed Host can't redirect a confirmation link. |
 | `VAPID_PUBLIC_KEY`  | *(optional)*          | VAPID public key for web-push (generate with `zymo vapid-keys`) |
 | `VAPID_PRIVATE_KEY` | *(optional)*          | VAPID private key for web-push |
 | `VAPID_SUBJECT`     | `mailto:admin@localhost` | VAPID contact (mailto: or https:) |
+| `APPRISE_API_URL`   | *(optional)*          | Base URL of an [Apprise API](https://github.com/caronc/apprise-api) sidecar (e.g. `http://apprise:8000`). Unset = Apprise channel disabled; in-app, push, and SMTP are unaffected. |
+| `APPRISE_ALLOW_WEBHOOK_SCHEMES` | `false`   | Allow `http://`, `https://`, `json://`, `jsons://`, `xml://`, `xmls://`, `form://`, `forms://` Apprise URLs. Off by default — those schemes let the caller direct the sidecar at arbitrary URLs (SSRF). Turn on only if every user with an account is trusted not to weaponize the sidecar against the operator's internal network. |
+| `APPRISE_ALLOWED_HOST_CIDRS` | *(empty)*    | Comma-separated CIDRs that bypass the internal-host blocklist (RFC1918 / loopback / link-local / IMDS / IPv6 ULA / etc.). Use for legitimate self-hosted destinations — e.g. `APPRISE_ALLOWED_HOST_CIDRS=10.42.0.10/32` to permit an in-cluster ntfy server. |
+| `SMTP_HOST`         | *(optional)*          | SMTP relay host. Unset = direct-SMTP channel disabled (operators relying on Apprise's `mailto://` can leave it off). Required for `email_enabled` to do anything. |
+| `SMTP_PORT`         | `587`                 | SMTP relay port. 587 (submission/STARTTLS) is the right answer for almost everyone; 465 if pairing with `SMTP_TLS_MODE=tls`. |
+| `SMTP_USERNAME`     | *(optional)*          | SMTP auth username. Empty disables auth (the client connects unauthenticated — fine for local relays). |
+| `SMTP_PASSWORD`     | *(optional)*          | SMTP auth password. Required when `SMTP_USERNAME` is set. |
+| `SMTP_FROM`         | *(optional)*          | Envelope/From address (e.g. `Zymo <zymo@example.com>`). Required for SMTP to be considered configured. |
+| `SMTP_TLS_MODE`     | `starttls`            | `starttls` (issue STARTTLS, require encryption) \| `tls` (implicit TLS on connect, port 465 style) \| `none` (cleartext — local only). |
 | `STORAGE_BACKEND`     | `local`               | `local` \| `s3` — primary storage backend. Holds user-export archives under the `tmp/exports/` key prefix. |
 | `STORAGE_LOCAL_PATH`  | `./data`              | Filesystem root for the primary local backend. |
 | `S3_ENDPOINT`         | *(optional)*          | Primary S3-compatible endpoint URL (e.g. MinIO). Empty for AWS S3. |
@@ -150,13 +160,23 @@ go test ./...
 - **Login timing**: always runs argon2 (against a dummy hash if user not found) to prevent username enumeration by timing. See `auth.DummyHash`.
 - **Cookie security**: `COOKIE_SECURE=true` for production. CSRF currently SameSite=Lax; CSRF tokens deferred until cross-origin frontends exist.
 
+### Email change (verified)
+
+`POST /api/users/me/email` does **not** mutate `users.email` directly. It re-authenticates with the current password (a valid session alone must not be able to swap the account's recovery/identity anchor), then writes a row to `email_change_requests` and mails two links:
+- **Confirm** → the NEW address. The switch lands only when this link is followed, proving the address is real and controlled by the requester.
+- **Cancel** → the OLD address. Lets the legitimate owner abort a change they didn't start (the tripwire against a hijacked session).
+
+Both are independent 32-byte tokens stored only as SHA-256 hashes (`auth.NewSessionToken`/`HashSessionToken`, same scheme as sessions). Confirm/cancel are handled by the **public, token-gated** `POST /api/auth/email/{confirm,cancel}` (`security: []`) — the link may be opened where the user isn't logged in, and the token is the sole capability. The SPA landing pages (`/email/confirm`, `/email/cancel`) run the mutation on an explicit click, not on mount, so a link prefetcher can't auto-confirm.
+
+Details: requires SMTP configured (`503` otherwise — the flow is email-driven); one active request per user (a new request deletes any prior); confirm-mail send failure rolls the request back (`502`); old-address notice is best-effort. Uniqueness is checked at request time (`409`) and **re-checked at confirm** (another account could claim the address in between). Requests carry a 24h TTL; expired rows are inert (lookups filter on `expires_at`) and swept hourly by the `expired_sessions_gc` job. `BASE_URL` builds the absolute link (falls back to request Host — set it behind a proxy to defeat Host spoofing). Anonymization deletes the user's `email_change_requests` rows.
+
 ## Account Deletion (anonymization)
 
 `DELETE /api/users/me` strips PII from the user row in place rather than hard-deleting it. The blocking FKs (`recipe_revisions.author_id`, `admin_audit_log.admin_id`) point at *the user row*, not its PII — so anonymization preserves audit/history integrity while satisfying GDPR (Recital 26: anonymized data is no longer personal data).
 
 **What gets cleared** (one tx, see `internal/account.Anonymize`):
 - `users` row: username → `deleted-<id>`, email → `deleted-<id>@deleted.invalid` (RFC 2606 reserved TLD), `password_hash`/`display_name`/`bio`/`avatar_url`/`deletion_*` → NULL, `deleted_at` set.
-- Wiped: `sessions`, `push_devices`, `notifications`, `notification_prefs`, `user_exports` (rows + blobs).
+- Wiped: `sessions`, `push_devices`, `notifications`, `notification_prefs`, `user_prefs`, `user_exports` (rows + blobs), `email_change_requests`.
 - Retained: recipes, recipe_revisions, recipe_comments, recipe_likes, follows, batches, readings, events, tasting_notes, reminders. Author renders as the `deleted-<id>` placeholder.
 
 **Guards**: refuses if `is_admin = true` (must hand off first); requires password confirmation in body.
@@ -183,10 +203,11 @@ Two layers, in-memory token buckets (`internal/ratelimit`). Per-process — acce
 
 | Layer | Where | Burst | Refill | Keyed by |
 |---|---|---|---|---|
-| IP gate | middleware on `/api/auth/{register,login}` | 10 | 1 / 2s | `r.RemoteAddr` (post chi `RealIP`) |
+| IP gate | middleware on `/api/auth/{register,login}` + `/api/auth/email/{confirm,cancel}` | 10 | 1 / 2s | `r.RemoteAddr` (post chi `RealIP`) |
 | Per-identifier gate | inside `handleLogin` after body decode | 5 | 1 / 12s | `strings.ToLower(req.Identifier)` |
+| Email-change gate | inside `handleChangeEmail`, before re-auth | 5 | 1 / 2min | `user.ID` |
 
-Either trip returns 429 with `Retry-After: 60`. Eviction is lazy — no background goroutine.
+Either trip returns 429 with `Retry-After: 60`. Eviction is lazy — no background goroutine. The email-change gate reuses the IP gate's limiter on the public confirm/cancel endpoints; the per-user gate (`emailChange`) caps initiations because that endpoint mails a caller-supplied address (spam-amplifier defense) and also bounds online password-guessing through the re-auth step.
 
 ## API Reference
 
@@ -204,7 +225,7 @@ These cross-cutting rules apply across all resources:
 
 **Brew-type guard** — only `mead`, `cider`, and `wine` are accepted at the API surface (`allowedBrewTypes` in `internal/server/batches.go`). The `brew_type` ENUM in Postgres also includes `beer` and `kombucha`, but those need flow logic (mash/boil for beer, F1/F2 for kombucha) that ships in Phases 6-7.
 
-**Auth** — every `/api/*` route requires auth except `/api/auth/register`, `/api/auth/login`, and `/api/push/public-key`. Outside `/api`, `/healthz`, `/readyz`, `/docs`, and `/api/openapi.yaml` are also public. `/api/admin/*` additionally requires `users.is_admin = true` (`requireAdmin` middleware → 403). The OpenAPI spec encodes this as a global `security:` default with `security: []` overrides on the public endpoints; new routes inherit the default and don't need a per-operation `security:` block. See Auth section for session mechanics.
+**Auth** — every `/api/*` route requires auth except `/api/auth/register`, `/api/auth/login`, `/api/auth/email/confirm`, `/api/auth/email/cancel`, and `/api/push/public-key`. Outside `/api`, `/healthz`, `/readyz`, `/docs`, and `/api/openapi.yaml` are also public. `/api/admin/*` additionally requires `users.is_admin = true` (`requireAdmin` middleware → 403). The OpenAPI spec encodes this as a global `security:` default with `security: []` overrides on the public endpoints; new routes inherit the default and don't need a per-operation `security:` block. See Auth section for session mechanics.
 
 **Cursor pagination** — list endpoints (`/api/recipes`, `/api/recipes/mine`, `/api/recipes/{id}/comments`, `/api/batches`, `/api/notifications`) use opaque keyset cursors via `?cursor=&limit=` (default 50, max 100). Responses are `{<plural>: [...], next_cursor: string|null}`. Helpers: `internal/cursor` encodes `(timestamp, uuid)` as base64-url JSON; `internal/server/pagination.go` parses query params and produces `next_cursor`. SQL queries use `WHERE (sort_key, id) < (cursor_ts, cursor_id) OR cursor_ts IS NULL` with the IS-NULL guard required because Postgres row comparisons return NULL when any side is NULL. Other lists (readings, events, exports, admin backups, reminders) are naturally bounded or deferred — see "Known deferred gaps".
 
@@ -251,15 +272,23 @@ These cross-cutting rules apply across all resources:
 
 **Validation** — gravity inputs clamped to 0.990–1.200; FG must be < OG; NaN/Inf rejected. Errors map to 400 via `errors.Is(err, calc.ErrInvalidInput)`.
 
-### Notifications + Push
+### Notifications + Push + Apprise + Email
 
-**In-app notifications always created** regardless of quiet hours or push config.
+Four delivery channels — in-app (always), web push (per-browser subscriptions), Apprise (per-user URL, routes to email/Discord/Telegram/Matrix/ntfy/Pushover/etc. via an [Apprise API](https://github.com/caronc/apprise-api) sidecar), and direct SMTP (operator-configured relay → user's account email). Apprise's `mailto://` and the SMTP channel overlap on purpose: Apprise covers exotic destinations but requires running the sidecar; SMTP is the zero-sidecar path for operators who only want email. Both can be enabled simultaneously, or just one. Each is gated per-user via its respective toggle.
 
-**Quiet hours** — dispatcher checks `notification_prefs.quiet_hours_*` in the user's timezone before sending push. Handles midnight-wrapping windows.
+**In-app notifications always created** regardless of quiet hours or external-channel config.
+
+**Quiet hours** — dispatcher checks `notification_prefs.quiet_hours_*` in the user's timezone (read from `user_prefs.timezone`) before sending push, Apprise, *or* email. Handles midnight-wrapping windows.
 
 **Push payload** — JSON `{"title": "...", "body": "...", "url_path": "..."}`. Browser service worker shows a native notification.
 
 **VAPID keys** — generate with `zymo vapid-keys`. If not set, push is silently skipped but in-app notifications still work.
+
+**Apprise** — operator sets `APPRISE_API_URL` (base URL of the sidecar, e.g. `http://apprise:8000`); each user pastes their per-account `apprise_url` (e.g. `mailto://`, `discord://`, `tgram://`) into prefs and toggles `apprise_enabled`. Dispatcher POSTs `{urls, title, body, type:"info"}` to `<APPRISE_API_URL>/notify` per due reminder. Errors logged + dropped, mirroring push semantics — the in-app row is the durable record. `POST /api/notifications/prefs/test` sends a fixed test payload for the prefs UI's "Send test" button, so users can validate URLs before saving. Apprise URLs are user-supplied secrets (mail/Telegram/Discord tokens embedded in the URL) — they aren't returned in any list endpoint, only the owner's `GET /api/notifications/prefs`.
+
+**Apprise URL policy (SSRF defense)** — every Apprise URL passes through `internal/apprise.Validator` before storage and on each dispatch. Two layers: (1) the generic-webhook schemes `http`/`https`/`json`/`jsons`/`xml`/`xmls`/`form`/`forms` are rejected by default — they let the caller fully control the URL the sidecar fetches, which would weaponize the sidecar against the operator's internal network. Flip `APPRISE_ALLOW_WEBHOOK_SCHEMES=true` to opt in. (2) Whenever a URL has a host that resolves to an address in the default-blocked set (RFC1918, loopback, link-local incl. 169.254.169.254 IMDS, IPv6 ULA/link-local, multicast, doc/test ranges), the URL is rejected. Punch holes with `APPRISE_ALLOWED_HOST_CIDRS` for legitimate self-hosted destinations. Token-style hosts (e.g. `tgram://botToken/...`) fail DNS lookup and are allowed through — Apprise treats those as credentials, not network addresses. Dispatch re-validates the saved URL each tick so rows persisted before policy tightened can't keep firing.
+
+**Direct SMTP** — operator sets `SMTP_HOST`/`SMTP_FROM` (and credentials for authed relays); each user opts in via `notification_prefs.email_enabled`. Destination is `users.email` — no separate notification-address field, keeping the prefs surface small. Dispatcher dials the relay per due reminder using [`wneessen/go-mail`](https://github.com/wneessen/go-mail) with the configured TLS mode (`starttls` default; `tls` for implicit TLS on 465; `none` for local relays). PLAIN auth only when credentials are set — adequate for self-hosted relays and the major transactional SMTP providers; LOGIN/XOAUTH2 not wired until needed. Failures logged + dropped, same contract as push/Apprise. `POST /api/notifications/prefs/test-email` sends a fixed test message to the caller's account email for the prefs UI's "Send test email" button. Returns 503 if SMTP isn't configured, 502 on relay error.
 
 ### Known deferred gaps
 
@@ -304,7 +333,7 @@ River runs in-process. Queue state in `river_*` tables. `migrate.Up` runs goose 
 
 | Job | Schedule | Purpose |
 |---|---|---|
-| `expired_sessions_gc` | every hour, `RunOnStart: true` | `DELETE FROM sessions WHERE expires_at < now()` |
+| `expired_sessions_gc` | every hour, `RunOnStart: true` | `DELETE FROM sessions WHERE expires_at < now()`; also sweeps expired `email_change_requests` |
 | `reminder_dispatcher` | every minute | Atomically claims due reminders (`FOR UPDATE SKIP LOCKED`), creates in-app `notifications` rows |
 | `user_export_dispatcher` | every minute | Claims pending `user_exports` (`FOR UPDATE SKIP LOCKED`), builds the archive (zip / tar.gz / zstd per row), writes to the primary store under `tmp/exports/`, marks complete. Also expires + deletes blobs of past-`expires_at` exports as a safety net (primary cleanup is post-download in `handleDownloadExport`). |
 | `admin_backup_dispatcher` | every minute | Claims pending `admin_backups` (`FOR UPDATE SKIP LOCKED`), streams `pg_dump --format=custom` into storage. Also hard-deletes rows + blobs past `BACKUP_RETENTION_DAYS`. |
@@ -352,7 +381,7 @@ River runs in-process. Queue state in `river_*` tables. `migrate.Up` runs goose 
 - **DB poll dispatcher** (every minute) — chosen over queue-at-creation because reminders are frequently edited/cancelled.
 - **Atomic claim** before dispatch prevents double-send.
 - **In-app notifications always created**; push/email gated by prefs.
-- **Quiet hours respect user timezone** — store TZ on prefs, never compute against UTC.
+- **Quiet hours respect user timezone** — TZ lives on `user_prefs` (alongside `degree_units`), never compute against UTC.
 - **Smart reminders**: no reading in N days → gravity check nudge; stable gravity across 3+ readings → racking suggestion; stage → `aging` → auto-schedule milestones.
 
 ---

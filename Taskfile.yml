@@ -1,8 +1,12 @@
 version: "3"
 
 env:
+  INSTANCE_MODE: open
   DATABASE_URL: postgres://zymo:zymo@localhost:5433/zymo?sslmode=disable
   TEST_DATABASE_URL: postgres://zymo:zymo@localhost:5433/zymo?sslmode=disable
+
+dotenv:
+  - .env
 
 tasks:
   default:
@@ -38,9 +42,29 @@ tasks:
     cmds:
       - docker compose exec postgres psql -U zymo -d zymo
 
+  apprise:up:
+    desc: Start the Apprise sidecar (notification fan-out for dev/testing)
+    cmds:
+      - docker compose --profile apprise up -d apprise
+
+  apprise:down:
+    desc: Stop the Apprise sidecar
+    cmds:
+      - docker compose --profile apprise stop apprise
+
+  gotify:up:
+    desc: Start the Gotify server (paired with apprise via gotify:// URLs)
+    cmds:
+      - docker compose --profile gotify up -d gotify
+
+  gotify:down:
+    desc: Stop the Gotify server (data preserved)
+    cmds:
+      - docker compose --profile gotify stop gotify
+
   migrate:
     desc: Apply pending migrations
-    deps: [ db:up ]
+    deps: [db:up]
     cmds:
       - go run ./cmd/zymo migrate
 
@@ -63,7 +87,7 @@ tasks:
 
   selftest:
     desc: Run runtime smoke tests against the configured DB
-    deps: [ db:up ]
+    deps: [db:up]
     cmds:
       - go run ./cmd/zymo selftest
 
@@ -79,7 +103,7 @@ tasks:
 
   test:
     desc: Run the Go test suite (uses TEST_DATABASE_URL)
-    deps: [ db:up ]
+    deps: [db:up]
     cmds:
       - go test ./... {{.CLI_ARGS}}
 
@@ -139,16 +163,16 @@ tasks:
       - docker:build
       - db:up
     cmds:
-      - "echo \"==> binary version\""
+      - 'echo "==> binary version"'
       - docker run --rm zymo:dev version
-      - "echo \"==> pg_dump on PATH\""
+      - 'echo "==> pg_dump on PATH"'
       - docker run --rm --entrypoint pg_dump zymo:dev --version
-      - "echo \"==> runs as nonroot (uid:gid 65532)\""
+      - 'echo "==> runs as nonroot (uid:gid 65532)"'
       - docker run --rm --entrypoint id zymo:dev
-      - "echo \"==> ca-certificates bundle present\""
+      - 'echo "==> ca-certificates bundle present"'
       - docker run --rm --entrypoint sh zymo:dev -c 'test -s
         /etc/ssl/certs/ca-certificates.crt && echo ok'
-      - "echo \"==> selftest against dev postgres\""
+      - 'echo "==> selftest against dev postgres"'
       - docker run --rm --add-host=host.docker.internal:host-gateway -e
         DATABASE_URL=postgres://zymo:zymo@host.docker.internal:5433/zymo?sslmode=disable
         -e STORAGE_LOCAL_PATH=/tmp/zymo-storage zymo:dev selftest

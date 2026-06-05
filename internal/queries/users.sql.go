@@ -379,6 +379,38 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 	return i, err
 }
 
+const updateUserEmail = `-- name: UpdateUserEmail :one
+UPDATE users SET email = $1
+WHERE id = $2 AND deleted_at IS NULL
+RETURNING id, username, email, display_name, bio, avatar_url, deleted_at, deletion_scheduled_for, deletion_choices, deletion_reason, created_at, password_hash, is_admin
+`
+
+type UpdateUserEmailParams struct {
+	Email string    `json:"email"`
+	ID    uuid.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserEmail, arg.Email, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.DisplayName,
+		&i.Bio,
+		&i.AvatarUrl,
+		&i.DeletedAt,
+		&i.DeletionScheduledFor,
+		&i.DeletionChoices,
+		&i.DeletionReason,
+		&i.CreatedAt,
+		&i.PasswordHash,
+		&i.IsAdmin,
+	)
+	return i, err
+}
+
 const updateUserPassword = `-- name: UpdateUserPassword :exec
 UPDATE users SET password_hash = $1
 WHERE id = $2 AND deleted_at IS NULL

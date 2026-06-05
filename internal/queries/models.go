@@ -490,6 +490,17 @@ type Device struct {
 	LastSeenAt   pgtype.Timestamptz `json:"last_seen_at"`
 }
 
+type EmailChangeRequest struct {
+	ID               uuid.UUID          `json:"id"`
+	UserID           uuid.UUID          `json:"user_id"`
+	NewEmail         string             `json:"new_email"`
+	OldEmail         string             `json:"old_email"`
+	ConfirmTokenHash string             `json:"confirm_token_hash"`
+	CancelTokenHash  string             `json:"cancel_token_hash"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+}
+
 type Follow struct {
 	FollowerID uuid.UUID          `json:"follower_id"`
 	FollowedID uuid.UUID          `json:"followed_id"`
@@ -523,10 +534,11 @@ type Notification struct {
 type NotificationPref struct {
 	UserID          uuid.UUID   `json:"user_id"`
 	PushEnabled     bool        `json:"push_enabled"`
-	EmailEnabled    bool        `json:"email_enabled"`
+	AppriseEnabled  bool        `json:"apprise_enabled"`
 	QuietHoursStart pgtype.Time `json:"quiet_hours_start"`
 	QuietHoursEnd   pgtype.Time `json:"quiet_hours_end"`
-	Timezone        string      `json:"timezone"`
+	AppriseUrl      pgtype.Text `json:"apprise_url"`
+	EmailEnabled    bool        `json:"email_enabled"`
 }
 
 type PushDevice struct {
@@ -713,4 +725,10 @@ type UserImport struct {
 	Error          pgtype.Text        `json:"error"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+}
+
+type UserPref struct {
+	UserID      uuid.UUID `json:"user_id"`
+	DegreeUnits string    `json:"degree_units"`
+	Timezone    string    `json:"timezone"`
 }

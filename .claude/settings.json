@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go test *)",
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(go doc *)",
+      "Bash(gofmt *)",
+      "Bash(bun run build)",
+      "Bash(bun run tsc)",
+      "Bash(sed *)",
+      "Bash(task web:build)",
+      "Bash(task test)",
+      "mcp__claude-in-chrome__find",
+      "mcp__claude-in-chrome__tabs_context_mcp",
+      "mcp__claude-in-chrome__read_console_messages",
+      "mcp__claude-in-chrome__read_page"
+    ],
+    "deny": [
+      ".env",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Bash(cat .env*)",
+      "Bash(cat *.env)",
+      "Bash(head .env*)",
+      "Bash(tail .env*)",
+      "Bash(less .env*)",
+      "Bash(more .env*)",
+      "Bash(nano .env*)",
+      "Bash(vim .env*)",
+      "Bash(grep * .env*)",
+      "Bash(grep * *.env)",
+      "Bash(* .env)",
+      "Bash(* .env.*)"
+    ]
+  }
+}

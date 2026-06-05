@@ -69,6 +69,14 @@ body {
   margin: 0;
 }
 
+/* Always reserve the vertical scrollbar's gutter so navigating between a
+   short page (no scrollbar) and a long page (scrollbar) doesn't shift the
+   content horizontally. `stable` reserves the space regardless of whether
+   the scrollbar is currently shown. */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background: var(--bg);
   color: var(--fg);
@@ -2842,6 +2850,44 @@ select:focus-visible {
 
 .profile-page .recipe-section {
   max-width: 36rem;
+}
+
+/* Underline tabs for /me/{profile,notifications,security}. The
+   margin-bottom: -1px on each link lets the active 2px border overlap the
+   bar's 1px line so the underline reads as a single continuous segment
+   rather than a stack of two strokes. */
+.profile-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0.5rem 0 1.5rem;
+  border-bottom: 1px solid var(--line);
+  max-width: 36rem;
+}
+
+.profile-tabs a {
+  padding: 0.625rem 1rem;
+  margin-bottom: -1px;
+  text-decoration: none;
+  color: var(--fg-soft);
+  border-bottom: 2px solid transparent;
+  font-weight: 500;
+  font-size: 0.9375rem;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+
+.profile-tabs a:hover {
+  color: var(--fg);
+}
+
+.profile-tabs a.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+.profile-tabs a:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .profile-form {
