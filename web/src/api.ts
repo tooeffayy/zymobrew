@@ -238,6 +238,7 @@ export interface BatchEvent {
 
 export interface BatchEventPage {
   events: BatchEvent[];
+  next_cursor: string | null;
 }
 
 // Mirrors readingView in internal/server/batches.go. At least one of
@@ -255,6 +256,44 @@ export interface Reading {
 
 export interface ReadingPage {
   readings: Reading[];
+  next_cursor: string | null;
+}
+
+// The readings and events endpoints are keyset-paginated (default 50, max
+// 100 per page). The batch chart and journal need every row, so these walk
+// the cursor to exhaustion and concatenate. Pages come back oldest-first, so
+// appending preserves chronological order. `limit=100` keeps the round-trips
+// down for long batches (device adapters can produce thousands of readings).
+type CursorPage = { next_cursor: string | null } & Record<string, unknown>;
+
+async function fetchAllPages<T>(
+  basePath: string,
+  pick: (page: CursorPage) => T[],
+): Promise<T[]> {
+  const out: T[] = [];
+  let cursor: string | null = null;
+  do {
+    const sep: string = basePath.includes("?") ? "&" : "?";
+    const qs: string = `${sep}limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const page: CursorPage = await api.get<CursorPage>(`${basePath}${qs}`);
+    out.push(...pick(page));
+    cursor = page.next_cursor;
+  } while (cursor !== null);
+  return out;
+}
+
+export function fetchAllReadings(batchID: string): Promise<Reading[]> {
+  return fetchAllPages<Reading>(
+    `/api/batches/${encodeURIComponent(batchID)}/readings`,
+    (p) => (p as unknown as ReadingPage).readings,
+  );
+}
+
+export function fetchAllBatchEvents(batchID: string): Promise<BatchEvent[]> {
+  return fetchAllPages<BatchEvent>(
+    `/api/batches/${encodeURIComponent(batchID)}/events`,
+    (p) => (p as unknown as BatchEventPage).events,
+  );
 }
 
 // Mirrors tastingNoteView in internal/server/batches.go. Server enforces

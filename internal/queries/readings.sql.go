@@ -90,14 +90,76 @@ func (q *Queries) DeleteReadingsBulk(ctx context.Context, arg DeleteReadingsBulk
 	return result.RowsAffected(), nil
 }
 
-const listReadingsForBatch = `-- name: ListReadingsForBatch :many
+const listAllReadingsForBatch = `-- name: ListAllReadingsForBatch :many
 SELECT id, batch_id, device_id, taken_at, gravity, temperature_c, ph, notes, source, raw_payload FROM readings
 WHERE batch_id = $1
 ORDER BY taken_at ASC, id ASC
 `
 
-func (q *Queries) ListReadingsForBatch(ctx context.Context, batchID uuid.UUID) ([]Reading, error) {
-	rows, err := q.db.Query(ctx, listReadingsForBatch, batchID)
+// Unbounded chronological list for the user-export job, which must capture
+// every reading regardless of page size. Not exposed over HTTP — the API
+// uses the paginated ListReadingsForBatch.
+func (q *Queries) ListAllReadingsForBatch(ctx context.Context, batchID uuid.UUID) ([]Reading, error) {
+	rows, err := q.db.Query(ctx, listAllReadingsForBatch, batchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Reading{}
+	for rows.Next() {
+		var i Reading
+		if err := rows.Scan(
+			&i.ID,
+			&i.BatchID,
+			&i.DeviceID,
+			&i.TakenAt,
+			&i.Gravity,
+			&i.TemperatureC,
+			&i.Ph,
+			&i.Notes,
+			&i.Source,
+			&i.RawPayload,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReadingsForBatch = `-- name: ListReadingsForBatch :many
+SELECT id, batch_id, device_id, taken_at, gravity, temperature_c, ph, notes, source, raw_payload FROM readings
+WHERE batch_id = $1
+  AND (
+    $2::timestamptz IS NULL
+    OR (taken_at, id) > ($2::timestamptz, $3::uuid)
+  )
+ORDER BY taken_at ASC, id ASC
+LIMIT $4
+`
+
+type ListReadingsForBatchParams struct {
+	BatchID  uuid.UUID          `json:"batch_id"`
+	CursorTs pgtype.Timestamptz `json:"cursor_ts"`
+	CursorID uuid.NullUUID      `json:"cursor_id"`
+	LimitN   int32              `json:"limit_n"`
+}
+
+// Keyset pagination, ascending (chronological) so the chart and table get
+// readings oldest-first. Unlike the DESC list endpoints the comparison is
+// `>`: the next page is the rows *after* the cursor row. taken_at is NOT
+// NULL so no COALESCE guard is needed on the sort key — only the cursor
+// params themselves are nullable (NULL = first page).
+func (q *Queries) ListReadingsForBatch(ctx context.Context, arg ListReadingsForBatchParams) ([]Reading, error) {
+	rows, err := q.db.Query(ctx, listReadingsForBatch,
+		arg.BatchID,
+		arg.CursorTs,
+		arg.CursorID,
+		arg.LimitN,
+	)
 	if err != nil {
 		return nil, err
 	}

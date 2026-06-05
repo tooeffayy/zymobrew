@@ -204,8 +204,8 @@ func (w *userExportDispatchWorker) writeBatches(ctx context.Context, write entry
 	}
 	out := make([]batchExport, 0, len(batches))
 	for _, b := range batches {
-		readings, _ := w.queries.ListReadingsForBatch(ctx, b.ID)
-		events, _ := w.queries.ListBatchEventsForBatch(ctx, b.ID)
+		readings, _ := w.queries.ListAllReadingsForBatch(ctx, b.ID)
+		events, _ := w.queries.ListAllBatchEventsForBatch(ctx, b.ID)
 		notes, _ := w.queries.ListTastingNotesForBatch(ctx, b.ID)
 		out = append(out, batchExport{Batch: b, Readings: readings, Events: events, TastingNotes: notes})
 	}

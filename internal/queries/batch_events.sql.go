@@ -92,14 +92,72 @@ func (q *Queries) GetBatchEvent(ctx context.Context, arg GetBatchEventParams) (B
 	return i, err
 }
 
-const listBatchEventsForBatch = `-- name: ListBatchEventsForBatch :many
+const listAllBatchEventsForBatch = `-- name: ListAllBatchEventsForBatch :many
 SELECT id, batch_id, occurred_at, kind, title, description, details FROM batch_events
 WHERE batch_id = $1
 ORDER BY occurred_at ASC, id ASC
 `
 
-func (q *Queries) ListBatchEventsForBatch(ctx context.Context, batchID uuid.UUID) ([]BatchEvent, error) {
-	rows, err := q.db.Query(ctx, listBatchEventsForBatch, batchID)
+// Unbounded chronological list for the user-export job, which must capture
+// every event regardless of page size. Not exposed over HTTP — the API uses
+// the paginated ListBatchEventsForBatch.
+func (q *Queries) ListAllBatchEventsForBatch(ctx context.Context, batchID uuid.UUID) ([]BatchEvent, error) {
+	rows, err := q.db.Query(ctx, listAllBatchEventsForBatch, batchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BatchEvent{}
+	for rows.Next() {
+		var i BatchEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.BatchID,
+			&i.OccurredAt,
+			&i.Kind,
+			&i.Title,
+			&i.Description,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBatchEventsForBatch = `-- name: ListBatchEventsForBatch :many
+SELECT id, batch_id, occurred_at, kind, title, description, details FROM batch_events
+WHERE batch_id = $1
+  AND (
+    $2::timestamptz IS NULL
+    OR (occurred_at, id) > ($2::timestamptz, $3::uuid)
+  )
+ORDER BY occurred_at ASC, id ASC
+LIMIT $4
+`
+
+type ListBatchEventsForBatchParams struct {
+	BatchID  uuid.UUID          `json:"batch_id"`
+	CursorTs pgtype.Timestamptz `json:"cursor_ts"`
+	CursorID uuid.NullUUID      `json:"cursor_id"`
+	LimitN   int32              `json:"limit_n"`
+}
+
+// Keyset pagination, ascending (chronological) so the journal reads
+// oldest-first. Comparison is `>` (next page = rows after the cursor row);
+// occurred_at is NOT NULL so the sort key needs no COALESCE guard — only
+// the cursor params are nullable (NULL = first page).
+func (q *Queries) ListBatchEventsForBatch(ctx context.Context, arg ListBatchEventsForBatchParams) ([]BatchEvent, error) {
+	rows, err := q.db.Query(ctx, listBatchEventsForBatch,
+		arg.BatchID,
+		arg.CursorTs,
+		arg.CursorID,
+		arg.LimitN,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -227,7 +227,7 @@ These cross-cutting rules apply across all resources:
 
 **Auth** — every `/api/*` route requires auth except `/api/auth/register`, `/api/auth/login`, `/api/auth/email/confirm`, `/api/auth/email/cancel`, and `/api/push/public-key`. Outside `/api`, `/healthz`, `/readyz`, `/docs`, and `/api/openapi.yaml` are also public. `/api/admin/*` additionally requires `users.is_admin = true` (`requireAdmin` middleware → 403). The OpenAPI spec encodes this as a global `security:` default with `security: []` overrides on the public endpoints; new routes inherit the default and don't need a per-operation `security:` block. See Auth section for session mechanics.
 
-**Cursor pagination** — list endpoints (`/api/recipes`, `/api/recipes/mine`, `/api/recipes/{id}/comments`, `/api/batches`, `/api/notifications`) use opaque keyset cursors via `?cursor=&limit=` (default 50, max 100). Responses are `{<plural>: [...], next_cursor: string|null}`. Helpers: `internal/cursor` encodes `(timestamp, uuid)` as base64-url JSON; `internal/server/pagination.go` parses query params and produces `next_cursor`. SQL queries use `WHERE (sort_key, id) < (cursor_ts, cursor_id) OR cursor_ts IS NULL` with the IS-NULL guard required because Postgres row comparisons return NULL when any side is NULL. Other lists (readings, events, exports, admin backups, reminders) are naturally bounded or deferred — see "Known deferred gaps".
+**Cursor pagination** — list endpoints (`/api/recipes`, `/api/recipes/mine`, `/api/recipes/{id}/comments`, `/api/batches`, `/api/batches/{id}/readings`, `/api/batches/{id}/events`, `/api/notifications`) use opaque keyset cursors via `?cursor=&limit=` (default 50, max 100). Responses are `{<plural>: [...], next_cursor: string|null}`. Helpers: `internal/cursor` encodes `(timestamp, uuid)` as base64-url JSON; `internal/server/pagination.go` parses query params and produces `next_cursor`. Most lists sort DESC and compare `(sort_key, id) < (cursor_ts, cursor_id)`; **readings, events, and comments sort ASC (chronological)** and flip the comparison to `>` (next page = rows *after* the cursor). Both forms carry the `cursor_ts IS NULL` first-page guard, required because Postgres row comparisons return NULL when any side is NULL. The export job needs every row regardless of page size, so it uses unbounded `ListAllReadingsForBatch`/`ListAllBatchEventsForBatch` (not the paginated HTTP queries); the SPA's batch-detail page walks the cursor to exhaustion via `fetchAllReadings`/`fetchAllBatchEvents` (`web/src/api.ts`) so the chart and journal get the full series. Other lists (exports, admin backups, reminders, tasting notes) are naturally bounded or deferred — see "Known deferred gaps".
 
 ### Recipes
 
@@ -293,7 +293,6 @@ Four delivery channels — in-app (always), web push (per-browser subscriptions)
 ### Known deferred gaps
 
 - **`custom_event` anchor** materialization — needs event title/kind selector.
-- **Unbounded readings/events** — no pagination; add cursor when device adapters (Tilt/RAPT) land.
 - **`source` is free text** — constrain to known set when device adapters ship.
 
 ### Backups + Exports
