@@ -4236,6 +4236,108 @@ button.danger:disabled {
   }
 }
 
+/* --- Batch detail layout ----------------------------------------------
+   Two columns on desktop: the journal / readings / tasting stream (main)
+   and a sticky "Next steps" rail (aside) so actionable reminders stay in
+   view while the brewer scrolls the log. Collapses to a single column —
+   reminders first — below the shell breakpoint. */
+.batch-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  grid-template-areas: "main aside";
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.batch-main {
+  grid-area: main;
+  min-width: 0;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.batch-aside {
+  grid-area: aside;
+  min-width: 0;
+}
+
+@media (min-width: 60.01rem) {
+  .batch-aside {
+    position: sticky;
+    top: calc(var(--topbar-h) + 1rem);
+  }
+}
+
+@media (max-width: 60rem) {
+  .batch-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "aside"
+      "main";
+  }
+}
+
+/* Each section is a white card on the gray canvas (overrides the bare
+   .recipe-section spacing — this block sits later in the file so it
+   wins on equal specificity). */
+.batch-section {
+  margin: 0;
+  padding: 1rem 1.125rem 1.125rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.batch-section > h2,
+.batch-section .section-toggle {
+  margin-bottom: 0.75rem;
+}
+
+/* Inside a section card the list rows go flat — divider-separated rather
+   than stacked cards-in-a-card. */
+.batch-section .reminder-list,
+.batch-section .event-list,
+.batch-section .tasting-list {
+  gap: 0;
+}
+
+.batch-section .reminder-row,
+.batch-section .event-row,
+.batch-section .tasting-row {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.batch-section .reminder-list > .reminder-row:first-child,
+.batch-section .event-list > .event-row:first-child,
+.batch-section .tasting-list > .tasting-row:first-child {
+  border-top: 0;
+}
+
+/* Preserve the overdue left-edge flag and the inline-edit tint that the
+   flatten rule above would otherwise strip. */
+.batch-section .reminder-overdue {
+  box-shadow: inset 3px 0 0 var(--error);
+}
+
+.batch-section .event-row-editing {
+  background: var(--bg-tint);
+}
+
+/* The aside is narrow — keep reminder rows single-column there (the
+   viewport-based stack media query won't fire on a wide screen). */
+.batch-aside .reminder-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.batch-aside .reminder-actions {
+  justify-content: flex-start;
+}
+
 /* --- Dark theme (scaffold) --------------------------------------------
    Every rule above references role tokens (--bg/--fg/--line/--accent/
    --c-*-…) — never raw oklch() — so dark mode is a value swap here:
