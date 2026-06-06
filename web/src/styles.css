@@ -168,7 +168,7 @@ html {
 }
 
 body {
-  background: var(--bg);
+  background: var(--gray-50);
   color: var(--fg);
   min-height: 100vh;
 }
@@ -182,23 +182,223 @@ body {
   padding: clamp(2rem, 8vh, 6rem) 1rem 2rem;
 }
 
-/* --- Site shell -------------------------------------------------------- */
+/* --- App shell (collapsible sidebar + content) ------------------------
+   Desktop: a left rail (--sidebar-w) beside a content column. The rail
+   collapses to icons (--sidebar-w-collapsed) via the foot toggle, state
+   persisted in localStorage. Below --shell-bp the rail becomes an
+   off-canvas drawer and a slim top bar carries the hamburger + brand. */
 
-.site-header {
+:root {
+  --sidebar-w: 15rem;
+  --sidebar-w-collapsed: 3.75rem;
+  --topbar-h: 3.25rem;
+  --shell-bp: 60rem; /* documented; media queries hardcode the value */
+}
+
+.app-shell {
+  --rail: var(--sidebar-w);
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.app-shell--collapsed {
+  --rail: var(--sidebar-w-collapsed);
+}
+
+/* === Sidebar rail ===================================================== */
+.app-sidebar {
   position: sticky;
   top: 0;
-  z-index: 10;
+  align-self: start;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0.625rem;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+  z-index: 30;
+}
+
+.app-sidebar-head {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  padding: 0.875rem clamp(1rem, 4vw, 2rem);
-  /* Translucent over the gradient — gives the page a sense of depth. */
+  height: var(--topbar-h);
+  padding: 0 0.375rem;
+  flex: 0 0 auto;
+}
+
+.app-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin-top: 0.5rem;
+}
+
+.app-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.app-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: none;
+  background: none;
+  border-radius: var(--radius-md);
+  color: var(--fg-soft);
+  text-decoration: none;
+  text-align: left;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+.app-nav-item:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--bg-tint);
+  transform: none;
+  box-shadow: none;
+}
+
+.app-nav-item.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.app-nav-icon {
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: grid;
+  place-items: center;
+  color: inherit;
+}
+
+.app-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-nav-item .nav-badge {
+  margin-left: auto;
+}
+
+/* Brand in the rail head: keep the Fraunces wordmark + accent dot; the
+   word collapses away leaving the dot as a compact mark. */
+.app-brand {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.app-collapse-btn {
+  color: var(--muted);
+}
+
+/* Collapsed rail (desktop only — see the min-width guard): hide labels,
+   center the icons, square the hit targets. */
+@media (min-width: 60.01rem) {
+  .app-shell--collapsed .app-nav-label,
+  .app-shell--collapsed .app-brand-word,
+  .app-shell--collapsed .app-nav-item .nav-badge {
+    display: none;
+  }
+
+  .app-shell--collapsed .app-nav-item {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .app-shell--collapsed .app-sidebar-head {
+    justify-content: center;
+    padding: 0;
+  }
+}
+
+/* === Content column =================================================== */
+.app-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--gray-50);
+}
+
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: var(--topbar-h);
+  padding: 0 clamp(0.875rem, 2vw, 1.5rem);
   background: var(--header-bg);
   backdrop-filter: saturate(140%) blur(10px);
   -webkit-backdrop-filter: saturate(140%) blur(10px);
   border-bottom: 1px solid var(--line-soft);
 }
 
+.app-topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Hamburger + topbar brand are mobile-only (revealed in the media query). */
+.app-menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--fg);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.app-menu-btn:hover:not(:disabled) {
+  background: var(--bg-tint);
+  transform: none;
+  box-shadow: none;
+}
+
+.app-topbar-brand {
+  display: none;
+}
+
+.app-main {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 96rem;
+  margin: 0 auto;
+  padding: clamp(1.25rem, 3vw, 2rem) clamp(1rem, 3vw, 2.25rem) 4rem;
+}
+
+/* Off-canvas backdrop (mobile drawer). */
+.app-backdrop {
+  display: none;
+}
+
+/* The wordmark — Fraunces, kept as the one serif brand touch. */
 .brand {
   font-family: var(--font-display);
   font-variation-settings: "opsz" 18, "SOFT" 100;
@@ -210,8 +410,6 @@ body {
 }
 
 .brand::before {
-  /* Tiny mark next to the wordmark — keeps the header from feeling bare
-     without committing to a real logo asset. */
   content: "";
   display: inline-block;
   width: 0.5rem;
@@ -223,32 +421,24 @@ body {
   transform: translateY(-1px);
 }
 
-.site-nav {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.site-nav a,
 .link-button {
   display: inline-flex;
   align-items: center;
   padding: 0.4375rem 0.75rem;
   border-radius: var(--radius-md);
-  text-decoration: none;
+  background: none;
+  border: none;
   color: var(--muted);
+  text-decoration: none;
+  font: inherit;
   font-size: 0.9375rem;
   font-weight: 500;
-  transition: color 120ms ease, background 120ms ease;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
 
-/* `:not(:disabled)` bumps specificity past the global
-   `button:hover:not(:disabled)` rule (which lives later in the file
-   and would otherwise win, painting link-buttons in --accent-hover with
-   a lift). transform/box-shadow are explicitly cleared so a button-tag
-   link-button doesn't inherit the page's primary-button hover lift. */
-.site-nav a:hover,
+/* `:not(:disabled)` clears the global primary-button hover (lift +
+   accent fill) so a <button> link-button stays quiet. */
 .link-button:hover:not(:disabled) {
   color: var(--fg);
   background: var(--bg-tint);
@@ -256,25 +446,46 @@ body {
   box-shadow: none;
 }
 
-.site-nav a.active {
-  color: var(--fg);
-  background: var(--bg-tint);
-}
+/* === Mobile: rail → off-canvas drawer, reveal the top bar =========== */
+@media (max-width: 60rem) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
 
-.link-button {
-  background: none;
-  border: none;
-  padding: 0.4375rem 0.75rem;
-  font: inherit;
-  font-size: 0.9375rem;
-  font-weight: 500;
-  cursor: pointer;
-}
+  .app-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: var(--sidebar-w);
+    transform: translateX(-100%);
+    transition: transform var(--dur-med) var(--ease);
+    box-shadow: var(--shadow-lg);
+  }
 
-.site-main {
-  max-width: 56rem;
-  margin: 0 auto;
-  padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1rem, 4vw, 2rem) 4rem;
+  .app-shell--drawer .app-sidebar {
+    transform: translateX(0);
+  }
+
+  .app-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    background: var(--scrim);
+  }
+
+  .app-menu-btn {
+    display: inline-flex;
+  }
+
+  .app-topbar-brand {
+    display: inline-flex;
+  }
+
+  /* The collapse toggle is meaningless in drawer mode. */
+  .app-collapse-btn {
+    display: none;
+  }
 }
 
 /* --- Page typography --------------------------------------------------- */
@@ -656,6 +867,9 @@ dd {
   padding: 0;
   margin: 0 0 1.5rem;
   display: grid;
+  /* Multi-column feed — fills the wider content area instead of one
+     stretched column. Collapses to a single column on narrow viewports. */
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
   gap: 0.875rem;
 }
 
@@ -2115,6 +2329,15 @@ dd {
 .header-cta:hover {
   background: var(--accent-hover);
   transform: translateY(-1px);
+}
+
+/* The top-bar "+ New recipe" CTA drops its text on very narrow screens
+   so the hamburger, brand, and bell keep room; the bell remains the
+   always-present quick action. */
+@media (max-width: 30rem) {
+  .app-new-btn {
+    display: none;
+  }
 }
 
 /* --- Empty state ------------------------------------------------------- */
@@ -3817,6 +4040,12 @@ button.danger:disabled {
 .bell-icon {
   font-size: 1rem;
   line-height: 1;
+}
+
+/* Bell lives in the shell top bar as an icon-only control; its aria-label
+   carries the accessible name, so the visible text label is hidden. */
+.bell-label {
+  display: none;
 }
 
 .bell-popover {
