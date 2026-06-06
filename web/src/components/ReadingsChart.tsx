@@ -293,15 +293,19 @@ function paddedBounds(points: Point[], unit: TimeUnit): { min: number; max: numb
 function readChartColors() {
   const get = (name: string) =>
     getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  // Fallbacks mirror the light-theme token values (cool-gray neutrals +
+  // honey accent). They only apply if getComputedStyle returns empty;
+  // the live read is the source of truth, so the chart follows theme
+  // swaps (incl. future dark mode) automatically.
   return {
-    accent: get("--accent") || "#b07330",
-    fg: get("--fg") || "#262019",
-    muted: get("--muted") || "#807468",
-    line: get("--line") || "#e3dcd2",
-    lineSoft: get("--line-soft") || "#eee8df",
+    accent: get("--accent") || "#97672b",
+    fg: get("--fg") || "#1f2329",
+    muted: get("--muted") || "#6b7280",
+    line: get("--line") || "#dcdfe4",
+    lineSoft: get("--line-soft") || "#eceef1",
     surface: get("--surface") || "#ffffff",
-    // Slightly translucent fg-soft so the dashed event marker reads
+    // Slightly translucent neutral so the dashed event marker reads
     // as secondary against the line.
-    event: "rgba(80, 64, 50, 0.45)",
+    event: "rgba(70, 78, 90, 0.45)",
   };
 }

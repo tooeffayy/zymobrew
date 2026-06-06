@@ -1,57 +1,147 @@
-/* Zymo styling — warm, considered, crafted. Plain CSS, no preprocessor.
-   Uses OKLCH for the palette so accent shifts stay perceptually uniform
-   across hover / soft / strong variants. */
+/* Zymo design tokens — utilitarian register (Frappe / ERPNext-inspired).
+   Cool-gray neutrals, a single honey accent, flat low-chroma chips.
+   OKLCH throughout so theme variants stay perceptually uniform.
+
+   Component rules reference ROLE tokens only — never raw oklch() — so
+   dark mode is a value swap, not a rewrite (see the [data-theme="dark"]
+   scaffold at the foot of this file). Token tiers:
+     1. primitives  — the --gray-* ramp + --c-* chip tints
+     2. roles       — --bg/--fg/--line/--accent/... reference primitives
+     3. scales      — --text-* / --space-* / --radius-* / motion
+   Established by the design-tokens ticket; see docs/theming-audit.md. */
 
 :root {
-  /* Surfaces — page is white; tints are reserved for hover states and
-     subtle separators so the warm accent does the brand-carrying work. */
-  --bg: oklch(100% 0 0);
-  --bg-tint: oklch(97% 0.008 75);
-  --surface: oklch(100% 0 0);
-  --surface-2: oklch(99% 0.005 80);
+  /* === Primitive ramp — cool gray (hue 255, very low chroma) ========= */
+  --gray-0: oklch(100% 0 0);
+  --gray-50: oklch(98.5% 0.002 255);
+  --gray-100: oklch(96.5% 0.004 255);
+  --gray-150: oklch(94.5% 0.005 255);
+  --gray-200: oklch(90% 0.006 255);
+  --gray-300: oklch(83% 0.008 255);
+  --gray-400: oklch(70% 0.011 255);
+  --gray-500: oklch(58% 0.013 255);
+  --gray-600: oklch(48% 0.013 255);
+  --gray-700: oklch(38% 0.012 255);
+  --gray-800: oklch(28% 0.01 255);
+  --gray-900: oklch(21% 0.008 255);
 
-  /* Text */
-  --fg: oklch(22% 0.02 60);
-  --fg-soft: oklch(40% 0.02 60);
-  --muted: oklch(55% 0.015 60);
-  --line: oklch(90% 0.01 70);
-  --line-soft: oklch(94% 0.008 70);
+  /* === Semantic neutrals (role aliases into the ramp) ================
+     Names preserved from the old warm palette so existing rules keep
+     working; the warm→cool shift is just these re-points. Page stays
+     white for now — the gray-50 page bg lands in the restyle ticket. */
+  --bg: var(--gray-0);
+  --bg-tint: var(--gray-100);
+  --surface: var(--gray-0);
+  --surface-2: var(--gray-50);
+  --fg: var(--gray-900);
+  --fg-soft: var(--gray-700);
+  --muted: var(--gray-500);
+  --line: var(--gray-200);
+  --line-soft: var(--gray-150);
+  --line-strong: var(--gray-300);
 
-  /* Brand — warm amber/honey, signals fermentation without being literal. */
-  --accent: oklch(56% 0.13 55);
-  --accent-hover: oklch(50% 0.14 55);
-  --accent-soft: oklch(94% 0.04 75);
-  --accent-ring: oklch(56% 0.13 55 / 0.35);
+  --header-bg: oklch(99% 0.002 255 / 0.78); /* translucent sticky header */
+  --scrim: oklch(21% 0.01 255 / 0.4);       /* modal backdrop */
 
-  /* Semantic */
-  --error: oklch(55% 0.19 25);
+  /* === Brand accent — honey (retuned: white text hits AA ≥4.5:1) ===== */
+  --accent: oklch(52% 0.14 58);
+  --accent-hover: oklch(46% 0.145 58);
+  --accent-soft: oklch(95% 0.035 75);
+  --accent-ring: oklch(52% 0.14 58 / 0.35);
+  --accent-line: oklch(80% 0.07 62); /* dashed/soft accent borders */
+  --accent-fg: oklch(100% 0 0);      /* text/icons on an accent fill */
+
+  /* === Feedback — error / danger ==================================== */
+  --error: oklch(53% 0.19 25);
   --error-soft: oklch(96% 0.03 25);
+  --error-border: oklch(85% 0.05 28);
+  --error-fg: oklch(100% 0 0);
 
-  /* Brew-type pill hues — keep mead = brand amber, others nudge around the wheel. */
-  --pill-mead-bg: oklch(94% 0.05 75);
-  --pill-mead-fg: oklch(40% 0.13 60);
-  --pill-cider-bg: oklch(95% 0.05 130);
-  --pill-cider-fg: oklch(38% 0.10 140);
-  --pill-wine-bg: oklch(94% 0.05 350);
-  --pill-wine-fg: oklch(40% 0.13 350);
-  --pill-beer-bg: oklch(94% 0.05 85);
-  --pill-beer-fg: oklch(38% 0.13 70);
-  --pill-kombucha-bg: oklch(94% 0.05 200);
-  --pill-kombucha-fg: oklch(38% 0.10 210);
+  /* === Functional chip tints (bg + fg pairs) ========================
+     Shared by stage badges, event kinds, status pills, inventory
+     badges and brew-type pills. Flat, low-chroma — quiet utilitarian
+     fills, not pastel washes. */
+  --c-amber-bg: oklch(94% 0.05 65);
+  --c-amber-fg: oklch(42% 0.12 62);
+  --c-gold-bg: oklch(94% 0.05 88);
+  --c-gold-fg: oklch(43% 0.11 82);
+  --c-green-bg: oklch(94% 0.05 148);
+  --c-green-fg: oklch(41% 0.105 150);
+  --c-green-line: oklch(86% 0.06 148);
+  --c-teal-bg: oklch(94% 0.045 205);
+  --c-teal-fg: oklch(42% 0.09 208);
+  --c-blue-bg: oklch(94% 0.04 240);
+  --c-blue-fg: oklch(44% 0.11 245);
+  --c-magenta-bg: oklch(94% 0.045 350);
+  --c-magenta-fg: oklch(42% 0.11 350);
+  --c-neutral-bg: oklch(95% 0.003 255);
+  --c-neutral-fg: var(--muted);
 
-  /* Elevation */
-  --shadow-sm: 0 1px 2px oklch(20% 0.02 60 / 0.04), 0 1px 1px oklch(20% 0.02 60 / 0.03);
-  --shadow: 0 4px 12px oklch(20% 0.02 60 / 0.05), 0 2px 4px oklch(20% 0.02 60 / 0.04);
-  --shadow-lg: 0 12px 32px oklch(20% 0.02 60 / 0.08), 0 4px 12px oklch(20% 0.02 60 / 0.04);
+  --rating: oklch(74% 0.15 80);        /* star gold */
+  --rating-empty: var(--gray-300);
 
-  /* Type — body stays a clean humanist sans, display flips to Fraunces
-     so headings + the wordmark carry the warm, brewing-rooted character. */
+  /* === Brew-type pills (category identity → tint primitives) ========= */
+  --pill-mead-bg: var(--c-amber-bg);
+  --pill-mead-fg: var(--c-amber-fg);
+  --pill-cider-bg: var(--c-green-bg);
+  --pill-cider-fg: var(--c-green-fg);
+  --pill-wine-bg: var(--c-magenta-bg);
+  --pill-wine-fg: var(--c-magenta-fg);
+  --pill-beer-bg: var(--c-gold-bg);
+  --pill-beer-fg: var(--c-gold-fg);
+  --pill-kombucha-bg: var(--c-teal-bg);
+  --pill-kombucha-fg: var(--c-teal-fg);
+
+  /* === Elevation — flat; 1px borders do most of the separating ====== */
+  --shadow-sm: 0 1px 2px oklch(21% 0.01 255 / 0.04), 0 1px 1px oklch(21% 0.01 255 / 0.03);
+  --shadow: 0 4px 12px oklch(21% 0.01 255 / 0.05), 0 2px 4px oklch(21% 0.01 255 / 0.04);
+  --shadow-lg: 0 12px 32px oklch(21% 0.01 255 / 0.08), 0 4px 12px oklch(21% 0.01 255 / 0.04);
+  --shadow-popover: 0 6px 20px oklch(21% 0.01 255 / 0.1);
+
+  /* === Type scale (rem, ~1.16 ratio). Migrating font-size literals
+     onto these is part of the restyle ticket; defined here so they're
+     ready. Fraunces is wordmark-only now — headings are Inter. ======= */
   --font-display: "Fraunces", "Iowan Old Style", "Charter", "Georgia", serif;
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-ui: 0.875rem;
+  --text-base: 0.9375rem;
+  --text-md: 1rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.125rem;
+  --text-2xl: 1.25rem;
+  --text-3xl: 1.5rem;
+
+  /* === Spacing scale (4px base) ===================================== */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  /* === Radius scale — restrained corners ============================ */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-pill: 999px;
+
+  /* === Motion ======================================================= */
+  --dur-fast: 120ms;
+  --dur-med: 140ms;
+  --ease: ease;
+  --ease-emphasized: cubic-bezier(0.2, 0.9, 0.3, 1);
+
+  /* === Base typography — Inter for body, UI, and headings =========== */
   font-family:
     "InterVariable", "Inter",
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
   font-feature-settings: "cv11", "ss01", "ss03";
-  /* Slightly tighter than browser default reads more polished at body sizes. */
   font-size: 15px;
   line-height: 1.55;
   text-rendering: optimizeLegibility;
@@ -78,7 +168,7 @@ html {
 }
 
 body {
-  background: var(--bg);
+  background: var(--gray-50);
   color: var(--fg);
   min-height: 100vh;
 }
@@ -92,23 +182,223 @@ body {
   padding: clamp(2rem, 8vh, 6rem) 1rem 2rem;
 }
 
-/* --- Site shell -------------------------------------------------------- */
+/* --- App shell (collapsible sidebar + content) ------------------------
+   Desktop: a left rail (--sidebar-w) beside a content column. The rail
+   collapses to icons (--sidebar-w-collapsed) via the foot toggle, state
+   persisted in localStorage. Below --shell-bp the rail becomes an
+   off-canvas drawer and a slim top bar carries the hamburger + brand. */
 
-.site-header {
+:root {
+  --sidebar-w: 15rem;
+  --sidebar-w-collapsed: 3.75rem;
+  --topbar-h: 3.25rem;
+  --shell-bp: 60rem; /* documented; media queries hardcode the value */
+}
+
+.app-shell {
+  --rail: var(--sidebar-w);
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.app-shell--collapsed {
+  --rail: var(--sidebar-w-collapsed);
+}
+
+/* === Sidebar rail ===================================================== */
+.app-sidebar {
   position: sticky;
   top: 0;
-  z-index: 10;
+  align-self: start;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0.625rem;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+  z-index: 30;
+}
+
+.app-sidebar-head {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  padding: 0.875rem clamp(1rem, 4vw, 2rem);
-  /* Translucent over the gradient — gives the page a sense of depth. */
-  background: oklch(99% 0 0 / 0.78);
+  height: var(--topbar-h);
+  padding: 0 0.375rem;
+  flex: 0 0 auto;
+}
+
+.app-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin-top: 0.5rem;
+}
+
+.app-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.app-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: none;
+  background: none;
+  border-radius: var(--radius-md);
+  color: var(--fg-soft);
+  text-decoration: none;
+  text-align: left;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+.app-nav-item:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--bg-tint);
+  transform: none;
+  box-shadow: none;
+}
+
+.app-nav-item.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.app-nav-icon {
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: grid;
+  place-items: center;
+  color: inherit;
+}
+
+.app-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-nav-item .nav-badge {
+  margin-left: auto;
+}
+
+/* Brand in the rail head: keep the Fraunces wordmark + accent dot; the
+   word collapses away leaving the dot as a compact mark. */
+.app-brand {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.app-collapse-btn {
+  color: var(--muted);
+}
+
+/* Collapsed rail (desktop only — see the min-width guard): hide labels,
+   center the icons, square the hit targets. */
+@media (min-width: 60.01rem) {
+  .app-shell--collapsed .app-nav-label,
+  .app-shell--collapsed .app-brand-word,
+  .app-shell--collapsed .app-nav-item .nav-badge {
+    display: none;
+  }
+
+  .app-shell--collapsed .app-nav-item {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .app-shell--collapsed .app-sidebar-head {
+    justify-content: center;
+    padding: 0;
+  }
+}
+
+/* === Content column =================================================== */
+.app-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--gray-50);
+}
+
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: var(--topbar-h);
+  padding: 0 clamp(0.875rem, 2vw, 1.5rem);
+  background: var(--header-bg);
   backdrop-filter: saturate(140%) blur(10px);
   -webkit-backdrop-filter: saturate(140%) blur(10px);
   border-bottom: 1px solid var(--line-soft);
 }
 
+.app-topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Hamburger + topbar brand are mobile-only (revealed in the media query). */
+.app-menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--fg);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.app-menu-btn:hover:not(:disabled) {
+  background: var(--bg-tint);
+  transform: none;
+  box-shadow: none;
+}
+
+.app-topbar-brand {
+  display: none;
+}
+
+.app-main {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 96rem;
+  margin: 0 auto;
+  padding: clamp(1.25rem, 3vw, 2rem) clamp(1rem, 3vw, 2.25rem) 4rem;
+}
+
+/* Off-canvas backdrop (mobile drawer). */
+.app-backdrop {
+  display: none;
+}
+
+/* The wordmark — Fraunces, kept as the one serif brand touch. */
 .brand {
   font-family: var(--font-display);
   font-variation-settings: "opsz" 18, "SOFT" 100;
@@ -120,45 +410,35 @@ body {
 }
 
 .brand::before {
-  /* Tiny mark next to the wordmark — keeps the header from feeling bare
-     without committing to a real logo asset. */
   content: "";
   display: inline-block;
   width: 0.5rem;
   height: 0.5rem;
   margin-right: 0.5rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent);
   vertical-align: middle;
   transform: translateY(-1px);
 }
 
-.site-nav {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.site-nav a,
 .link-button {
   display: inline-flex;
   align-items: center;
   padding: 0.4375rem 0.75rem;
-  border-radius: 6px;
-  text-decoration: none;
+  border-radius: var(--radius-md);
+  background: none;
+  border: none;
   color: var(--muted);
+  text-decoration: none;
+  font: inherit;
   font-size: 0.9375rem;
   font-weight: 500;
-  transition: color 120ms ease, background 120ms ease;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
 
-/* `:not(:disabled)` bumps specificity past the global
-   `button:hover:not(:disabled)` rule (which lives later in the file
-   and would otherwise win, painting link-buttons in --accent-hover with
-   a lift). transform/box-shadow are explicitly cleared so a button-tag
-   link-button doesn't inherit the page's primary-button hover lift. */
-.site-nav a:hover,
+/* `:not(:disabled)` clears the global primary-button hover (lift +
+   accent fill) so a <button> link-button stays quiet. */
 .link-button:hover:not(:disabled) {
   color: var(--fg);
   background: var(--bg-tint);
@@ -166,25 +446,46 @@ body {
   box-shadow: none;
 }
 
-.site-nav a.active {
-  color: var(--fg);
-  background: var(--bg-tint);
-}
+/* === Mobile: rail → off-canvas drawer, reveal the top bar =========== */
+@media (max-width: 60rem) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
 
-.link-button {
-  background: none;
-  border: none;
-  padding: 0.4375rem 0.75rem;
-  font: inherit;
-  font-size: 0.9375rem;
-  font-weight: 500;
-  cursor: pointer;
-}
+  .app-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: var(--sidebar-w);
+    transform: translateX(-100%);
+    transition: transform var(--dur-med) var(--ease);
+    box-shadow: var(--shadow-lg);
+  }
 
-.site-main {
-  max-width: 56rem;
-  margin: 0 auto;
-  padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1rem, 4vw, 2rem) 4rem;
+  .app-shell--drawer .app-sidebar {
+    transform: translateX(0);
+  }
+
+  .app-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    background: var(--scrim);
+  }
+
+  .app-menu-btn {
+    display: inline-flex;
+  }
+
+  .app-topbar-brand {
+    display: inline-flex;
+  }
+
+  /* The collapse toggle is meaningless in drawer mode. */
+  .app-collapse-btn {
+    display: none;
+  }
 }
 
 /* --- Page typography --------------------------------------------------- */
@@ -192,13 +493,11 @@ body {
 h1,
 h2,
 h3 {
-  font-family: var(--font-display);
-  /* Fraunces axes — SOFT warms the terminals; opsz scales design contrast
-     up at display sizes. Pinned per-element (smaller opsz on subheads) so
-     section headings don't read as oversized as h1. */
-  font-variation-settings: "opsz" 96, "SOFT" 50;
+  /* Utilitarian: headings are Inter (the body family), differentiated by
+     weight and size rather than a serif display face. Fraunces is now
+     wordmark-only (see .brand). */
   font-weight: 600;
-  letter-spacing: -0.022em;
+  letter-spacing: -0.018em;
   color: var(--fg);
   margin: 0 0 0.75rem;
 }
@@ -211,7 +510,7 @@ h3 {
 
 a {
   color: var(--accent);
-  text-decoration-color: oklch(56% 0.13 55 / 0.35);
+  text-decoration-color: var(--accent-ring);
   text-underline-offset: 2px;
   transition: color 120ms ease;
 }
@@ -229,7 +528,7 @@ a:hover {
   padding: 2rem 2rem 1.75rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow);
 }
 
@@ -260,7 +559,7 @@ input {
   color: var(--fg);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
@@ -278,7 +577,7 @@ input::placeholder {
 }
 
 input:hover {
-  border-color: oklch(82% 0.01 70);
+  border-color: var(--line-strong);
 }
 
 input:focus,
@@ -400,13 +699,13 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
   color: var(--fg);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   transition: border-color 120ms ease, box-shadow 120ms ease;
   min-height: calc(0.625rem * 2 + 1.5rem);
 }
 
 .time-input[data-hovered] {
-  border-color: oklch(82% 0.01 70);
+  border-color: var(--line-strong);
 }
 
 .time-input[data-focus-within] {
@@ -417,7 +716,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
 
 .time-input-segment {
   padding: 0 2px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   outline: none;
 }
 
@@ -485,7 +784,7 @@ button {
   background: var(--accent);
   color: white;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   box-shadow: var(--shadow-sm);
   transition:
@@ -556,8 +855,8 @@ dd {
   padding: 0.625rem 0.875rem;
   color: var(--error);
   background: var(--error-soft);
-  border: 1px solid oklch(85% 0.05 25);
-  border-radius: 8px;
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-md);
   font-size: 0.875rem;
 }
 
@@ -568,6 +867,9 @@ dd {
   padding: 0;
   margin: 0 0 1.5rem;
   display: grid;
+  /* Multi-column feed — fills the wider content area instead of one
+     stretched column. Collapses to a single column on narrow viewports. */
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
   gap: 0.875rem;
 }
 
@@ -576,7 +878,7 @@ dd {
   padding: 1.25rem 1.375rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
   transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
 }
@@ -584,7 +886,7 @@ dd {
 .recipe-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow);
-  border-color: oklch(86% 0.015 70);
+  border-color: var(--line-strong);
 }
 
 .recipe-title {
@@ -636,7 +938,7 @@ dd {
   display: inline-flex;
   align-items: center;
   padding: 0.1875rem 0.5625rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -712,13 +1014,13 @@ dd {
 }
 
 .pill-visibility {
-  background: oklch(94% 0.005 70);
+  background: var(--c-neutral-bg);
   color: var(--fg-soft);
 }
 
 .pill-owner {
-  background: oklch(95% 0.05 200);
-  color: oklch(38% 0.10 220);
+  background: var(--c-blue-bg);
+  color: var(--c-blue-fg);
 }
 
 .stats-grid {
@@ -729,7 +1031,7 @@ dd {
   padding: 1.25rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
 }
 
@@ -769,7 +1071,7 @@ dd {
   max-width: 32rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -916,7 +1218,7 @@ dd {
   color: var(--fg-soft);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   text-decoration: none;
   box-shadow: none;
@@ -926,7 +1228,7 @@ dd {
 .action-button:hover:not(:disabled) {
   color: var(--fg);
   background: var(--bg-tint);
-  border-color: oklch(86% 0.015 70);
+  border-color: var(--line-strong);
   transform: none;
   box-shadow: none;
 }
@@ -939,7 +1241,7 @@ dd {
 .action-button.danger:hover:not(:disabled) {
   color: var(--error);
   background: var(--error-soft);
-  border-color: oklch(85% 0.05 25);
+  border-color: var(--error-border);
 }
 
 /* Primary variant for the high-intent action on a row (Brew this).
@@ -967,12 +1269,12 @@ dd {
   display: inline-flex;
   align-items: center;
   padding: 0.1875rem 0.5625rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  background: oklch(94% 0.005 70);
+  background: var(--c-neutral-bg);
   color: var(--fg-soft);
 }
 
@@ -986,39 +1288,39 @@ dd {
   width: 0.375rem;
   height: 0.375rem;
   margin-right: 0.4em;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: currentColor;
   opacity: 0.85;
   flex: 0 0 auto;
 }
 
 .stage-planning {
-  background: oklch(94% 0.005 70);
+  background: var(--c-neutral-bg);
   color: var(--fg-soft);
 }
 
 .stage-primary {
-  background: oklch(94% 0.05 55);
-  color: oklch(40% 0.13 55);
+  background: var(--c-amber-bg);
+  color: var(--c-amber-fg);
 }
 
 .stage-secondary {
-  background: oklch(94% 0.05 95);
-  color: oklch(40% 0.13 85);
+  background: var(--c-gold-bg);
+  color: var(--c-gold-fg);
 }
 
 .stage-aging {
-  background: oklch(94% 0.05 120);
-  color: oklch(38% 0.10 130);
+  background: var(--c-green-bg);
+  color: var(--c-green-fg);
 }
 
 .stage-bottled {
-  background: oklch(94% 0.05 200);
-  color: oklch(38% 0.10 210);
+  background: var(--c-teal-bg);
+  color: var(--c-teal-fg);
 }
 
 .stage-archived {
-  background: oklch(92% 0.005 70);
+  background: var(--c-neutral-bg);
   color: var(--muted);
 }
 
@@ -1045,19 +1347,19 @@ dd {
 }
 
 .stage-stepper-primary {
-  --stepper-fill: oklch(40% 0.13 55);
+  --stepper-fill: var(--c-amber-fg);
 }
 
 .stage-stepper-secondary {
-  --stepper-fill: oklch(40% 0.13 85);
+  --stepper-fill: var(--c-gold-fg);
 }
 
 .stage-stepper-aging {
-  --stepper-fill: oklch(38% 0.10 130);
+  --stepper-fill: var(--c-green-fg);
 }
 
 .stage-stepper-bottled {
-  --stepper-fill: oklch(38% 0.10 210);
+  --stepper-fill: var(--c-teal-fg);
 }
 
 .stage-stepper-node {
@@ -1076,7 +1378,7 @@ dd {
   display: inline-block;
   width: 0.625rem;
   height: 0.625rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1.5px solid currentColor;
   background: transparent;
   flex: 0 0 auto;
@@ -1130,8 +1432,6 @@ dd {
   font-weight: 600;
   letter-spacing: -0.005em;
   text-transform: none;
-  font-family: var(--font-display);
-  font-variation-settings: "opsz" 24, "SOFT" 80;
 }
 
 /* Future stages: hollow dot, muted label. */
@@ -1151,11 +1451,9 @@ dd {
   align-items: center;
   gap: 0.45em;
   padding: 0.3125rem 0.75rem;
-  border-radius: 999px;
-  background: oklch(92% 0.005 70);
+  border-radius: var(--radius-pill);
+  background: var(--c-neutral-bg);
   color: var(--muted);
-  font-family: var(--font-display);
-  font-variation-settings: "opsz" 24, "SOFT" 80;
   font-size: 0.9375rem;
   font-weight: 600;
 }
@@ -1165,7 +1463,7 @@ dd {
   display: inline-block;
   width: 0.5rem;
   height: 0.5rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: currentColor;
   opacity: 0.7;
 }
@@ -1185,7 +1483,7 @@ dd {
 
 .pinned-recipe {
   background: var(--accent-soft);
-  border-color: oklch(86% 0.04 70);
+  border-color: var(--accent-line);
 }
 
 .pinned-recipe-body {
@@ -1212,14 +1510,14 @@ dd {
   padding: 0.875rem 1rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 
 /* Overdue rows get a red left edge — strong enough to draw the eye
    without the whole row going alarming. */
 .reminder-overdue {
-  border-color: oklch(85% 0.05 25);
+  border-color: var(--error-border);
   box-shadow:
     inset 3px 0 0 var(--error),
     var(--shadow-sm);
@@ -1293,7 +1591,7 @@ dd {
   padding: 1rem;
   background: var(--surface-2);
   border: 1px solid var(--line-soft);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
 }
 
 .log-event-row {
@@ -1349,7 +1647,7 @@ dd {
   padding: 0.75rem 1rem;
   background: var(--surface);
   border: 1px solid var(--line-soft);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
 }
 
 .event-meta {
@@ -1363,7 +1661,7 @@ dd {
   display: inline-flex;
   align-items: center;
   padding: 0.125rem 0.5rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -1373,28 +1671,28 @@ dd {
 }
 
 .event-kind-pitch {
-  background: oklch(94% 0.05 55);
-  color: oklch(40% 0.13 55);
+  background: var(--c-amber-bg);
+  color: var(--c-amber-fg);
 }
 
 .event-kind-rack {
-  background: oklch(94% 0.05 130);
-  color: oklch(38% 0.10 140);
+  background: var(--c-green-bg);
+  color: var(--c-green-fg);
 }
 
 .event-kind-bottle {
-  background: oklch(94% 0.05 200);
-  color: oklch(38% 0.10 210);
+  background: var(--c-teal-bg);
+  color: var(--c-teal-fg);
 }
 
 .event-kind-note {
-  background: oklch(94% 0.005 70);
+  background: var(--c-neutral-bg);
   color: var(--fg-soft);
 }
 
 .event-kind-photo {
-  background: oklch(94% 0.05 350);
-  color: oklch(40% 0.13 350);
+  background: var(--c-magenta-bg);
+  color: var(--c-magenta-fg);
 }
 
 .event-when {
@@ -1628,7 +1926,7 @@ dd {
   margin: 0.75rem 0 0.5rem;
   background: var(--surface-2);
   border: 1px solid var(--line-soft);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 0.875rem;
 }
 
@@ -1637,7 +1935,7 @@ dd {
    shifting position. */
 .bulk-toolbar:not(.bulk-toolbar-resting) {
   background: var(--accent-soft);
-  border-color: oklch(88% 0.04 75);
+  border-color: var(--accent-line);
 }
 
 .bulk-toolbar-add {
@@ -1663,7 +1961,7 @@ dd {
   display: grid;
   place-items: center;
   padding: 1rem;
-  background: oklch(20% 0.02 60 / 0.4);
+  background: var(--scrim);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
   /* react-aria toggles `data-entering`/`data-exiting` so we can fade
@@ -1701,7 +1999,7 @@ dd {
   max-height: calc(100vh - 2rem);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   animation: modal-in 140ms cubic-bezier(0.2, 0.9, 0.3, 1);
@@ -1832,7 +2130,7 @@ dd {
   margin-top: 0;
   padding: 0.25rem 0.4rem;
   font-size: 0.8125rem;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   min-height: 0;
 }
 
@@ -1868,7 +2166,7 @@ dd {
   margin: 0;
   background: var(--surface-2);
   border: 1px solid var(--line-soft);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-md);
   padding: 0.625rem 0.75rem 0.5rem;
 }
 
@@ -1897,7 +2195,7 @@ dd {
   padding: 1rem;
   background: var(--surface-2);
   border: 1px solid var(--line-soft);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
 }
 
 .log-tasting-head {
@@ -1936,15 +2234,15 @@ dd {
   font-size: 1.25rem;
   line-height: 1;
   cursor: pointer;
-  color: oklch(85% 0.02 70);
+  color: var(--rating-empty);
 }
 
 .rating-star-active {
-  color: oklch(72% 0.16 75);
+  color: var(--rating);
 }
 
 .rating-star:hover {
-  color: oklch(72% 0.16 75);
+  color: var(--rating);
 }
 
 .rating-clear {
@@ -1964,7 +2262,7 @@ dd {
   padding: 0.875rem 1rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 
@@ -1982,12 +2280,12 @@ dd {
 }
 
 .tasting-rating {
-  color: oklch(72% 0.16 75);
+  color: var(--rating);
   letter-spacing: 0.05em;
 }
 
 .tasting-rating-empty {
-  color: oklch(85% 0.02 70);
+  color: var(--rating-empty);
 }
 
 .tasting-fields {
@@ -2019,7 +2317,7 @@ dd {
   display: inline-flex;
   align-items: center;
   padding: 0.4375rem 0.875rem;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--accent);
   color: white !important;
   font-size: 0.9375rem;
@@ -2033,6 +2331,15 @@ dd {
   transform: translateY(-1px);
 }
 
+/* The top-bar "+ New recipe" CTA drops its text on very narrow screens
+   so the hamburger, brand, and bell keep room; the bell remains the
+   always-present quick action. */
+@media (max-width: 30rem) {
+  .app-new-btn {
+    display: none;
+  }
+}
+
 /* --- Empty state ------------------------------------------------------- */
 
 .empty-state {
@@ -2040,7 +2347,7 @@ dd {
   padding: 2rem;
   background: var(--surface);
   border: 1px dashed var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   text-align: center;
 }
 
@@ -2050,7 +2357,7 @@ dd {
   padding: 0.5rem 1rem;
   background: var(--accent);
   color: white;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   text-decoration: none;
   font-weight: 600;
   font-size: 0.9375rem;
@@ -2075,7 +2382,7 @@ dd {
   padding: 1.5rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
 }
 
@@ -2115,7 +2422,7 @@ textarea {
   color: var(--fg);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   resize: vertical;
   min-height: 4.5rem;
   font-family: inherit;
@@ -2123,7 +2430,7 @@ textarea {
 }
 
 textarea:hover {
-  border-color: oklch(82% 0.01 70);
+  border-color: var(--line-strong);
 }
 
 textarea:focus,
@@ -2141,7 +2448,7 @@ select {
   color: var(--fg);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   appearance: none;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path fill='none' stroke='%23999' stroke-width='1.5' d='M3 4.5l3 3 3-3'/></svg>");
   background-repeat: no-repeat;
@@ -2162,9 +2469,9 @@ select:focus-visible {
 .segmented {
   display: inline-flex;
   padding: 0.1875rem;
-  background: oklch(96% 0.005 70);
+  background: var(--gray-100);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   width: fit-content;
 }
 
@@ -2175,7 +2482,7 @@ select:focus-visible {
   font-size: 0.875rem;
   font-weight: 500;
   color: var(--fg-soft);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   text-transform: capitalize;
   transition: color 120ms ease, background 120ms ease;
@@ -2281,7 +2588,7 @@ select:focus-visible {
   background: transparent;
   color: var(--muted);
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   box-shadow: none;
   transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
 }
@@ -2289,7 +2596,7 @@ select:focus-visible {
 .row-remove:hover:not(:disabled) {
   color: var(--error);
   background: var(--error-soft);
-  border-color: oklch(88% 0.04 25);
+  border-color: var(--error-border);
   transform: none;
   box-shadow: none;
 }
@@ -2316,8 +2623,8 @@ select:focus-visible {
 .ingredient-name-popover {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.08);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
   min-width: var(--trigger-width, 14rem);
   max-width: 22rem;
   outline: none;
@@ -2339,7 +2646,7 @@ select:focus-visible {
   padding: 0.375rem 0.625rem;
   font-size: 0.9375rem;
   color: var(--fg);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   outline: none;
 }
@@ -2363,7 +2670,7 @@ select:focus-visible {
 .add-button {
   background: transparent;
   color: var(--accent);
-  border: 1px dashed oklch(80% 0.06 60);
+  border: 1px dashed var(--accent-line);
   font-weight: 500;
   box-shadow: none;
   width: fit-content;
@@ -2405,9 +2712,9 @@ select:focus-visible {
   min-width: 1.25rem;
   height: 1.25rem;
   padding: 0 0.375rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent);
-  color: oklch(99% 0 0);
+  color: var(--accent-fg);
   font-size: 0.6875rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -2442,7 +2749,7 @@ select:focus-visible {
   padding: 0.875rem 1rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 
@@ -2544,7 +2851,7 @@ select:focus-visible {
 
 .prefs-quiet {
   border: 1px solid var(--line-soft);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 0.875rem 1rem 1rem;
   margin: 0;
 }
@@ -2611,7 +2918,7 @@ select:focus-visible {
   font-size: 0.875em;
   padding: 0.05em 0.3em;
   background: var(--bg-tint);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 /* --- Reminder templates (recipe page) ---------------------------------- */
@@ -2653,7 +2960,7 @@ select:focus-visible {
   padding: 0.875rem 1rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 
@@ -2702,7 +3009,7 @@ select:focus-visible {
   font-size: 0.875em;
   padding: 0.05em 0.3em;
   background: var(--bg-tint);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .template-actions {
@@ -2730,7 +3037,7 @@ select:focus-visible {
   padding: 1rem;
   background: var(--surface-2);
   border: 1px solid var(--line-soft);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
 }
 
 /* "Add" form rendered standalone (outside a row) needs its own surface
@@ -2784,7 +3091,7 @@ select:focus-visible {
   padding: 1.5rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
 }
 
@@ -2815,7 +3122,7 @@ select:focus-visible {
   padding: 0.875rem 1rem;
   background: var(--bg-tint);
   border: 1px solid var(--line-soft);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .calc-result-row {
@@ -2887,7 +3194,7 @@ select:focus-visible {
 .profile-tabs a:focus-visible {
   outline: 2px solid var(--accent-ring);
   outline-offset: 2px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .profile-form {
@@ -2903,7 +3210,7 @@ select:focus-visible {
   padding: 0.875rem 1rem;
   background: var(--bg-tint);
   border: 1px solid var(--line-soft);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 0.875rem;
 }
 
@@ -2974,13 +3281,13 @@ fieldset.field>legend {
   font-size: 0.875em;
   padding: 0.05em 0.3em;
   background: var(--bg-tint);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 button.danger {
   color: var(--error);
   background: var(--surface);
-  border: 1px solid oklch(85% 0.05 25);
+  border: 1px solid var(--error-border);
 }
 
 button.danger:hover:not(:disabled) {
@@ -3066,7 +3373,7 @@ button.danger:disabled {
   padding: 0.875rem 1rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 
@@ -3114,28 +3421,28 @@ button.danger:disabled {
 .backup-status {
   display: inline-block;
   padding: 0.125rem 0.5rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  background: oklch(92% 0.005 70);
+  background: var(--c-neutral-bg);
   color: var(--muted);
 }
 
 .backup-status-pending {
-  background: oklch(94% 0.025 90);
-  color: oklch(45% 0.10 80);
+  background: var(--c-gold-bg);
+  color: var(--c-gold-fg);
 }
 
 .backup-status-running {
-  background: oklch(94% 0.04 230);
-  color: oklch(45% 0.13 240);
+  background: var(--c-blue-bg);
+  color: var(--c-blue-fg);
 }
 
 .backup-status-complete {
-  background: oklch(94% 0.05 145);
-  color: oklch(40% 0.15 150);
+  background: var(--c-green-bg);
+  color: var(--c-green-fg);
 }
 
 .backup-status-failed {
@@ -3144,7 +3451,7 @@ button.danger:disabled {
 }
 
 .backup-status-expired {
-  background: oklch(92% 0.005 70);
+  background: var(--c-neutral-bg);
   color: var(--muted);
 }
 
@@ -3157,7 +3464,7 @@ button.danger:disabled {
   max-width: 32rem;
   margin: 0 0 0.875rem;
   padding: 0.5rem 0.875rem;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--surface-2);
   border: 1px solid var(--line-soft);
   font-size: 0.875rem;
@@ -3170,9 +3477,9 @@ button.danger:disabled {
 }
 
 .inventory-summary-ready {
-  background: oklch(95% 0.04 145);
-  border-color: oklch(86% 0.06 145);
-  color: oklch(35% 0.10 150);
+  background: var(--c-green-bg);
+  border-color: var(--c-green-line);
+  color: var(--c-green-fg);
 }
 
 .inventory-summary-ready strong {
@@ -3197,7 +3504,7 @@ button.danger:disabled {
   display: inline-flex;
   align-items: center;
   padding: 0.0625rem 0.5rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -3206,13 +3513,13 @@ button.danger:disabled {
 }
 
 .inventory-badge-have {
-  background: oklch(94% 0.05 145);
-  color: oklch(40% 0.13 150);
+  background: var(--c-green-bg);
+  color: var(--c-green-fg);
 }
 
 .inventory-badge-short {
-  background: oklch(94% 0.05 75);
-  color: oklch(40% 0.15 60);
+  background: var(--c-amber-bg);
+  color: var(--c-amber-fg);
 }
 
 .inventory-badge-missing {
@@ -3221,8 +3528,8 @@ button.danger:disabled {
 }
 
 .inventory-badge-mismatch {
-  background: oklch(94% 0.02 250);
-  color: oklch(40% 0.10 240);
+  background: var(--c-blue-bg);
+  color: var(--c-blue-fg);
 }
 
 /* --- Inventory page --------------------------------------------------- */
@@ -3267,7 +3574,7 @@ button.danger:disabled {
   max-width: 32rem;
   padding: 1rem 1.25rem;
   border: 1px dashed var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--surface-2);
 }
 
@@ -3379,7 +3686,7 @@ button.danger:disabled {
      Reset for table-cell usage. */
   margin: 0;
   border: 1.5px solid var(--line);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   cursor: pointer;
   transition: background 0.1s ease, border-color 0.1s ease;
@@ -3489,7 +3796,7 @@ button.danger:disabled {
   color: inherit;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition: border-color 120ms ease, background 120ms ease;
 }
 
@@ -3560,7 +3867,7 @@ button.danger:disabled {
   justify-content: center;
   background: transparent;
   border: 0;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   font-size: 0.625rem;
   line-height: 1;
@@ -3595,8 +3902,8 @@ button.danger:disabled {
 .inventory-unit-popover {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.08);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
   min-width: 6rem;
   max-width: 12rem;
   outline: none;
@@ -3615,7 +3922,7 @@ button.danger:disabled {
   padding: 0.375rem 0.625rem;
   font-size: 0.875rem;
   color: var(--fg);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   outline: none;
 }
@@ -3713,7 +4020,7 @@ button.danger:disabled {
   padding: 0.375rem 0.625rem;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--fg);
   font: inherit;
   cursor: pointer;
@@ -3735,6 +4042,12 @@ button.danger:disabled {
   line-height: 1;
 }
 
+/* Bell lives in the shell top bar as an icon-only control; its aria-label
+   carries the accessible name, so the visible text label is hidden. */
+.bell-label {
+  display: none;
+}
+
 .bell-popover {
   position: absolute;
   top: calc(100% + 0.5rem);
@@ -3744,7 +4057,7 @@ button.danger:disabled {
   overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
   z-index: 50;
   display: grid;
@@ -3839,8 +4152,8 @@ button.danger:disabled {
   border-top: 1px solid var(--line-soft);
   text-align: center;
   background: var(--surface-2);
-  border-bottom-left-radius: 12px;
-  border-bottom-right-radius: 12px;
+  border-bottom-left-radius: var(--radius-xl);
+  border-bottom-right-radius: var(--radius-xl);
 }
 
 .bell-popover-foot a {
@@ -3854,7 +4167,7 @@ button.danger:disabled {
   padding: 0.875rem 1rem;
   background: var(--accent-soft);
   border: 1px solid var(--accent-ring);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
   display: grid;
   gap: 0.5rem;
@@ -3921,6 +4234,20 @@ button.danger:disabled {
   .unack-item-link {
     margin-left: 0;
   }
+}
+
+/* --- Dark theme (scaffold) --------------------------------------------
+   Every rule above references role tokens (--bg/--fg/--line/--accent/
+   --c-*-…) — never raw oklch() — so dark mode is a value swap here:
+   re-point the gray ramp + role aliases and flip color-scheme. Values
+   land in the dark-mode ticket; this block proves the structure and sets
+   color-scheme so native form controls / scrollbars follow the OS now.
+   `:root` keeps `color-scheme: light` by default. */
+
+@media (prefers-color-scheme: dark) {
+  /* Intentionally empty until the dark-mode ticket supplies values.
+     When it does, override the primitives + roles here (or move to a
+     [data-theme="dark"] selector for a user toggle). */
 }
 
 /* --- Motion respect ---------------------------------------------------- */
