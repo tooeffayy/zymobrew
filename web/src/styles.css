@@ -4338,6 +4338,144 @@ button.danger:disabled {
   justify-content: flex-start;
 }
 
+/* --- Recipe detail layout ---------------------------------------------
+   Mirrors the batch layout: ingredients + reminder templates in the main
+   column beside a sticky spec rail (brew actions + key gravities). Single
+   column, spec-first, below the shell breakpoint. */
+.recipe-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  grid-template-areas: "main aside";
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.recipe-main {
+  grid-area: main;
+  min-width: 0;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.recipe-aside {
+  grid-area: aside;
+  min-width: 0;
+}
+
+@media (min-width: 60.01rem) {
+  .recipe-aside {
+    position: sticky;
+    top: calc(var(--topbar-h) + 1rem);
+  }
+}
+
+@media (max-width: 60rem) {
+  .recipe-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "aside"
+      "main";
+  }
+}
+
+/* Sections in the main column become white cards on the gray canvas. */
+.recipe-layout .recipe-section {
+  margin: 0;
+  padding: 1rem 1.125rem 1.125rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.recipe-layout .recipe-section > h2,
+.recipe-layout .template-section-head {
+  margin-bottom: 0.75rem;
+}
+
+/* The ingredient card is already grouped — flatten it so it reads as the
+   section card's content rather than a card within a card, and let it
+   fill the column (drop the standalone 32rem cap + chrome). */
+.recipe-layout .ingredient-card {
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.recipe-layout .ingredient-kind {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.recipe-layout .ingredient-section:first-of-type .ingredient-kind {
+  padding-top: 0;
+}
+
+.recipe-layout .ingredient-table .ingredient-row > td:first-child {
+  padding-left: 0;
+}
+
+.recipe-layout .ingredient-table .ingredient-row > td:last-child {
+  padding-right: 0;
+}
+
+/* Reminder-template rows go flat (divider-separated) inside the card;
+   the inline-edit row keeps its inset surface. */
+.recipe-layout .template-list {
+  gap: 0;
+}
+
+.recipe-layout .template-row:not(.template-row-editing) {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+  box-shadow: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.recipe-layout .template-list > .template-row:first-child {
+  border-top: 0;
+}
+
+/* Spec rail: stacked brew actions + key gravities in one card. */
+.recipe-spec {
+  padding: 1rem 1.125rem 1.125rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 1rem;
+}
+
+.recipe-spec .recipe-actions {
+  margin: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.recipe-spec .action-button {
+  justify-content: center;
+}
+
+/* Stats flatten inside the spec card (no nested card); 2-up grid. */
+.recipe-spec .stats-grid {
+  margin: 0;
+  padding: 1rem 0 0;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+  box-shadow: none;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.875rem;
+}
+
 /* --- Dark theme (scaffold) --------------------------------------------
    Every rule above references role tokens (--bg/--fg/--line/--accent/
    --c-*-…) — never raw oklch() — so dark mode is a value swap here:

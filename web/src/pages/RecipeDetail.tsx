@@ -155,60 +155,72 @@ export function RecipeDetail() {
         {recipe.description && <p className="recipe-detail-desc">{recipe.description}</p>}
       </header>
 
-      <div className="recipe-actions">
-        <Link
-          to={`/batches/new?recipe=${encodeURIComponent(recipe.id)}`}
-          className="action-button action-primary"
-        >
-          Brew this
-        </Link>
-        {isOwner && (
-          <Link to={`/recipes/${recipe.id}/edit`} className="action-button">
-            Edit
-          </Link>
-        )}
-        <button
-          type="button"
-          className="action-button"
-          onClick={onFork}
-          disabled={busy !== null}
-        >
-          {busy === "fork" ? "Forking…" : "Fork"}
-        </button>
-        {isOwner && (
-          <button
-            type="button"
-            className="action-button danger"
-            onClick={onDelete}
-            disabled={busy !== null}
-          >
-            {busy === "delete" ? "Deleting…" : "Delete"}
-          </button>
-        )}
+      {/* Two-column on desktop: ingredients + reminder templates (main)
+          beside a sticky spec rail holding the brew actions and key
+          gravities. DOM order is aside-first so the single-column mobile
+          stack leads with the actions + specs. */}
+      <div className="recipe-layout">
+        <aside className="recipe-aside">
+          <div className="recipe-spec">
+            <div className="recipe-actions">
+              <Link
+                to={`/batches/new?recipe=${encodeURIComponent(recipe.id)}`}
+                className="action-button action-primary"
+              >
+                Brew this
+              </Link>
+              {isOwner && (
+                <Link to={`/recipes/${recipe.id}/edit`} className="action-button">
+                  Edit
+                </Link>
+              )}
+              <button
+                type="button"
+                className="action-button"
+                onClick={onFork}
+                disabled={busy !== null}
+              >
+                {busy === "fork" ? "Forking…" : "Fork"}
+              </button>
+              {isOwner && (
+                <button
+                  type="button"
+                  className="action-button danger"
+                  onClick={onDelete}
+                  disabled={busy !== null}
+                >
+                  {busy === "delete" ? "Deleting…" : "Delete"}
+                </button>
+              )}
+            </div>
+
+            {actionError && <p className="error">{actionError}</p>}
+
+            <section className="stats-grid">
+              <Stat label="OG" value={fmtGravity(recipe.target_og)} />
+              <Stat label="FG" value={fmtGravity(recipe.target_fg)} />
+              <Stat label="ABV" value={recipe.target_abv != null ? `${recipe.target_abv.toFixed(1)}%` : null} />
+              <Stat label="Batch" value={recipe.batch_size_l != null ? `${recipe.batch_size_l} L` : null} />
+            </section>
+          </div>
+        </aside>
+
+        <div className="recipe-main">
+          <section className="recipe-section">
+            <h2>Ingredients</h2>
+            {recipe.ingredients.length === 0 ? (
+              <p className="muted">No ingredients listed.</p>
+            ) : (
+              <>
+                {match && match.length > 0 && <InventoryMatchSummary match={match} />}
+                <IngredientList ingredients={recipe.ingredients} match={match} />
+              </>
+            )}
+          </section>
+
+          <ReminderTemplatesSection recipeID={recipe.id} isOwner={isOwner} />
+        </div>
       </div>
-
-      {actionError && <p className="error">{actionError}</p>}
-
-      <section className="stats-grid">
-        <Stat label="OG" value={fmtGravity(recipe.target_og)} />
-        <Stat label="FG" value={fmtGravity(recipe.target_fg)} />
-        <Stat label="ABV" value={recipe.target_abv != null ? `${recipe.target_abv.toFixed(1)}%` : null} />
-        <Stat label="Batch" value={recipe.batch_size_l != null ? `${recipe.batch_size_l} L` : null} />
-      </section>
-
-      <section className="recipe-section">
-        <h2>Ingredients</h2>
-        {recipe.ingredients.length === 0 ? (
-          <p className="muted">No ingredients listed.</p>
-        ) : (
-          <>
-            {match && match.length > 0 && <InventoryMatchSummary match={match} />}
-            <IngredientList ingredients={recipe.ingredients} match={match} />
-          </>
-        )}
-      </section>
-
-      <ReminderTemplatesSection recipeID={recipe.id} isOwner={isOwner} />
 
       <footer className="recipe-footer muted">
         Revision {recipe.revision_number} of {recipe.revision_count}
