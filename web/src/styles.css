@@ -3102,23 +3102,30 @@ select:focus-visible {
 
 .calc-grid {
   display: grid;
-  gap: 1.5rem;
+  /* Tile the calculators across the canvas instead of one stacked
+     column; cards drop to a single column on narrow viewports. */
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: 1rem;
+  align-items: start;
 }
 
 .calc-card {
   display: grid;
-  gap: 1rem;
-  padding: 1.5rem;
+  gap: 0.875rem;
+  padding: 1.125rem 1.25rem 1.25rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 
+/* Hairline header rule, matching the form section cards. */
 .calc-card h2 {
-  font-size: 1.125rem;
+  font-size: 1rem;
   font-weight: 600;
   margin: 0;
+  padding-bottom: 0.625rem;
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .calc-help {
