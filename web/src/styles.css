@@ -4556,6 +4556,75 @@ button.danger:disabled {
   background: var(--accent-soft);
 }
 
+/* --- Profile / account section cards ----------------------------------
+   Each /me tab section becomes a white card on the gray canvas (already
+   width-capped to 36rem). Forms inside keep their inline actions — the
+   sticky action bar is scoped to .recipe-form only. */
+.profile-page .recipe-section {
+  margin: 0 0 1rem;
+  padding: 1.125rem 1.25rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.profile-page .recipe-section > h2 {
+  font-size: 1rem;
+  margin: 0 0 0.875rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* Danger zone reads as a card with a red-tinted border (the base
+   top-border / extra padding are overridden by the card rule above). */
+.profile-page .danger-zone {
+  border-color: var(--error-border);
+}
+
+/* --- Admin section cards ---------------------------------------------- */
+.admin-page .recipe-section {
+  margin: 0;
+  padding: 1.125rem 1.25rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-page .admin-section-head {
+  margin-bottom: 0.875rem;
+  padding-bottom: 0.875rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* Backup rows go flat (divider-separated) inside the section card. */
+.admin-page .backup-list {
+  gap: 0;
+}
+
+.admin-page .backup-row {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+  box-shadow: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.admin-page .backup-list > .backup-row:first-child {
+  border-top: 0;
+}
+
+/* --- Notifications inbox ----------------------------------------------
+   Constrain the inbox to a readable column — full-canvas-width rows of
+   short text read sparse. Rows stay individual cards (the unread accent
+   bar is the scan cue). */
+.notifications-page {
+  max-width: 52rem;
+}
+
 /* --- Dark theme (scaffold) --------------------------------------------
    Every rule above references role tokens (--bg/--fg/--line/--accent/
    --c-*-…) — never raw oklch() — so dark mode is a value swap here:
