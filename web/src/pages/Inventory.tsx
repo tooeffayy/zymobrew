@@ -207,7 +207,7 @@ export function Inventory() {
         </div>
       </header>
 
-      <section className="recipe-section">
+      <section className="recipe-section inventory-section">
         <h2>Ingredients</h2>
         <div className="inventory-toolbar">
           <button

@@ -4503,6 +4503,59 @@ button.danger:disabled {
   gap: 0.875rem;
 }
 
+/* --- Inventory list view ----------------------------------------------
+   The stockpile is one cohesive card on the gray canvas: heading + a
+   toolbar header bar, then the table flush below. Mirrors an ERPNext-style
+   list view. */
+.inventory-section {
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.inventory-section > h2 {
+  margin: 0;
+  padding: 0.875rem 1.125rem;
+  font-size: 1rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.inventory-section .inventory-toolbar {
+  margin: 0;
+  padding: 0.625rem 1.125rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* The inner ingredient-card flattens into the section card (no nested
+   border / corners). */
+.inventory-section .ingredient-card.inventory-card {
+  border: 0;
+  border-radius: 0;
+}
+
+.inventory-section > .error {
+  margin: 0.75rem 1.125rem 0;
+}
+
+.inventory-section .inventory-empty {
+  margin: 1rem 1.125rem;
+}
+
+/* Row hover — gives the grid the live, scannable feel of a data table.
+   Selected rows keep their accent tint over the hover. */
+.inventory-table .inventory-row:hover > td {
+  background: var(--bg-tint);
+}
+
+.inventory-table .inventory-row[data-selected]:hover > td {
+  background: var(--accent-soft);
+}
+
 /* --- Dark theme (scaffold) --------------------------------------------
    Every rule above references role tokens (--bg/--fg/--line/--accent/
    --c-*-…) — never raw oklch() — so dark mode is a value swap here:
