@@ -2371,25 +2371,29 @@ dd {
 /* --- Recipe form ------------------------------------------------------- */
 
 .recipe-form {
-  max-width: 44rem;
+  max-width: 52rem;
   display: grid;
-  gap: 2rem;
+  gap: 1.25rem;
 }
 
 .form-section {
   display: grid;
   gap: 1rem;
-  padding: 1.5rem;
+  padding: 1.125rem 1.25rem 1.25rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 
+/* Section header gets a hairline rule so each card reads as a labeled
+   group — utilitarian structure without extra chrome. */
 .form-section h2 {
-  font-size: 1rem;
+  font-size: 0.9375rem;
   font-weight: 600;
   margin: 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .section-help {
@@ -2691,6 +2695,22 @@ select:focus-visible {
   display: flex;
   align-items: center;
   gap: 1rem;
+}
+
+/* On the long create/edit forms, pin the actions to the bottom of the
+   viewport so Save/Cancel stay reachable without scrolling to the end of
+   a big ingredient list. Scoped to .recipe-form so the inline
+   tasting-note / prefs .form-actions are unaffected. The bar sits on the
+   gray canvas (matches the page) with a hairline to separate it from the
+   white section cards scrolling underneath. */
+.recipe-form .form-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin-top: 0.25rem;
+  padding: 0.875rem 0;
+  background: var(--gray-50);
+  border-top: 1px solid var(--line);
 }
 
 .cancel-link {
