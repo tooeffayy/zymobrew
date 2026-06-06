@@ -2371,25 +2371,29 @@ dd {
 /* --- Recipe form ------------------------------------------------------- */
 
 .recipe-form {
-  max-width: 44rem;
+  max-width: 52rem;
   display: grid;
-  gap: 2rem;
+  gap: 1.25rem;
 }
 
 .form-section {
   display: grid;
   gap: 1rem;
-  padding: 1.5rem;
+  padding: 1.125rem 1.25rem 1.25rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 
+/* Section header gets a hairline rule so each card reads as a labeled
+   group — utilitarian structure without extra chrome. */
 .form-section h2 {
-  font-size: 1rem;
+  font-size: 0.9375rem;
   font-weight: 600;
   margin: 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .section-help {
@@ -2691,6 +2695,22 @@ select:focus-visible {
   display: flex;
   align-items: center;
   gap: 1rem;
+}
+
+/* On the long create/edit forms, pin the actions to the bottom of the
+   viewport so Save/Cancel stay reachable without scrolling to the end of
+   a big ingredient list. Scoped to .recipe-form so the inline
+   tasting-note / prefs .form-actions are unaffected. The bar sits on the
+   gray canvas (matches the page) with a hairline to separate it from the
+   white section cards scrolling underneath. */
+.recipe-form .form-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin-top: 0.25rem;
+  padding: 0.875rem 0;
+  background: var(--gray-50);
+  border-top: 1px solid var(--line);
 }
 
 .cancel-link {
@@ -3082,23 +3102,30 @@ select:focus-visible {
 
 .calc-grid {
   display: grid;
-  gap: 1.5rem;
+  /* Tile the calculators across the canvas instead of one stacked
+     column; cards drop to a single column on narrow viewports. */
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: 1rem;
+  align-items: start;
 }
 
 .calc-card {
   display: grid;
-  gap: 1rem;
-  padding: 1.5rem;
+  gap: 0.875rem;
+  padding: 1.125rem 1.25rem 1.25rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 
+/* Hairline header rule, matching the form section cards. */
 .calc-card h2 {
-  font-size: 1.125rem;
+  font-size: 1rem;
   font-weight: 600;
   margin: 0;
+  padding-bottom: 0.625rem;
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .calc-help {
@@ -4234,6 +4261,368 @@ button.danger:disabled {
   .unack-item-link {
     margin-left: 0;
   }
+}
+
+/* --- Batch detail layout ----------------------------------------------
+   Two columns on desktop: the journal / readings / tasting stream (main)
+   and a sticky "Next steps" rail (aside) so actionable reminders stay in
+   view while the brewer scrolls the log. Collapses to a single column —
+   reminders first — below the shell breakpoint. */
+.batch-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  grid-template-areas: "main aside";
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.batch-main {
+  grid-area: main;
+  min-width: 0;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.batch-aside {
+  grid-area: aside;
+  min-width: 0;
+}
+
+@media (min-width: 60.01rem) {
+  .batch-aside {
+    position: sticky;
+    top: calc(var(--topbar-h) + 1rem);
+  }
+}
+
+@media (max-width: 60rem) {
+  .batch-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "aside"
+      "main";
+  }
+}
+
+/* Each section is a white card on the gray canvas (overrides the bare
+   .recipe-section spacing — this block sits later in the file so it
+   wins on equal specificity). */
+.batch-section {
+  margin: 0;
+  padding: 1rem 1.125rem 1.125rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.batch-section > h2,
+.batch-section .section-toggle {
+  margin-bottom: 0.75rem;
+}
+
+/* Inside a section card the list rows go flat — divider-separated rather
+   than stacked cards-in-a-card. */
+.batch-section .reminder-list,
+.batch-section .event-list,
+.batch-section .tasting-list {
+  gap: 0;
+}
+
+.batch-section .reminder-row,
+.batch-section .event-row,
+.batch-section .tasting-row {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.batch-section .reminder-list > .reminder-row:first-child,
+.batch-section .event-list > .event-row:first-child,
+.batch-section .tasting-list > .tasting-row:first-child {
+  border-top: 0;
+}
+
+/* Preserve the overdue left-edge flag and the inline-edit tint that the
+   flatten rule above would otherwise strip. */
+.batch-section .reminder-overdue {
+  box-shadow: inset 3px 0 0 var(--error);
+}
+
+.batch-section .event-row-editing {
+  background: var(--bg-tint);
+}
+
+/* The aside is narrow — keep reminder rows single-column there (the
+   viewport-based stack media query won't fire on a wide screen). */
+.batch-aside .reminder-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.batch-aside .reminder-actions {
+  justify-content: flex-start;
+}
+
+/* --- Recipe detail layout ---------------------------------------------
+   Mirrors the batch layout: ingredients + reminder templates in the main
+   column beside a sticky spec rail (brew actions + key gravities). Single
+   column, spec-first, below the shell breakpoint. */
+.recipe-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  grid-template-areas: "main aside";
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.recipe-main {
+  grid-area: main;
+  min-width: 0;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.recipe-aside {
+  grid-area: aside;
+  min-width: 0;
+}
+
+@media (min-width: 60.01rem) {
+  .recipe-aside {
+    position: sticky;
+    top: calc(var(--topbar-h) + 1rem);
+  }
+}
+
+@media (max-width: 60rem) {
+  .recipe-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "aside"
+      "main";
+  }
+}
+
+/* Sections in the main column become white cards on the gray canvas. */
+.recipe-layout .recipe-section {
+  margin: 0;
+  padding: 1rem 1.125rem 1.125rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.recipe-layout .recipe-section > h2,
+.recipe-layout .template-section-head {
+  margin-bottom: 0.75rem;
+}
+
+/* The ingredient card is already grouped — flatten it so it reads as the
+   section card's content rather than a card within a card, and let it
+   fill the column (drop the standalone 32rem cap + chrome). */
+.recipe-layout .ingredient-card {
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.recipe-layout .ingredient-kind {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.recipe-layout .ingredient-section:first-of-type .ingredient-kind {
+  padding-top: 0;
+}
+
+.recipe-layout .ingredient-table .ingredient-row > td:first-child {
+  padding-left: 0;
+}
+
+.recipe-layout .ingredient-table .ingredient-row > td:last-child {
+  padding-right: 0;
+}
+
+/* Reminder-template rows go flat (divider-separated) inside the card;
+   the inline-edit row keeps its inset surface. */
+.recipe-layout .template-list {
+  gap: 0;
+}
+
+.recipe-layout .template-row:not(.template-row-editing) {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+  box-shadow: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.recipe-layout .template-list > .template-row:first-child {
+  border-top: 0;
+}
+
+/* Spec rail: stacked brew actions + key gravities in one card. */
+.recipe-spec {
+  padding: 1rem 1.125rem 1.125rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 1rem;
+}
+
+.recipe-spec .recipe-actions {
+  margin: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.recipe-spec .action-button {
+  justify-content: center;
+}
+
+/* Stats flatten inside the spec card (no nested card); 2-up grid. */
+.recipe-spec .stats-grid {
+  margin: 0;
+  padding: 1rem 0 0;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+  box-shadow: none;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.875rem;
+}
+
+/* --- Inventory list view ----------------------------------------------
+   The stockpile is one cohesive card on the gray canvas: heading + a
+   toolbar header bar, then the table flush below. Mirrors an ERPNext-style
+   list view. */
+.inventory-section {
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.inventory-section > h2 {
+  margin: 0;
+  padding: 0.875rem 1.125rem;
+  font-size: 1rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.inventory-section .inventory-toolbar {
+  margin: 0;
+  padding: 0.625rem 1.125rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* The inner ingredient-card flattens into the section card (no nested
+   border / corners). */
+.inventory-section .ingredient-card.inventory-card {
+  border: 0;
+  border-radius: 0;
+}
+
+.inventory-section > .error {
+  margin: 0.75rem 1.125rem 0;
+}
+
+.inventory-section .inventory-empty {
+  margin: 1rem 1.125rem;
+}
+
+/* Row hover — gives the grid the live, scannable feel of a data table.
+   Selected rows keep their accent tint over the hover. */
+.inventory-table .inventory-row:hover > td {
+  background: var(--bg-tint);
+}
+
+.inventory-table .inventory-row[data-selected]:hover > td {
+  background: var(--accent-soft);
+}
+
+/* --- Profile / account section cards ----------------------------------
+   Each /me tab section becomes a white card on the gray canvas (already
+   width-capped to 36rem). Forms inside keep their inline actions — the
+   sticky action bar is scoped to .recipe-form only. */
+.profile-page .recipe-section {
+  margin: 0 0 1rem;
+  padding: 1.125rem 1.25rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.profile-page .recipe-section > h2 {
+  font-size: 1rem;
+  margin: 0 0 0.875rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* Danger zone reads as a card with a red-tinted border (the base
+   top-border / extra padding are overridden by the card rule above). */
+.profile-page .danger-zone {
+  border-color: var(--error-border);
+}
+
+/* --- Admin section cards ---------------------------------------------- */
+.admin-page .recipe-section {
+  margin: 0;
+  padding: 1.125rem 1.25rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-page .admin-section-head {
+  margin-bottom: 0.875rem;
+  padding-bottom: 0.875rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* Backup rows go flat (divider-separated) inside the section card. */
+.admin-page .backup-list {
+  gap: 0;
+}
+
+.admin-page .backup-row {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+  box-shadow: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.admin-page .backup-list > .backup-row:first-child {
+  border-top: 0;
+}
+
+/* --- Notifications inbox ----------------------------------------------
+   Constrain the inbox to a readable column — full-canvas-width rows of
+   short text read sparse. Rows stay individual cards (the unread accent
+   bar is the scan cue). */
+.notifications-page {
+  max-width: 52rem;
 }
 
 /* --- Dark theme (scaffold) --------------------------------------------

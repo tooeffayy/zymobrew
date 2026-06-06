@@ -86,7 +86,7 @@ export function Notifications() {
   const unread = items.reduce((acc, n) => (n.read_at ? acc : acc + 1), 0);
 
   return (
-    <div className="page">
+    <div className="page notifications-page">
       <header className="notifications-header">
         <h1>Notifications</h1>
         {unread > 0 && (

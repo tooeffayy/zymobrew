@@ -155,33 +155,44 @@ export function BatchDetail() {
 
       {actionError && <p className="error">{actionError}</p>}
 
-      <RemindersSection
-        active={active}
-        done={done}
-        showDone={showDone}
-        onToggleDone={() => setShowDone((v) => !v)}
-        refetch={refetch}
-        hasStartedAt={Boolean(batch.started_at)}
-      />
+      {/* Two-column on desktop: the log stream (main) + a sticky
+          "Next steps" rail (aside). DOM order is aside-first so the
+          single-column mobile stack leads with reminders, matching the
+          brewing-UX priority; grid-template-areas places it on the right
+          at desktop widths. */}
+      <div className="batch-layout">
+        <aside className="batch-aside">
+          <RemindersSection
+            active={active}
+            done={done}
+            showDone={showDone}
+            onToggleDone={() => setShowDone((v) => !v)}
+            refetch={refetch}
+            hasStartedAt={Boolean(batch.started_at)}
+          />
+        </aside>
 
-      <EventsSection
-        batchID={batch.id}
-        events={events}
-        refetch={refetch}
-      />
+        <div className="batch-main">
+          <EventsSection
+            batchID={batch.id}
+            events={events}
+            refetch={refetch}
+          />
 
-      <ReadingsSection
-        batchID={batch.id}
-        readings={readings}
-        events={events}
-        refetch={refetch}
-      />
+          <ReadingsSection
+            batchID={batch.id}
+            readings={readings}
+            events={events}
+            refetch={refetch}
+          />
 
-      <TastingNotesSection
-        batchID={batch.id}
-        notes={tastingNotes}
-        refetch={refetch}
-      />
+          <TastingNotesSection
+            batchID={batch.id}
+            notes={tastingNotes}
+            refetch={refetch}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -250,7 +261,7 @@ function RemindersSection({
   hasStartedAt: boolean;
 }) {
   return (
-    <section className="recipe-section">
+    <section className="recipe-section batch-section">
       <h2>Next steps</h2>
       {active.length === 0 ? (
         <p className="muted">
@@ -371,7 +382,7 @@ function EventsSection({
   const [logOpen, setLogOpen] = useState(false);
 
   return (
-    <section className="recipe-section">
+    <section className="recipe-section batch-section">
       <h2>Journal</h2>
       <div className="bulk-toolbar bulk-toolbar-resting">
         <button
@@ -726,7 +737,7 @@ function ReadingsSection({
   const someChecked = validSelected.size > 0 && !allChecked;
 
   return (
-    <section className="recipe-section readings-section">
+    <section className="recipe-section readings-section batch-section">
       <button
         type="button"
         className="link-button section-toggle"
@@ -1209,7 +1220,7 @@ function TastingNotesSection({
   // Server returns newest first. Keep that order — most-recent tastings
   // are what brewers reach for as the brew matures.
   return (
-    <section className="recipe-section tasting-section">
+    <section className="recipe-section tasting-section batch-section">
       <button
         type="button"
         className="link-button section-toggle"
