@@ -782,7 +782,7 @@ button {
   font-size: 0.9375rem;
   padding: 0.625rem 1.125rem;
   background: var(--accent);
-  color: white;
+  color: var(--accent-fg);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   cursor: pointer;
@@ -1247,13 +1247,13 @@ dd {
 /* Primary variant for the high-intent action on a row (Brew this).
    Accent-filled rather than ghosted so it earns the click. */
 .action-button.action-primary {
-  color: white;
+  color: var(--accent-fg);
   background: var(--accent);
   border-color: var(--accent);
 }
 
 .action-button.action-primary:hover:not(:disabled) {
-  color: white;
+  color: var(--accent-fg);
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
@@ -2319,7 +2319,7 @@ dd {
   padding: 0.4375rem 0.875rem;
   border-radius: var(--radius-md);
   background: var(--accent);
-  color: white !important;
+  color: var(--accent-fg) !important;
   font-size: 0.9375rem;
   font-weight: 600;
   text-decoration: none;
@@ -2356,7 +2356,7 @@ dd {
   margin-top: 0.75rem;
   padding: 0.5rem 1rem;
   background: var(--accent);
-  color: white;
+  color: var(--accent-fg);
   border-radius: var(--radius-md);
   text-decoration: none;
   font-weight: 600;
@@ -2365,7 +2365,7 @@ dd {
 
 .empty-cta:hover {
   background: var(--accent-hover);
-  color: white;
+  color: var(--accent-fg);
 }
 
 /* --- Recipe form ------------------------------------------------------- */
@@ -3318,7 +3318,7 @@ button.danger {
 }
 
 button.danger:hover:not(:disabled) {
-  color: white;
+  color: var(--error-fg);
   background: var(--error);
   border-color: var(--error);
 }
@@ -3744,7 +3744,7 @@ button.danger:disabled {
   position: absolute;
   width: 0.4rem;
   height: 0.65rem;
-  border: solid white;
+  border: solid var(--accent-fg);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg) translate(-2px, -3px);
 }
@@ -3754,7 +3754,7 @@ button.danger:disabled {
   position: absolute;
   width: 0.55rem;
   height: 2px;
-  background: white;
+  background: var(--accent-fg);
 }
 
 /* Selected row gets a subtle tint so the bulk-action target is visible. */
