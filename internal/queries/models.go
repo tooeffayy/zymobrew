@@ -627,6 +627,7 @@ type RecipeReminderTemplate struct {
 	OffsetMinutes      int32          `json:"offset_minutes"`
 	SuggestedEventKind NullEventKind  `json:"suggested_event_kind"`
 	SortOrder          int32          `json:"sort_order"`
+	CustomEventKind    NullEventKind  `json:"custom_event_kind"`
 }
 
 type RecipeRevision struct {

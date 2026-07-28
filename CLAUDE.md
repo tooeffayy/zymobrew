@@ -250,7 +250,10 @@ These cross-cutting rules apply across all resources:
 **Materialization** — best-effort, non-blocking. Triggered on:
 - `POST /api/batches` with `recipe_id` + `started_at` → `batch_start` templates
 - `PATCH /api/batches/{id}` with `started_at` → `batch_start` templates
-- `POST /api/batches/{id}/events` with kind `pitch`/`rack`/`bottle` → corresponding anchor templates
+- `POST`/`PATCH /api/batches/{id}/events` with kind `pitch`/`rack`/`bottle` → corresponding anchor templates
+- `POST`/`PATCH /api/batches/{id}/events` of *any* kind → `custom_event` templates whose `custom_event_kind` matches the event's kind
+
+**`custom_event` anchor** — the generalized escape hatch for event kinds without a dedicated anchor (`nutrient_addition`, `degas`, `addition`, …). A template with `anchor='custom_event'` carries a `recipe_reminder_templates.custom_event_kind` (the `event_kind` to anchor to; required at create, 422 otherwise). When an event of that kind is logged, the reminder fires at `occurred_at + offset_minutes`; editing the event's `occurred_at` re-anchors it. Matching is by kind, not event title (title matching deferred — a non-breaking column add if needed). The materialize/reanchor queries take an `event_kind` param used only for this anchor (NULL for the fixed anchors, short-circuited past via `anchor <> 'custom_event' OR …`).
 
 `MaterializeReminderTemplates` uses `NOT EXISTS` to prevent double-materialization. Each materialize call also runs `ReanchorReminders` first, which UPDATEs `fire_at` on already-materialized **scheduled** reminders for that batch+anchor — so editing `started_at` shifts existing reminders forward. The status filter is deliberately narrower than `MaterializeReminderTemplates`': fired/snoozed/completed reminders are *not* re-anchored.
 
@@ -292,7 +295,7 @@ Four delivery channels — in-app (always), web push (per-browser subscriptions)
 
 ### Known deferred gaps
 
-- **`custom_event` anchor** materialization — needs event title/kind selector.
+- **`custom_event` anchor** materialization matches by event *kind* only; per-title matching (to distinguish multiple `other` events) is not implemented.
 - **`source` is free text** — constrain to known set when device adapters ship.
 
 ### Backups + Exports
