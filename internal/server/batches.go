@@ -239,7 +239,7 @@ func (s *Server) handleCreateBatch(w http.ResponseWriter, r *http.Request) {
 
 	// Materialize batch_start-anchored templates if the batch starts immediately.
 	if batch.StartedAt.Valid && batch.RecipeID.Valid {
-		s.materializeTemplates(r.Context(), batch, queries.ReminderAnchorBatchStart, batch.StartedAt.Time)
+		s.materializeTemplates(r.Context(), batch, queries.ReminderAnchorBatchStart, batch.StartedAt.Time, queries.NullEventKind{})
 	}
 
 	writeJSON(w, http.StatusCreated, toBatchView(batch))
@@ -368,7 +368,7 @@ func (s *Server) handleUpdateBatch(w http.ResponseWriter, r *http.Request) {
 	// On first set this creates the reminder rows; on re-anchor it shifts
 	// fire_at on existing scheduled reminders. See materializeTemplates.
 	if req.StartedAt != nil && batch.StartedAt.Valid && batch.RecipeID.Valid {
-		s.materializeTemplates(r.Context(), batch, queries.ReminderAnchorBatchStart, batch.StartedAt.Time)
+		s.materializeTemplates(r.Context(), batch, queries.ReminderAnchorBatchStart, batch.StartedAt.Time, queries.NullEventKind{})
 	}
 
 	writeJSON(w, http.StatusOK, toBatchView(batch))
@@ -653,7 +653,10 @@ func (s *Server) userOwnsBatch(ctx context.Context, userID, batchID uuid.UUID) b
 // Both writes are best-effort and do not fail the triggering request. They
 // don't share a transaction; if the second one fails after the first
 // succeeded, the next call (via another PATCH or event) will reconcile.
-func (s *Server) materializeTemplates(ctx context.Context, batch queries.Batch, anchor queries.ReminderAnchor, anchorTime time.Time) {
+// eventKind is only consulted for the custom_event anchor, where it selects
+// which templates fire (by their custom_event_kind). Pass an invalid
+// NullEventKind for the fixed anchors (batch_start/pitch/rack/bottle).
+func (s *Server) materializeTemplates(ctx context.Context, batch queries.Batch, anchor queries.ReminderAnchor, anchorTime time.Time, eventKind queries.NullEventKind) {
 	if !batch.RecipeID.Valid {
 		return
 	}
@@ -662,6 +665,7 @@ func (s *Server) materializeTemplates(ctx context.Context, batch queries.Batch, 
 		RecipeID:   batch.RecipeID.UUID,
 		Anchor:     anchor,
 		AnchorTime: pgtype.Timestamptz{Time: anchorTime, Valid: true},
+		EventKind:  eventKind,
 	})
 	_ = s.queries.MaterializeReminderTemplates(ctx, queries.MaterializeReminderTemplatesParams{
 		BatchID:    batch.ID,
@@ -669,6 +673,7 @@ func (s *Server) materializeTemplates(ctx context.Context, batch queries.Batch, 
 		RecipeID:   batch.RecipeID.UUID,
 		Anchor:     anchor,
 		AnchorTime: pgtype.Timestamptz{Time: anchorTime, Valid: true},
+		EventKind:  eventKind,
 	})
 }
 
@@ -822,7 +827,16 @@ func (s *Server) handleCreateBatchEvent(w http.ResponseWriter, r *http.Request) 
 		queries.EventKindBottle: queries.ReminderAnchorBottle,
 	}
 	if anchor, ok := anchorForKind[event.Kind]; ok && batch.RecipeID.Valid {
-		s.materializeTemplates(r.Context(), batch, anchor, event.OccurredAt.Time)
+		s.materializeTemplates(r.Context(), batch, anchor, event.OccurredAt.Time, queries.NullEventKind{})
+	}
+	// custom_event anchor: fires for templates whose custom_event_kind matches
+	// this event's kind. Runs for every kind (including pitch/rack/bottle) so a
+	// kind without a dedicated anchor — nutrient_addition, degas, addition — can
+	// still drive reminders. The query filters on custom_event_kind, so only
+	// templates that selected this kind materialize.
+	if batch.RecipeID.Valid {
+		s.materializeTemplates(r.Context(), batch, queries.ReminderAnchorCustomEvent, event.OccurredAt.Time,
+			queries.NullEventKind{EventKind: event.Kind, Valid: true})
 	}
 	s.maybeAdvanceStage(r.Context(), batch, event.Kind, event.OccurredAt.Time)
 
@@ -956,7 +970,13 @@ func (s *Server) handleUpdateBatchEvent(w http.ResponseWriter, r *http.Request) 
 		queries.EventKindBottle: queries.ReminderAnchorBottle,
 	}
 	if anchor, ok := anchorForKind[event.Kind]; ok && batch.RecipeID.Valid {
-		s.materializeTemplates(r.Context(), batch, anchor, event.OccurredAt.Time)
+		s.materializeTemplates(r.Context(), batch, anchor, event.OccurredAt.Time, queries.NullEventKind{})
+	}
+	// custom_event anchor — see handleCreateBatchEvent. Re-anchor also shifts
+	// fire_at when the user edits a custom event's occurred_at.
+	if batch.RecipeID.Valid {
+		s.materializeTemplates(r.Context(), batch, queries.ReminderAnchorCustomEvent, event.OccurredAt.Time,
+			queries.NullEventKind{EventKind: event.Kind, Valid: true})
 	}
 	s.maybeAdvanceStage(r.Context(), batch, event.Kind, event.OccurredAt.Time)
 

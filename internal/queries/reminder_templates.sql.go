@@ -13,9 +13,9 @@ import (
 )
 
 const createReminderTemplate = `-- name: CreateReminderTemplate :one
-INSERT INTO recipe_reminder_templates (recipe_id, title, description, anchor, offset_minutes, suggested_event_kind, sort_order)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, recipe_id, title, description, anchor, offset_minutes, suggested_event_kind, sort_order
+INSERT INTO recipe_reminder_templates (recipe_id, title, description, anchor, offset_minutes, suggested_event_kind, custom_event_kind, sort_order)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, recipe_id, title, description, anchor, offset_minutes, suggested_event_kind, sort_order, custom_event_kind
 `
 
 type CreateReminderTemplateParams struct {
@@ -25,6 +25,7 @@ type CreateReminderTemplateParams struct {
 	Anchor             ReminderAnchor `json:"anchor"`
 	OffsetMinutes      int32          `json:"offset_minutes"`
 	SuggestedEventKind NullEventKind  `json:"suggested_event_kind"`
+	CustomEventKind    NullEventKind  `json:"custom_event_kind"`
 	SortOrder          int32          `json:"sort_order"`
 }
 
@@ -36,6 +37,7 @@ func (q *Queries) CreateReminderTemplate(ctx context.Context, arg CreateReminder
 		arg.Anchor,
 		arg.OffsetMinutes,
 		arg.SuggestedEventKind,
+		arg.CustomEventKind,
 		arg.SortOrder,
 	)
 	var i RecipeReminderTemplate
@@ -48,6 +50,7 @@ func (q *Queries) CreateReminderTemplate(ctx context.Context, arg CreateReminder
 		&i.OffsetMinutes,
 		&i.SuggestedEventKind,
 		&i.SortOrder,
+		&i.CustomEventKind,
 	)
 	return i, err
 }
@@ -70,7 +73,7 @@ func (q *Queries) DeleteReminderTemplate(ctx context.Context, arg DeleteReminder
 }
 
 const getReminderTemplate = `-- name: GetReminderTemplate :one
-SELECT id, recipe_id, title, description, anchor, offset_minutes, suggested_event_kind, sort_order FROM recipe_reminder_templates WHERE id = $1
+SELECT id, recipe_id, title, description, anchor, offset_minutes, suggested_event_kind, sort_order, custom_event_kind FROM recipe_reminder_templates WHERE id = $1
 `
 
 func (q *Queries) GetReminderTemplate(ctx context.Context, id uuid.UUID) (RecipeReminderTemplate, error) {
@@ -85,12 +88,13 @@ func (q *Queries) GetReminderTemplate(ctx context.Context, id uuid.UUID) (Recipe
 		&i.OffsetMinutes,
 		&i.SuggestedEventKind,
 		&i.SortOrder,
+		&i.CustomEventKind,
 	)
 	return i, err
 }
 
 const listReminderTemplates = `-- name: ListReminderTemplates :many
-SELECT id, recipe_id, title, description, anchor, offset_minutes, suggested_event_kind, sort_order FROM recipe_reminder_templates
+SELECT id, recipe_id, title, description, anchor, offset_minutes, suggested_event_kind, sort_order, custom_event_kind FROM recipe_reminder_templates
 WHERE recipe_id = $1
 ORDER BY sort_order ASC, id ASC
 `
@@ -113,6 +117,7 @@ func (q *Queries) ListReminderTemplates(ctx context.Context, recipeID uuid.UUID)
 			&i.OffsetMinutes,
 			&i.SuggestedEventKind,
 			&i.SortOrder,
+			&i.CustomEventKind,
 		); err != nil {
 			return nil, err
 		}
@@ -137,6 +142,13 @@ SELECT
 FROM recipe_reminder_templates t
 WHERE t.recipe_id = $4::uuid
   AND t.anchor = $5::reminder_anchor
+  -- For the custom_event anchor, additionally match the template's chosen event
+  -- kind against the event that triggered this call. Non-custom anchors pass
+  -- event_kind = NULL and skip the check via the short-circuiting OR.
+  AND (
+    $5::reminder_anchor <> 'custom_event'
+    OR t.custom_event_kind = $6::event_kind
+  )
   AND NOT EXISTS (
     SELECT 1 FROM reminders r
     WHERE r.template_id = t.id
@@ -151,6 +163,7 @@ type MaterializeReminderTemplatesParams struct {
 	AnchorTime pgtype.Timestamptz `json:"anchor_time"`
 	RecipeID   uuid.UUID          `json:"recipe_id"`
 	Anchor     ReminderAnchor     `json:"anchor"`
+	EventKind  NullEventKind      `json:"event_kind"`
 }
 
 func (q *Queries) MaterializeReminderTemplates(ctx context.Context, arg MaterializeReminderTemplatesParams) error {
@@ -160,6 +173,7 @@ func (q *Queries) MaterializeReminderTemplates(ctx context.Context, arg Material
 		arg.AnchorTime,
 		arg.RecipeID,
 		arg.Anchor,
+		arg.EventKind,
 	)
 	return err
 }
@@ -172,6 +186,10 @@ WHERE reminders.template_id = t.id
   AND reminders.batch_id = $2::uuid
   AND t.recipe_id = $3::uuid
   AND t.anchor = $4::reminder_anchor
+  AND (
+    $4::reminder_anchor <> 'custom_event'
+    OR t.custom_event_kind = $5::event_kind
+  )
   AND reminders.status = 'scheduled'
 `
 
@@ -180,19 +198,22 @@ type ReanchorRemindersParams struct {
 	BatchID    uuid.UUID          `json:"batch_id"`
 	RecipeID   uuid.UUID          `json:"recipe_id"`
 	Anchor     ReminderAnchor     `json:"anchor"`
+	EventKind  NullEventKind      `json:"event_kind"`
 }
 
 // Shifts fire_at on already-materialized reminders when the anchor moves
-// (e.g. batch.started_at is patched). Status filter is intentionally narrower
-// than MaterializeReminderTemplates' NOT EXISTS guard: only 'scheduled' rows
-// are rescheduled. Don't un-fire a fired reminder, and don't yank a snoozed
-// reminder's wake time out from under the user.
+// (e.g. batch.started_at is patched, or a custom_event's occurred_at edited).
+// Status filter is intentionally narrower than MaterializeReminderTemplates'
+// NOT EXISTS guard: only 'scheduled' rows are rescheduled. Don't un-fire a
+// fired reminder, and don't yank a snoozed reminder's wake time out from under
+// the user.
 func (q *Queries) ReanchorReminders(ctx context.Context, arg ReanchorRemindersParams) error {
 	_, err := q.db.Exec(ctx, reanchorReminders,
 		arg.AnchorTime,
 		arg.BatchID,
 		arg.RecipeID,
 		arg.Anchor,
+		arg.EventKind,
 	)
 	return err
 }
@@ -204,9 +225,10 @@ UPDATE recipe_reminder_templates SET
   anchor               = COALESCE($3,               anchor),
   offset_minutes       = COALESCE($4,       offset_minutes),
   suggested_event_kind = COALESCE($5, suggested_event_kind),
-  sort_order           = COALESCE($6,           sort_order)
-WHERE id = $7 AND recipe_id = $8
-RETURNING id, recipe_id, title, description, anchor, offset_minutes, suggested_event_kind, sort_order
+  custom_event_kind    = COALESCE($6,    custom_event_kind),
+  sort_order           = COALESCE($7,           sort_order)
+WHERE id = $8 AND recipe_id = $9
+RETURNING id, recipe_id, title, description, anchor, offset_minutes, suggested_event_kind, sort_order, custom_event_kind
 `
 
 type UpdateReminderTemplateParams struct {
@@ -215,6 +237,7 @@ type UpdateReminderTemplateParams struct {
 	Anchor             NullReminderAnchor `json:"anchor"`
 	OffsetMinutes      pgtype.Int4        `json:"offset_minutes"`
 	SuggestedEventKind NullEventKind      `json:"suggested_event_kind"`
+	CustomEventKind    NullEventKind      `json:"custom_event_kind"`
 	SortOrder          pgtype.Int4        `json:"sort_order"`
 	ID                 uuid.UUID          `json:"id"`
 	RecipeID           uuid.UUID          `json:"recipe_id"`
@@ -227,6 +250,7 @@ func (q *Queries) UpdateReminderTemplate(ctx context.Context, arg UpdateReminder
 		arg.Anchor,
 		arg.OffsetMinutes,
 		arg.SuggestedEventKind,
+		arg.CustomEventKind,
 		arg.SortOrder,
 		arg.ID,
 		arg.RecipeID,
@@ -241,6 +265,7 @@ func (q *Queries) UpdateReminderTemplate(ctx context.Context, arg UpdateReminder
 		&i.OffsetMinutes,
 		&i.SuggestedEventKind,
 		&i.SortOrder,
+		&i.CustomEventKind,
 	)
 	return i, err
 }

@@ -34,6 +34,7 @@ type reminderTemplateView struct {
 	Anchor             string  `json:"anchor"`
 	OffsetMinutes      int32   `json:"offset_minutes"`
 	SuggestedEventKind *string `json:"suggested_event_kind,omitempty"`
+	CustomEventKind    *string `json:"custom_event_kind,omitempty"`
 	SortOrder          int32   `json:"sort_order"`
 }
 
@@ -50,6 +51,10 @@ func toTemplateView(t queries.RecipeReminderTemplate) reminderTemplateView {
 	if t.SuggestedEventKind.Valid {
 		s := string(t.SuggestedEventKind.EventKind)
 		v.SuggestedEventKind = &s
+	}
+	if t.CustomEventKind.Valid {
+		s := string(t.CustomEventKind.EventKind)
+		v.CustomEventKind = &s
 	}
 	return v
 }
@@ -128,6 +133,7 @@ func (s *Server) handleCreateReminderTemplate(w http.ResponseWriter, r *http.Req
 		Anchor             string  `json:"anchor"`
 		OffsetMinutes      int32   `json:"offset_minutes"`
 		SuggestedEventKind *string `json:"suggested_event_kind"`
+		CustomEventKind    *string `json:"custom_event_kind"`
 		SortOrder          int32   `json:"sort_order"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -154,10 +160,20 @@ func (s *Server) handleCreateReminderTemplate(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "anchor 'absolute' is not valid on recipe templates"})
 		return
 	}
+	// A custom_event template is inert without a kind to match against, so
+	// require it up front rather than storing a template that can never fire.
+	if req.Anchor == "custom_event" && (req.CustomEventKind == nil || *req.CustomEventKind == "") {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "custom_event_kind is required when anchor is 'custom_event'"})
+		return
+	}
 
 	var sek queries.NullEventKind
 	if req.SuggestedEventKind != nil {
 		sek = queries.NullEventKind{EventKind: queries.EventKind(*req.SuggestedEventKind), Valid: true}
+	}
+	var cek queries.NullEventKind
+	if req.CustomEventKind != nil && *req.CustomEventKind != "" {
+		cek = queries.NullEventKind{EventKind: queries.EventKind(*req.CustomEventKind), Valid: true}
 	}
 
 	tmpl, err := s.queries.CreateReminderTemplate(r.Context(), queries.CreateReminderTemplateParams{
@@ -167,11 +183,12 @@ func (s *Server) handleCreateReminderTemplate(w http.ResponseWriter, r *http.Req
 		Anchor:             queries.ReminderAnchor(req.Anchor),
 		OffsetMinutes:      req.OffsetMinutes,
 		SuggestedEventKind: sek,
+		CustomEventKind:    cek,
 		SortOrder:          req.SortOrder,
 	})
 	if err != nil {
 		if isInvalidTextRepresentation(err) {
-			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid anchor or suggested_event_kind value"})
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid anchor, suggested_event_kind, or custom_event_kind value"})
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
@@ -209,6 +226,7 @@ func (s *Server) handleUpdateReminderTemplate(w http.ResponseWriter, r *http.Req
 		Anchor             *string `json:"anchor"`
 		OffsetMinutes      *int32  `json:"offset_minutes"`
 		SuggestedEventKind *string `json:"suggested_event_kind"`
+		CustomEventKind    *string `json:"custom_event_kind"`
 		SortOrder          *int32  `json:"sort_order"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -226,6 +244,14 @@ func (s *Server) handleUpdateReminderTemplate(w http.ResponseWriter, r *http.Req
 	}
 	if req.Anchor != nil && disallowedTemplateAnchors[*req.Anchor] {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "anchor 'absolute' is not valid on recipe templates"})
+		return
+	}
+	// Switching an existing template to custom_event without supplying a kind
+	// would leave it inert. We can't see the stored row here (COALESCE update),
+	// so only reject the clearly-broken case: anchor set to custom_event while
+	// custom_event_kind is explicitly blanked in the same request.
+	if req.Anchor != nil && *req.Anchor == "custom_event" && req.CustomEventKind != nil && *req.CustomEventKind == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "custom_event_kind is required when anchor is 'custom_event'"})
 		return
 	}
 
@@ -248,6 +274,9 @@ func (s *Server) handleUpdateReminderTemplate(w http.ResponseWriter, r *http.Req
 	if req.SuggestedEventKind != nil {
 		params.SuggestedEventKind = queries.NullEventKind{EventKind: queries.EventKind(*req.SuggestedEventKind), Valid: true}
 	}
+	if req.CustomEventKind != nil && *req.CustomEventKind != "" {
+		params.CustomEventKind = queries.NullEventKind{EventKind: queries.EventKind(*req.CustomEventKind), Valid: true}
+	}
 	if req.SortOrder != nil {
 		params.SortOrder = pgtype.Int4{Int32: *req.SortOrder, Valid: true}
 	}
@@ -259,7 +288,7 @@ func (s *Server) handleUpdateReminderTemplate(w http.ResponseWriter, r *http.Req
 	}
 	if err != nil {
 		if isInvalidTextRepresentation(err) {
-			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid anchor or suggested_event_kind value"})
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid anchor, suggested_event_kind, or custom_event_kind value"})
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})

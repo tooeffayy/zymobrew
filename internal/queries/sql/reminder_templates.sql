@@ -1,6 +1,6 @@
 -- name: CreateReminderTemplate :one
-INSERT INTO recipe_reminder_templates (recipe_id, title, description, anchor, offset_minutes, suggested_event_kind, sort_order)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO recipe_reminder_templates (recipe_id, title, description, anchor, offset_minutes, suggested_event_kind, custom_event_kind, sort_order)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: GetReminderTemplate :one
@@ -18,6 +18,7 @@ UPDATE recipe_reminder_templates SET
   anchor               = COALESCE(sqlc.narg('anchor'),               anchor),
   offset_minutes       = COALESCE(sqlc.narg('offset_minutes'),       offset_minutes),
   suggested_event_kind = COALESCE(sqlc.narg('suggested_event_kind'), suggested_event_kind),
+  custom_event_kind    = COALESCE(sqlc.narg('custom_event_kind'),    custom_event_kind),
   sort_order           = COALESCE(sqlc.narg('sort_order'),           sort_order)
 WHERE id = sqlc.arg('id') AND recipe_id = sqlc.arg('recipe_id')
 RETURNING *;
@@ -38,6 +39,13 @@ SELECT
 FROM recipe_reminder_templates t
 WHERE t.recipe_id = sqlc.arg('recipe_id')::uuid
   AND t.anchor = sqlc.arg('anchor')::reminder_anchor
+  -- For the custom_event anchor, additionally match the template's chosen event
+  -- kind against the event that triggered this call. Non-custom anchors pass
+  -- event_kind = NULL and skip the check via the short-circuiting OR.
+  AND (
+    sqlc.arg('anchor')::reminder_anchor <> 'custom_event'
+    OR t.custom_event_kind = sqlc.narg('event_kind')::event_kind
+  )
   AND NOT EXISTS (
     SELECT 1 FROM reminders r
     WHERE r.template_id = t.id
@@ -47,10 +55,11 @@ WHERE t.recipe_id = sqlc.arg('recipe_id')::uuid
 
 -- name: ReanchorReminders :exec
 -- Shifts fire_at on already-materialized reminders when the anchor moves
--- (e.g. batch.started_at is patched). Status filter is intentionally narrower
--- than MaterializeReminderTemplates' NOT EXISTS guard: only 'scheduled' rows
--- are rescheduled. Don't un-fire a fired reminder, and don't yank a snoozed
--- reminder's wake time out from under the user.
+-- (e.g. batch.started_at is patched, or a custom_event's occurred_at edited).
+-- Status filter is intentionally narrower than MaterializeReminderTemplates'
+-- NOT EXISTS guard: only 'scheduled' rows are rescheduled. Don't un-fire a
+-- fired reminder, and don't yank a snoozed reminder's wake time out from under
+-- the user.
 UPDATE reminders SET
   fire_at = sqlc.arg('anchor_time')::timestamptz + (t.offset_minutes * INTERVAL '1 minute')
 FROM recipe_reminder_templates t
@@ -58,4 +67,8 @@ WHERE reminders.template_id = t.id
   AND reminders.batch_id = sqlc.arg('batch_id')::uuid
   AND t.recipe_id = sqlc.arg('recipe_id')::uuid
   AND t.anchor = sqlc.arg('anchor')::reminder_anchor
+  AND (
+    sqlc.arg('anchor')::reminder_anchor <> 'custom_event'
+    OR t.custom_event_kind = sqlc.narg('event_kind')::event_kind
+  )
   AND reminders.status = 'scheduled';

@@ -552,6 +552,10 @@ components:
           description: Minutes to add to the anchor timestamp.
         suggested_event_kind:
           type: string
+        custom_event_kind:
+          type: string
+          enum: [pitch, nutrient_addition, degas, rack, addition, stabilize, backsweeten, bottle, photo, note, other]
+          description: "Set only when anchor is `custom_event`; the batch-event kind this reminder anchors to. Null for other anchors."
         sort_order:
           type: integer
 
@@ -1875,6 +1879,10 @@ paths:
                   default: 0
                 suggested_event_kind:
                   type: string
+                custom_event_kind:
+                  type: string
+                  enum: [pitch, nutrient_addition, degas, rack, addition, stabilize, backsweeten, bottle, photo, note, other]
+                  description: "Required when anchor is `custom_event`; selects which batch-event kind materializes this reminder."
                 sort_order:
                   type: integer
                   default: 0
@@ -1945,6 +1953,10 @@ paths:
                   type: integer
                 suggested_event_kind:
                   type: string
+                custom_event_kind:
+                  type: string
+                  enum: [pitch, nutrient_addition, degas, rack, addition, stabilize, backsweeten, bottle, photo, note, other]
+                  description: "Required when anchor is `custom_event`; selects which batch-event kind materializes this reminder."
                 sort_order:
                   type: integer
       responses:

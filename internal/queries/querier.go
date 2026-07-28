@@ -191,10 +191,11 @@ type Querier interface {
 	MatchInventoryForRecipe(ctx context.Context, arg MatchInventoryForRecipeParams) ([]MatchInventoryForRecipeRow, error)
 	MaterializeReminderTemplates(ctx context.Context, arg MaterializeReminderTemplatesParams) error
 	// Shifts fire_at on already-materialized reminders when the anchor moves
-	// (e.g. batch.started_at is patched). Status filter is intentionally narrower
-	// than MaterializeReminderTemplates' NOT EXISTS guard: only 'scheduled' rows
-	// are rescheduled. Don't un-fire a fired reminder, and don't yank a snoozed
-	// reminder's wake time out from under the user.
+	// (e.g. batch.started_at is patched, or a custom_event's occurred_at edited).
+	// Status filter is intentionally narrower than MaterializeReminderTemplates'
+	// NOT EXISTS guard: only 'scheduled' rows are rescheduled. Don't un-fire a
+	// fired reminder, and don't yank a snoozed reminder's wake time out from under
+	// the user.
 	ReanchorReminders(ctx context.Context, arg ReanchorRemindersParams) error
 	SetRecipeRevision(ctx context.Context, arg SetRecipeRevisionParams) (Recipe, error)
 	TouchSession(ctx context.Context, id uuid.UUID) error
