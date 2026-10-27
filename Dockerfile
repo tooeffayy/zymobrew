@@ -1,10 +1,10 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 
 # --- Web build ----------------------------------------------------------
 # Bun produces /web/dist, which the Go stage below copies into the
 # embed tree so //go:embed all:dist picks up the production bundle
 # instead of the .gitkeep-only placeholder shipped in git.
-FROM oven/bun:1-alpine AS web
+FROM oven/bun:1-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS web
 WORKDIR /web
 
 # Copy the manifest first so the (slow) install step caches as long as
@@ -23,7 +23,7 @@ RUN bun run build
 # --- Go build -----------------------------------------------------------
 # go.mod pins 1.25.7; the Dockerfile must match or `go build` rejects
 # the module's go directive.
-FROM golang:1.26-alpine AS build
+FROM golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
