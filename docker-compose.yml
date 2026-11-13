@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:f377d590e5474681d4d7838635031a2b50647923b7abfa803ce9b5ff35d5c663
     environment:
       POSTGRES_USER: zymo
       POSTGRES_PASSWORD: zymo
@@ -44,7 +44,7 @@ services:
   # integration. Profiled so the default dev loop (`task db:up`) doesn't
   # pull it; bring it up with `docker compose --profile apprise up -d`.
   apprise:
-    image: caronc/apprise:latest
+    image: caronc/apprise:latest@sha256:bd7dc73b75882326b97d2963b7c3dd2a5e033df27d84c51f0090465d583fb316
     profiles: ["apprise"]
     ports:
       - "8000:8000"
@@ -65,7 +65,7 @@ services:
   # SSRF guard blocks by default. Set APPRISE_ALLOWED_HOST_CIDRS on the
   # app service (see below) to permit it.
   gotify:
-    image: gotify/server:latest
+    image: gotify/server:latest@sha256:44fc5bbd1c0618878e33073d38c2c13126b48f245c3fe12236b1da48eb203b86
     profiles: ["gotify"]
     ports:
       - "8001:80"
